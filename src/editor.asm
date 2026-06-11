@@ -3380,7 +3380,7 @@ cch_ok:
   pop hl
   ret
 cmd_chars:
-  .db "-KHACEFGNPTVW"
+  .db "-KHACEFGNPTVWMDLR"
 
 str_song:        .db "SONG", 0
 str_chain:       .db "CHAIN", 0

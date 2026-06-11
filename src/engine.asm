@@ -24,6 +24,8 @@
 ;   +20 table # ($FF off)  +21 table row  +22 table tick ctr
 ;   +23 table speed        +24 table pitch offset (signed)
 ;   +25 arp param (C cmd)  +26 arp phase  +27 finetune (signed)
+;   +28 delay ctr  +29 delayed note  +30 porta speed
+;   +31 retrig (counter hi | interval lo)
 ;
 ; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
 ;   +1 init volume, +2 envelope, +3 length, +4 noise control,
@@ -46,7 +48,11 @@
 .DEFINE CMD_TPO     10         ; T: tempo, BPM -> even groove
 .DEFINE CMD_VIB     11         ; V: vibrato override (speed|depth)
 .DEFINE CMD_WAIT    12         ; W: shorten this row to param ticks
-.DEFINE CMD_COUNT   13
+.DEFINE CMD_TREM    13         ; M: amp mod override (speed|depth)
+.DEFINE CMD_DELAY   14         ; D: delay the note by param ticks
+.DEFINE CMD_SLIDE   15         ; L: slide to the note, param = speed
+.DEFINE CMD_RETRIG  16         ; R: retrigger every param ticks
+.DEFINE CMD_COUNT   17
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -120,6 +126,9 @@ ep_chl:
   ld (ix+25), 0              ; arp off
   ld (ix+26), 0
   ld (ix+27), 0              ; finetune
+  ld (ix+28), 0              ; delay
+  ld (ix+30), 0              ; porta
+  ld (ix+31), 0              ; retrig
   ld a, (song_cur)
   ld (ix+7), a
   ; active?
@@ -149,7 +158,7 @@ ep_next:
   inc c
   ld a, c
   cp 4
-  jr c, ep_chl
+  jp c, ep_chl
 
   ld a, 1
   ld (play_state), a
@@ -441,7 +450,7 @@ pr_note:
   dec hl
   ld a, (hl)
   or a
-  jr z, pr_cmd
+  jp z, pr_cmd
   dec a
   ; apply chain transpose, clamp to table
   add a, (ix+9)
@@ -452,11 +461,73 @@ pr_nclamp:
   jr c, pr_nok
   ld a, NOTE_COUNT-1
 pr_nok:
-  ld (ix+0), a
+  ld b, a                    ; B = note index
+  ; peek the command: D delays the trigger, L slides into it
+  push hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  inc hl
+  ld d, (hl)
+  pop hl
+  cp CMD_DELAY
+  jr z, prn_delay
+  cp CMD_SLIDE
+  jr z, prn_slide
+prn_norm:
+  ld (ix+0), b
   push hl
   push bc
   call trigger_note
   pop bc
+  pop hl
+  jp pr_cmd
+prn_delay:
+  ld a, d
+  or a
+  jr z, prn_norm
+  ld (ix+29), b              ; trigger when the delay expires
+  ld (ix+28), d
+  jp pr_cmd
+prn_slide:
+  ld a, d
+  or a
+  jr z, prn_norm
+  ld a, (ix+0)               ; need a previous note to slide from
+  cp $FF
+  jr z, prn_norm
+  push hl
+  push de
+  add a, a                   ; old note's period
+  ld e, a
+  ld d, 0
+  ld hl, (note_ptr)
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)
+  push de
+  ld (ix+0), b
+  push bc
+  call trigger_note
+  pop bc
+  ld a, b                    ; new note's period
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, (note_ptr)
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)
+  pop hl                     ; sweep acc = old - new: pitch
+  or a                       ; starts at the old note and the
+  sbc hl, de                 ; porta pulls the acc to zero
+  ld (ix+13), l
+  ld (ix+14), h
+  pop de
+  ld a, d
+  ld (ix+30), a              ; porta speed
   pop hl
 pr_cmd:
   inc hl
@@ -518,15 +589,35 @@ exec_command:
   cp CMD_ARP
   jr z, xc_arp
   cp CMD_ENV
-  jr z, xc_env
+  jp z, xc_env
   cp CMD_FINE
-  jr z, xc_fine
+  jp z, xc_fine
   cp CMD_NOI
-  jr z, xc_noi
+  jp z, xc_noi
   cp CMD_PB
-  jr z, xc_pb
+  jp z, xc_pb
   cp CMD_VIB
-  jr z, xc_vib
+  jp z, xc_vib
+  cp CMD_TREM
+  jp z, xc_trem
+  cp CMD_RETRIG
+  jp z, xc_retrig
+  ret
+xc_trem:
+  ld a, d
+  ld (ix+19), a
+  ret
+xc_retrig:
+  ld a, d
+  and $0F
+  ret z
+  ld d, a                    ; pack counter|interval
+  rlca
+  rlca
+  rlca
+  rlca
+  or d
+  ld (ix+31), a
   ret
 xc_kill:
   ld a, d
@@ -701,6 +792,9 @@ tn_tbs:
   ld (ix+24), 0
   ld (ix+25), 0              ; arp clears on new note
   ld (ix+26), 0
+  ld (ix+28), 0              ; delay
+  ld (ix+30), 0              ; porta
+  ld (ix+31), 0              ; retrig
   ld a, d                    ; transpose, stacks with chain's
   or a
   jr z, tn_mods
@@ -774,10 +868,40 @@ cpd_idx2:
   ld e, (hl)
   inc hl
   ld d, (hl)                 ; base period
-  ; --- sweep: acc += param, period += acc ---
+  ; --- porta (L): pull the accumulator toward zero ---
+  ld a, (ix+30)
+  or a
+  jr z, cpd_swp
+  ld l, (ix+13)
+  ld h, (ix+14)
+  ld a, h
+  or l
+  jr z, cpd_swp
+  ld c, (ix+30)
+  ld b, 0
+  bit 7, h
+  jr z, cpd_pdn
+  add hl, bc                 ; negative side: rise toward 0
+  bit 7, h
+  jr nz, cpd_pst
+  ld hl, 0
+  jr cpd_pst
+cpd_pdn:
+  or a
+  sbc hl, bc                 ; positive side: fall toward 0
+  jr c, cpd_pzero
+  bit 7, h
+  jr z, cpd_pst
+cpd_pzero:
+  ld hl, 0
+cpd_pst:
+  ld (ix+13), l
+  ld (ix+14), h
+cpd_swp:
+  ; --- sweep (instrument / P): acc += param ---
   ld a, (ix+17)
   or a
-  jr z, cpd_vib
+  jr z, cpd_acc
   ld c, a                    ; sign-extend into BC
   rlca
   sbc a, a
@@ -787,6 +911,13 @@ cpd_idx2:
   add hl, bc
   ld (ix+13), l
   ld (ix+14), h
+cpd_acc:
+  ; --- apply the accumulator to the period ---
+  ld l, (ix+13)
+  ld h, (ix+14)
+  ld a, h
+  or l
+  jr z, cpd_vib
   add hl, de
   ex de, hl
 cpd_vib:
@@ -903,6 +1034,42 @@ channels_fx:
   ld ix, chst
   ld c, 0
 cf_loop:
+  ; --- delayed note (D command) ---
+  ld a, (ix+28)
+  or a
+  jr z, cf_retrig
+  dec a
+  ld (ix+28), a
+  jr nz, cf_retrig
+  ld a, (ix+29)
+  ld (ix+0), a
+  push bc
+  call trigger_note
+  pop bc
+cf_retrig:
+  ; --- retrigger (R command): counter hi, interval lo ---
+  ld a, (ix+31)
+  or a
+  jr z, cf_table
+  sub $10
+  cp $10
+  jr nc, cf_rst
+  and $0F                    ; expired: retrigger, reload
+  ld d, a
+  push bc
+  push de
+  call trigger_note          ; (resets +31; restored below)
+  pop de
+  pop bc
+  ld a, d
+  rlca
+  rlca
+  rlca
+  rlca
+  or d
+cf_rst:
+  ld (ix+31), a
+cf_table:
   ; --- table tick (design doc 7: vol / pitch / command) ---
   ld a, (ix+20)
   cp NUM_TABLES

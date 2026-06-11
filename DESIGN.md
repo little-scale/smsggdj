@@ -233,6 +233,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `H xx` | Hop | position | PHRASE: end phrase / jump to song row; TABLE: loop |
 | `K xx` | Kill | ticks | note cut after xx ticks (00 = instant; also aborts samples) |
 | `L xx` | sLide | speed | tone portamento toward this row's note |
+| `M xy` | aMp mod | speed x, depth y | tremolo override (LSDJ's M is master volume, which the PSG lacks — letter reused) |
 | `N xy` | Noise | x=mode, y=rate | override noise mode/rate; on T3: release from STEAL for this note |
 | `P xx` | Pitch bend | signed | continuous bend, period units per tick |
 | `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks, stepping volume by x |
@@ -240,7 +241,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `V xy` | Vibrato | speed x, depth y | one-shot vibrato override |
 | `W xx` | Wait-skip | ticks | shorten this row to xx ticks (shuffle fills) |
 
-Omitted vs LSDJ: `O` (no panning), `M` (no master volume), `S` (covered by `P`), wave/duty (no hardware). `Z` (random) → v2.
+Omitted vs LSDJ: `O` (no panning), `S` (covered by `P`), wave/duty (no hardware). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2.
 
 ---
 
