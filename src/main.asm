@@ -1,10 +1,9 @@
 ; =============================================================
 ; SMSDJ - LSDJ-inspired tracker for the Sega Master System
-; Milestone 3: sequencer engine core
-;   - groove-driven phrase playback on all 4 tracks
-;   - software envelopes, K (kill) command
-;   - tick-source abstraction (internal 50/60 Hz)
-;   - 4-track phrase view with palette-bit playhead
+; Milestone 4: PHRASE editor (first playable build)
+;   - cursor over note/instrument/command/param columns
+;   - insert, edit, cut with the 2-button scheme + hold timing
+;   - prelisten on entry while stopped, live edit while playing
 ; =============================================================
 
 .MEMORYMAP
@@ -44,14 +43,13 @@ BANKS 2
 .DEFINE DAS_SPEED   3
 
 ; phrase grid layout
-.DEFINE GRID_ROW    5            ; first screen row of the grid
+.DEFINE GRID_ROW    4            ; first screen row of the grid
 
 ; =============================================================
 .RAMSECTION "vars" SLOT 3
   vblank_flag    db
   nmi_event      db
   state_dirty    db
-  combo_latch    db
   region_pal     db            ; 1 = PAL
   frame         dw
   pad_raw        db
@@ -127,6 +125,7 @@ init:
   call load_font
   call load_palette
   call song_init
+  call editor_init
 
   ; region-specific note table
   ld hl, note_table_ntsc
@@ -145,6 +144,15 @@ init_nt:
   ld hl, str_title
   call print_at
 
+  ld b, 1
+  ld c, 1
+  ld hl, str_phrase
+  call print_at
+  ld b, 1
+  ld c, 10
+  ld hl, str_track
+  call print_at
+
   ld hl, str_region_ntsc
   ld a, (region_pal)
   or a
@@ -155,33 +163,40 @@ init_region_pr:
   ld c, 1
   call print_at
 
-  ; track headers
-  ld b, 4
-  ld c, 3
-  ld hl, str_t1
+  ; column headers
+  ld b, 3
+  ld c, 4
+  ld hl, str_hnote
   call print_at
-  ld b, 4
-  ld c, 10
-  ld hl, str_t2
+  ld b, 3
+  ld c, 9
+  ld hl, str_hinstr
   call print_at
-  ld b, 4
-  ld c, 17
-  ld hl, str_t3
-  call print_at
-  ld b, 4
-  ld c, 24
-  ld hl, str_no
+  ld b, 3
+  ld c, 12
+  ld hl, str_hcmd
   call print_at
 
-  call draw_grid
-
+  ; key hints
+  ld b, 21
+  ld c, 1
+  ld hl, str_hint1
+  call print_at
   ld b, 22
   ld c, 1
-  ld hl, str_hint
+  ld hl, str_hint2
   call print_at
 
   ld a, 1
   ld (state_dirty), a
+
+  ; pre-paint the whole grid while the display is off
+  ld b, 4
+init_paint:
+  push bc
+  call editor_draw
+  pop bc
+  djnz init_paint
 
   call display_on
   ei
@@ -199,13 +214,17 @@ main_loop:
 
   ; --- VRAM updates first, while we are in vblank ---
   call draw_frame_counter
-  call draw_playhead
   call draw_state
+  call editor_draw
 
   ; --- logic ---
   call read_input
-  call update_transport
+  call handle_pause
+  call editor_input
   call engine_frame
+  ld a, (play_state)
+  or a
+  call z, channels_fx          ; prelisten envelopes while stopped
   call psg_flush
 
   ld hl, (frame)
@@ -245,30 +264,15 @@ dr_store:
   ret
 
 ; =============================================================
-; transport: PAUSE (NMI flag) or 1+2 pressed together
+; transport
 ; =============================================================
-update_transport:
+handle_pause:                  ; PAUSE = transport alias
   ld a, (nmi_event)
   or a
-  jr z, ut_combo
+  ret z
   xor a
   ld (nmi_event), a
-  call toggle_play
-ut_combo:
-  ld a, (pad_raw)
-  and PAD_B1|PAD_B2
-  cp PAD_B1|PAD_B2
-  jr nz, ut_release
-  ld a, (combo_latch)
-  or a
-  ret nz
-  ld a, 1
-  ld (combo_latch), a
-  jp toggle_play
-ut_release:
-  xor a
-  ld (combo_latch), a
-  ret
+  ; fall through
 
 toggle_play:
   ld a, (play_state)
@@ -322,156 +326,22 @@ ds_print:
   ld (text_attr), a
   ret
 
-; full 16-row grid: row labels + note names for all tracks
-draw_grid:
-  ld d, 0                      ; phrase row
-dg_row:
-  ; row label (hex)
-  ld a, d
-  add a, GRID_ROW
-  ld b, a
-  ld c, 1
-  push de
-  call nt_addr_hl
-  call vdp_set_addr
-  pop de
-  ld a, d
-  push de
-  call print_hex_nib
-  pop de
-  ; note columns
-  xor a
-  ld (text_attr), a
-  ld e, d
-  call draw_phrase_row
-  inc d
-  ld a, d
-  cp 16
-  jr c, dg_row
-  ret
-
-; redraw row E of all 4 tracks using current text_attr
-draw_phrase_row:
-  ld c, 0                      ; channel
-dpr_ch:
-  push bc
-  push de
-  ; HL = 3-char string for (channel C, row E)
-  call step_note_str
-  push hl
-  ; screen position
-  ld a, c
-  ld hl, track_cols
-  ld e, a
-  ld d, 0
-  add hl, de
-  ld c, (hl)
-  pop hl
-  pop de
-  push de
-  ld a, e
-  add a, GRID_ROW
-  ld b, a
-  push hl
-  call nt_addr_hl
-  call vdp_set_addr
-  pop hl
-  ld b, 3
-  call print_raw
-  pop de
-  pop bc
-  inc c
-  ld a, c
-  cp 4
-  jr c, dpr_ch
-  ret
-
-track_cols:
-  .db 3, 10, 17, 24
-
-; C = channel, E = phrase row -> HL = 3-char note string
-step_note_str:
-  ld a, c
-  add a, a
-  push de
-  ld e, a
-  ld d, 0
-  ld hl, phrase_ptrs
-  add hl, de
-  ld a, (hl)
-  inc hl
-  ld h, (hl)
-  ld l, a                     ; hl = phrase base
-  pop de
-  ld a, e
-  add a, a
-  add a, a                    ; row * 4
-  push de
-  ld e, a
-  ld d, 0
-  add hl, de
-  pop de
-  ld a, (hl)                  ; note byte
-  or a
-  jr z, sns_rest
-  dec a
-  ld l, a
-  add a, a
-  add a, l                    ; * 3
-  push de
-  ld e, a
-  ld d, 0
-  ld hl, note_names
-  add hl, de
-  pop de
-  ret
-sns_rest:
-  ld hl, str_rest
-  ret
-
-; move the inverse-video playhead when the row changes
-draw_playhead:
-  ld a, (play_state)
-  or a
-  ret z
-  ld a, (cur_row)
-  ld b, a
-  ld a, (drawn_row)
-  cp b
-  ret z
-  ; un-highlight old row (if any)
-  cp $FF
-  jr z, dp_new
-  ld e, a
-  xor a
-  ld (text_attr), a
-  call draw_phrase_row
-dp_new:
-  ld a, $08
-  ld (text_attr), a
-  ld a, (cur_row)
-  ld e, a
-  call draw_phrase_row
-  ld a, (cur_row)
-  ld (drawn_row), a
-  xor a
-  ld (text_attr), a
-  ret
-
 ; =============================================================
 ; strings
 ; =============================================================
 str_title:       .db "SMSDJ V0.1", 0
+str_phrase:      .db "PHRASE", 0
+str_track:      .db "TRACK:", 0
 str_region_pal:  .db "REGION: PAL 50HZ ", 0
 str_region_ntsc: .db "REGION: NTSC 60HZ", 0
-str_t1:          .db "T1", 0
-str_t2:          .db "T2", 0
-str_t3:          .db "T3", 0
-str_no:          .db "NO", 0
+str_hnote:       .db "NOTE", 0
+str_hinstr:      .db "I", 0
+str_hcmd:        .db "CMD", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_rest:        .db "---"
-str_hint:        .db "1+2 OR PAUSE = PLAY/STOP", 0
+str_hint1:       .db "1=INS 1+DPAD=EDIT 2+1=CUT", 0
+str_hint2:       .db "2+L/R=TRACK 1+2/PAUSE=PLAY", 0
 
 .ENDS
 
@@ -479,6 +349,7 @@ str_hint:        .db "1+2 OR PAUSE = PLAY/STOP", 0
 .INCLUDE "src/input.asm"
 .INCLUDE "src/psg.asm"
 .INCLUDE "src/engine.asm"
+.INCLUDE "src/editor.asm"
 .INCLUDE "notes.inc"
 
 ; =============================================================

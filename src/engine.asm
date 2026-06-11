@@ -76,6 +76,14 @@ ep_chl:
 engine_stop:
   xor a
   ld (play_state), a
+  ; zero channel volumes so the prelisten fx pass stays silent
+  ld hl, chst+2
+  ld de, 8
+  ld b, 4
+es_vols:
+  ld (hl), 0
+  add hl, de
+  djnz es_vols
   ld a, $0F                  ; silence all channels
   ld (psg_vols), a
   ld (psg_vols+1), a

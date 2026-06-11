@@ -14,7 +14,7 @@ $(BUILD)/font.bin: tools/makefont.py | $(BUILD)
 $(BUILD)/notes.inc: tools/maketables.py | $(BUILD)
 	python3 tools/maketables.py $@
 
-$(BUILD)/main.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm $(BUILD)/font.bin $(BUILD)/notes.inc | $(BUILD)
+$(BUILD)/main.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/editor.asm $(BUILD)/font.bin $(BUILD)/notes.inc | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm
 
 $(BUILD)/linkfile: Makefile | $(BUILD)

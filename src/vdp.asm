@@ -127,6 +127,14 @@ pa_loop:
   inc hl
   jr pa_loop
 
+; print ASCII char in A at current VRAM address
+print_char:
+  sub $20
+  out (VDP_DATA), a
+  ld a, (text_attr)
+  out (VDP_DATA), a
+  ret
+
 ; print B chars from HL at current VRAM address (no terminator)
 print_raw:
   ld a, (hl)
