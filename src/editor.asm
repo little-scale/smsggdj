@@ -713,7 +713,7 @@ do_press:
   cp SCR_PROJ
   jp z, prp_press
   cp SCR_WAVE
-  jp z, wvp_press
+  ret z
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -1669,9 +1669,11 @@ cw_l:
   ld (wav_col), a
   ret
 
-; tap 1: stamp the next ROM preset into the current wave
-; (sine/tri/saw/square/25%/12.5%/organ/random)
-wvp_press:
+; cut gesture (1 held + 2): stamp the next ROM preset into the
+; current wave (sine/tri/saw/square/25%/12.5%/organ/random).
+; NOT on tap-1: every 1-press runs the press action, so a tap-1
+; stamp would wipe the wave each time editing began.
+wvp_cut:
   ld a, (wv_preset)
   ld d, a
   inc a
@@ -1695,14 +1697,6 @@ wvp_press:
   ld e, a
   ld bc, 32
   ldir
-  ld a, 1
-  ld (label_dirty), a
-  jp mark_all_dirty
-
-wvp_cut:                     ; zero the step
-  call wv_step_ptr
-  ld a, $DF
-  ld (hl), a
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
