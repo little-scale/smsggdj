@@ -17,7 +17,7 @@ $(BUILD)/notes.inc: tools/maketables.py | $(BUILD)
 $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py $(wildcard samples/*.wav) | $(BUILD)
 	python3 tools/smsdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 
-$(BUILD)/main.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/editor.asm $(BUILD)/font.bin $(BUILD)/notes.inc | $(BUILD)
+$(BUILD)/main.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm $(BUILD)/font.bin $(BUILD)/notes.inc | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm
 
 $(BUILD)/linkfile: Makefile | $(BUILD)

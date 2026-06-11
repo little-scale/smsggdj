@@ -226,11 +226,11 @@ svf_loop:
   ld a, (smp_active)
   or a
   ret z                      ; sample ended mid-vblank
-  push bc                    ; ~310 cycles of padding
-  ld b, 22
-svf_dly:
-  djnz svf_dly
-  pop bc
+  push bc                    ; pad to ~456 cycles/iteration:
+  ld b, 18                   ; fixed cost is ~224, 13*18=234.
+svf_dly:                     ; (mistuned at 22 this ran 11% slow
+  djnz svf_dly               ; through vblank - frame-rate pitch
+  pop bc                     ; warble on sustained wavetables)
   ld a, (smp_tmp)
   dec a
   ld (smp_tmp), a
