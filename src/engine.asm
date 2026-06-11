@@ -1268,12 +1268,25 @@ cf_not2:
 cf_noise:
   ; pitched noise: drive T3's period with our note and mute
   ; T3's own output (runs after c=2, so this wins)
-  ld a, (smp_active)         ; unless a sample owns T3
-  or a
-  jr nz, cf_vol
   ld a, (ix+12)
   or a
   jr z, cf_vol
+  ld a, (smp_active)
+  or a
+  jr z, cf_npitch
+  ; the DAC owns T3 and rate-3 noise is HARDWIRED to T3's
+  ; period on the chip: fall back to the nearest fixed rate
+  ; (design doc 5.3) so the noise voice keeps its character
+  ld a, (psg_noisectl)
+  and $04                    ; keep white/periodic mode
+  or $02                     ; clk/2048, the lowest fixed rate
+  ld (psg_noisectl), a
+  jr cf_vol
+cf_npitch:
+  ld a, (psg_noisectl)       ; restore pitched clocking when
+  and $04                    ; the DAC lets go (flush dedups,
+  or $03                     ; so no LFSR-resetting rewrites)
+  ld (psg_noisectl), a
   ld a, (ix+0)
   cp $FF
   jr z, cf_vol
