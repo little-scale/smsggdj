@@ -259,7 +259,11 @@ toggle_play:
   jr tp_dirty
 tp_start:
   ld a, (scr_mode)           ; transport context: SONG screen
-  call engine_play           ; plays the song, CHAIN/PHRASE loop
+  cp MODE_PHRASE             ; plays the song, CHAIN/PHRASE loop;
+  jr c, tp_go                ; form screens behave like PHRASE
+  ld a, MODE_PHRASE
+tp_go:
+  call engine_play
 tp_dirty:
   ld a, 1
   ld (state_dirty), a
@@ -313,7 +317,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_rest:        .db "---"
-str_hint1:       .db "1=INS 1+DPAD=EDIT 2+1=CUT", 0
+str_hint1:       .db "1=INS 1+DPAD=EDIT 1H+2=CUT", 0
 str_hint2:       .db "2+L/R=SCREEN 1+2/PAUSE=PLAY", 0
 
 .ENDS

@@ -21,12 +21,15 @@
 .DEFINE SCR_SONG    0          ; values match MODE_* on purpose
 .DEFINE SCR_CHAIN   1
 .DEFINE SCR_PHRASE  2
+.DEFINE SCR_INSTR   3
 
 .RAMSECTION "edvars" SLOT 3
   scr_mode     db
   ed_track     db
   cur_chain    db
   cur_phrase   db
+  cur_instr    db
+  ins_row      db
   song_cur     db            ; absolute song row of the cursor
   song_col     db
   song_view    db            ; top visible song row
@@ -73,6 +76,8 @@ editor_init:
   ld (chn_col), a
   ld (phr_row), a
   ld (phr_col), a
+  ld (cur_instr), a
+  ld (ins_row), a
   ld (pend1), a
   ld hl, drawn_a
   ld a, $FF
@@ -98,12 +103,9 @@ editor_input:
   ld a, (pad_raw)
   and PAD_B2
   jr z, ei_1alone
-  ld a, (b2_frames)          ; 1 while 2 down: cut or transport
-  cp HOLD_TH
-  jr c, ei_1trans
-  call do_cut
-  jr ei_no1
-ei_1trans:
+  ld a, (b2_frames)          ; 1 while 2 down: transport if
+  cp HOLD_TH                 ; near-simultaneous (2 long-held +
+  jr nc, ei_no1              ; 1 is reserved for paste)
   call toggle_play
   jr ei_no1
 ei_1alone:
@@ -117,9 +119,12 @@ ei_no1:
   ld a, (pad_raw)
   and PAD_B1
   jr z, ei_no2
-  ld a, (b1_frames)          ; 2 while 1 down: transport if
-  cp HOLD_TH                 ; near-simultaneous (paste later)
-  jr nc, ei_no2
+  ld a, (b1_frames)          ; 2 while 1 down: cut if 1 was
+  cp HOLD_TH                 ; held, transport if simultaneous
+  jr c, ei_2trans
+  call do_cut
+  jr ei_no2
+ei_2trans:
   xor a
   ld (pend1), a
   call toggle_play
@@ -205,6 +210,8 @@ sn_right:
   ld a, (scr_mode)
   cp SCR_SONG
   jr z, sn_tochain
+  cp SCR_PHRASE
+  jr z, sn_toinstr
   cp SCR_CHAIN
   ret nz
   ; CHAIN -> PHRASE: phrase under cursor
@@ -216,6 +223,22 @@ sn_right:
   ret z
   ld (cur_phrase), a
   ld a, SCR_PHRASE
+  jr sn_switch
+sn_toinstr:
+  ; PHRASE -> INSTR: instrument under cursor (or last used)
+  ld a, (phr_row)
+  ld e, a
+  call ed_step_ptr
+  inc hl
+  ld a, (hl)
+  cp $10
+  jr c, sn_iset
+  ld a, (last_instr)
+sn_iset:
+  ld (cur_instr), a
+  xor a
+  ld (ins_row), a
+  ld a, SCR_INSTR
   jr sn_switch
 sn_tochain:
   ; SONG -> CHAIN: chain under cursor, track from column
@@ -258,6 +281,8 @@ cursor_move:
   jp z, cm_chain
   cp SCR_PHRASE
   jp z, cm_phrase
+  cp SCR_INSTR
+  jp z, cm_instr
 
   ; ---- SONG ----
   ld a, (hdr_cur)
@@ -361,6 +386,53 @@ cm_cfin:
   ld a, (chn_row)
   jp mark_dirty_a
 
+  ; ---- INSTR: up/down over the form fields ----
+cm_instr:
+  call ins_max_row
+  ld b, a
+  bit 1, c                   ; down
+  jr z, cmi_up
+  ld a, (ins_row)
+  cp b
+  jr nc, cmi_up
+  call mark_dirty_a
+  inc a
+  ld (ins_row), a
+  call mark_dirty_a
+cmi_up:
+  bit 0, c                   ; up
+  ret z
+  ld a, (ins_row)
+  or a
+  ret z
+  call mark_dirty_a
+  dec a
+  ld (ins_row), a
+  jp mark_dirty_a
+
+; A = last valid field row for the current instrument type
+ins_max_row:
+  call ins_ptr
+  ld a, (hl)
+  or a
+  ld a, 4                    ; TONE: TYPE/VOL/ENV/SPD/LEN
+  ret z
+  ld a, 6                    ; NOISE: + MODE/RATE
+  ret
+
+; HL = current instrument record
+ins_ptr:
+  ld a, (cur_instr)
+  add a, a
+  add a, a
+  add a, a
+  add a, a                   ; * 16
+  ld e, a
+  ld d, 0
+  ld hl, instruments
+  add hl, de
+  ret
+
   ; ---- PHRASE ----
 cm_phrase:
   ld a, (phr_row)
@@ -442,6 +514,8 @@ do_press:
   jp z, chp_press
   cp SCR_PHRASE
   jp z, php_press
+  cp SCR_INSTR
+  jp z, inp_press
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -467,6 +541,8 @@ sop_body:
 
 do_cut:
   ld a, (scr_mode)
+  cp SCR_INSTR
+  ret z
   cp SCR_CHAIN
   jp z, chp_cut
   cp SCR_PHRASE
@@ -509,6 +585,8 @@ do_edit:
   jp z, chp_edit
   cp SCR_PHRASE
   jp z, php_edit
+  cp SCR_INSTR
+  jp z, inp_edit
   ; ---- SONG: edit chain number ----
   ld a, (hdr_cur)
   or a
@@ -911,6 +989,228 @@ dep_store:
   jp mark_phr_dirty
 
 ; -------------------------------------------------------------
+; INSTR screen handlers
+inp_press:                   ; audition the instrument
+  ld a, (last_note)
+  ld d, a
+  ld a, (cur_instr)
+  ld c, a
+  jp prelisten
+
+inp_edit:
+  call ins_ptr
+  ld a, (ins_row)
+  or a
+  jr z, ine_type
+  cp 1
+  jr z, ine_vol
+  cp 2
+  jp z, ine_dir
+  cp 3
+  jp z, ine_spd
+  cp 4
+  jp z, ine_len
+  cp 5
+  jp z, ine_mode
+  jp ine_rate
+
+ine_type:                    ; TONE <-> NOISE (edge-gated)
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  ld a, (hl)
+  xor 1
+  ld (hl), a
+  call ins_max_row
+  ld b, a
+  ld a, (ins_row)
+  cp b
+  jr c, ine_tym
+  ld a, b
+  ld (ins_row), a
+ine_tym:
+  jp mark_all_dirty          ; field set changed
+
+ine_vol:
+  inc hl
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, inv_l
+  ld a, d
+  cp $0F
+  jr nc, inv_l
+  inc d
+inv_l:
+  bit 2, c
+  jr z, inv_u
+  ld a, d
+  or a
+  jr z, inv_u
+  dec d
+inv_u:
+  bit 0, c
+  jr z, inv_d
+  ld a, d
+  add a, 4
+  cp $10
+  jr c, inv_us
+  ld a, $0F
+inv_us:
+  ld d, a
+inv_d:
+  bit 1, c
+  jr z, inv_st
+  ld a, d
+  sub 4
+  jr nc, inv_ds
+  xor a
+inv_ds:
+  ld d, a
+inv_st:
+  ld (hl), d
+  jp ine_mark
+
+ine_dir:                     ; envelope dir OFF -> DN -> UP
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $F0
+  rrca
+  rrca
+  rrca
+  rrca
+  inc a
+  cp 3
+  jr c, ind_ok
+  xor a
+ind_ok:
+  rlca
+  rlca
+  rlca
+  rlca
+  ld d, a
+  ld a, (hl)
+  and $0F
+  or d
+  ld (hl), a
+  jp ine_mark
+
+ine_spd:
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $0F
+  ld d, a
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr nz, ins_inc
+  bit 0, c
+  jr z, ins_dec
+ins_inc:
+  ld a, d
+  cp $0F
+  jr nc, ins_dec
+  inc d
+ins_dec:
+  bit 2, c
+  jr nz, ins_d2
+  bit 1, c
+  jr z, ins_st
+ins_d2:
+  ld a, d
+  or a
+  jr z, ins_st
+  dec d
+ins_st:
+  ld a, (hl)
+  and $F0
+  or d
+  ld (hl), a
+  jp ine_mark
+
+ine_len:
+  inc hl
+  inc hl
+  inc hl
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, inl_l
+  ld a, d
+  cp $3F
+  jr nc, inl_l
+  inc d
+inl_l:
+  bit 2, c
+  jr z, inl_u
+  ld a, d
+  or a
+  jr z, inl_u
+  dec d
+inl_u:
+  bit 0, c
+  jr z, inl_d
+  ld a, d
+  add a, 8
+  cp $40
+  jr c, inl_us
+  ld a, $3F
+inl_us:
+  ld d, a
+inl_d:
+  bit 1, c
+  jr z, inl_st
+  ld a, d
+  sub 8
+  jr nc, inl_ds
+  xor a
+inl_ds:
+  ld d, a
+inl_st:
+  ld (hl), d
+  jp ine_mark
+
+ine_mode:                    ; WHITE <-> PERIODIC (edge-gated)
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  inc hl
+  inc hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  xor $04
+  ld (hl), a
+  jp ine_mark
+
+ine_rate:                    ; 512 -> 1K -> 2K -> PITCH (edge)
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  inc hl
+  inc hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $FC
+  ld d, a
+  ld a, (hl)
+  inc a
+  and $03
+  or d
+  ld (hl), a
+ine_mark:
+  ld a, (ins_row)
+  jp mark_dirty_a
+
+; -------------------------------------------------------------
 ; audition note D (note byte) instr C on the edited track,
 ; only while stopped; sustained instruments are capped
 prelisten:
@@ -1088,6 +1388,8 @@ draw_row:
   jp z, ch_draw_row
   cp SCR_PHRASE
   jp z, ph_draw_row
+  cp SCR_INSTR
+  jp z, in_draw_row
   jp so_draw_row
 
 ; -------------------------------------------------------------
@@ -1095,6 +1397,8 @@ draw_row:
 ; highlighted, mark changed rows dirty
 playhead_update:
   ld a, (scr_mode)
+  cp SCR_INSTR
+  ret z                      ; no playhead on the form screen
   or a
   jr z, pu_song
   cp SCR_CHAIN
@@ -1235,6 +1539,8 @@ draw_labels:
   jp z, dl_chain
   cp SCR_PHRASE
   jp z, dl_phrase
+  cp SCR_INSTR
+  jp z, dl_instr
 
   ; ---- SONG ----
   ld b, 1
@@ -1342,6 +1648,18 @@ dl_phrase:
   call print_at
   ret
 
+dl_instr:
+  ld b, 1
+  ld c, 1
+  ld hl, str_instr
+  call print_at
+  ld b, 1
+  ld c, 7
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, (cur_instr)
+  jp print_hex_a
+
 ; "Tn" tag at row 1 col 12
 dl_track_tag:
   ld a, (ed_track)
@@ -1389,13 +1707,13 @@ dsm_attr:
   pop de
   inc d
   ld a, d
-  cp 3
+  cp 4
   jr c, dsm_l
   xor a
   ld (text_attr), a
   ret
 map_letters:
-  .db "SCP"
+  .db "SCPI"
 
 ; A = track -> A = screen column of its song-screen cell
 so_track_col:
@@ -1748,6 +2066,167 @@ pdr_pdash:
   pop de
   ret
 
+; -------------------------------------------------------------
+; INSTR screen: form rows (E = field row)
+;   0 TYPE  1 VOL  2 ENV  3 SPD  4 LEN  [5 MODE  6 RATE]
+in_draw_row:
+  call ins_max_row
+  ld b, a
+  ld a, e
+  cp b
+  jr z, idr_go
+  jr nc, idr_skip            ; beyond the form: row stays blank
+idr_go:
+  ; label (col 4)
+  xor a
+  ld (text_attr), a
+  ld a, e
+  ld d, a
+  add a, a
+  add a, a
+  add a, d                   ; * 5 ("XXXX",0 entries)
+  push de
+  ld e, a
+  ld d, 0
+  ld hl, ins_lbls
+  add hl, de
+  pop de
+  push hl
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  pop hl
+  push de
+  call print_at
+  pop de
+  ; value attr: inverted under the cursor
+  xor a
+  ld (text_attr), a
+  ld a, (ins_row)
+  cp e
+  jr nz, idr_addr
+  ld a, $08
+  ld (text_attr), a
+idr_addr:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 10
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ; value per field
+  push de
+  call ins_ptr
+  pop de
+  ld a, e
+  or a
+  jr z, idr_type
+  cp 1
+  jr z, idr_vol
+  cp 2
+  jr z, idr_dir
+  cp 3
+  jr z, idr_spd
+  cp 4
+  jr z, idr_len
+  cp 5
+  jr z, idr_mode
+  jr idr_rate
+idr_skip:
+  ret
+idr_type:
+  ld a, (hl)
+  or a
+  ld hl, str_tone
+  jr z, idr_p5
+  ld hl, str_noise
+idr_p5:
+  ld b, 5
+  jp print_raw
+idr_vol:
+  inc hl
+  ld a, (hl)
+  jp print_hex_nib
+idr_dir:
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $F0
+  ld hl, str_eoff
+  jr z, idr_p3
+  cp $10
+  ld hl, str_edn
+  jr z, idr_p3
+  ld hl, str_eup
+idr_p3:
+  ld b, 3
+  jp print_raw
+idr_spd:
+  inc hl
+  inc hl
+  ld a, (hl)
+  jp print_hex_nib
+idr_len:
+  inc hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  jp print_hex_a
+idr_mode:
+  inc hl
+  inc hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $04
+  ld hl, str_perio
+  jr z, idr_p5b
+  ld hl, str_white
+idr_p5b:
+  ld b, 5
+  jp print_raw
+idr_rate:
+  inc hl
+  inc hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $03
+  ld d, a
+  add a, a
+  add a, a
+  add a, d                   ; * 5
+  ld e, a
+  ld d, 0
+  ld hl, str_rates
+  add hl, de
+  ld b, 5
+  jp print_raw
+
+ins_lbls:
+  .db "TYPE", 0
+  .db "VOL ", 0
+  .db "ENV ", 0
+  .db "SPD ", 0
+  .db "LEN ", 0
+  .db "MODE", 0
+  .db "RATE", 0
+str_tone:   .db "TONE "
+str_noise:  .db "NOISE"
+str_white:  .db "WHITE"
+str_perio:  .db "PERIO"
+str_eoff:   .db "OFF"
+str_edn:    .db "DN "
+str_eup:    .db "UP "
+str_rates:
+  .db "512  "
+  .db "1K   "
+  .db "2K   "
+  .db "PITCH"
+
 ph_field_attr:
   ld d, a
   ld a, (phr_row)
@@ -1768,6 +2247,7 @@ pfa_set:
 str_song:        .db "SONG", 0
 str_chain:       .db "CHAIN", 0
 str_phrase:      .db "PHRASE", 0
+str_instr:       .db "INSTR", 0
 str_hphr:        .db "PHR", 0
 str_htsp:        .db "TSP", 0
 str_hnote:       .db "NOTE", 0

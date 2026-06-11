@@ -81,6 +81,7 @@ ep_chl:
   ld (ix+9), 0
   ld (ix+10), $FF
   ld (ix+11), $FF
+  ld (ix+12), 0              ; pitched-noise flag
   ld a, (song_cur)
   ld (ix+7), a
   ; active?
@@ -442,11 +443,16 @@ tn_spd:
 tn_len:
   ld (ix+4), a
   inc hl
+  ld (ix+12), 0              ; pitched-noise flag off by default
   ld a, b
   cp 1                       ; NOISE instrument?
   ret nz
   ld a, (hl)                 ; +4 noise control
   ld (psg_noisectl), a
+  and $03
+  cp $03                     ; rate 3 = clock from tone 3
+  ret nz
+  ld (ix+12), 1              ; pitched: steal T3 (design doc 5.3)
   ret
 
 ; -------------------------------------------------------------
@@ -496,7 +502,7 @@ cf_len:
 cf_out:
   ld a, c
   cp 3
-  jr z, cf_vol               ; noise: ctl set at trigger
+  jr z, cf_noise
   ld a, (ix+0)
   cp $FF
   jr z, cf_vol
@@ -519,6 +525,27 @@ cf_out:
   ld (hl), e
   inc hl
   ld (hl), d
+cf_noise:
+  ; pitched noise: drive T3's period with our note and mute
+  ; T3's own output (runs after c=2, so this wins)
+  ld a, (ix+12)
+  or a
+  jr z, cf_vol
+  ld a, (ix+0)
+  cp $FF
+  jr z, cf_vol
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, (note_ptr)
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)
+  ex de, hl
+  ld (psg_tone2), hl
+  ld a, $0F
+  ld (psg_vols+2), a
 cf_vol:
   ld a, (ix+2)
   cpl
@@ -557,7 +584,7 @@ song_init:
   ldir
   ld hl, demo_instruments
   ld de, instruments
-  ld bc, 5*16
+  ld bc, 6*16
   ldir
   ld hl, demo_groove
   ld de, grooves
@@ -631,6 +658,7 @@ demo_instruments:
   .db 0,$0F,$13,0,$00, 0,0,0,0,0,0,0,0,0,0,0   ; 2 bass
   .db 1,$0B,$11,2,$04, 0,0,0,0,0,0,0,0,0,0,0   ; 3 hat (white /512)
   .db 1,$0F,$12,8,$05, 0,0,0,0,0,0,0,0,0,0,0   ; 4 snare (white /1024)
+  .db 1,$0F,$13,0,$03, 0,0,0,0,0,0,0,0,0,0,0   ; 5 periodic bass (pitched)
 
 demo_groove:
   .db 6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0
