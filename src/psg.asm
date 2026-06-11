@@ -70,10 +70,6 @@ psg_init:
 +:
   ld (sent), hl
   ld a, l
-  and $0F
-  or latchbits
-  out (PSG_PORT), a
-  ld a, l
   rrca
   rrca
   rrca
@@ -87,7 +83,15 @@ psg_init:
   add a, a
   or b
   and $3F
-  out (PSG_PORT), a
+  ld b, a                    ; data byte prepared up front
+  ld a, l
+  and $0F
+  or latchbits
+  di                         ; latch+data must be atomic: a
+  out (PSG_PORT), a          ; sample IRQ between them re-latches
+  ld a, b                    ; the PSG to T3 volume and the data
+  out (PSG_PORT), a          ; byte lands in the wrong register
+  ei
 ++:
 .ENDM
 
