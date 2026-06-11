@@ -1737,6 +1737,7 @@ wvp_cut:
   ld e, a
   ld bc, 32
   ldir
+  call wav_refresh           ; stamp lands on a playing wave too
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
@@ -1782,6 +1783,7 @@ wve_st:
   and $0F
   or $D0
   ld (hl), a
+  call wav_refresh           ; playing wave follows the pencil
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty

@@ -82,12 +82,12 @@ irq_handler:
   in a, (VDP_CTRL)             ; ack (IN A,(n) sets no flags!)
   rlca                         ; bit 7 -> carry
   jp c, irq_frame
-  ; ---- line interrupt: feed one sample nibble ----
+  ; ---- line interrupt: feed one sample/wave tick ----
   ld a, (smp_active)
   or a
   jr z, irq_ldone
   exx
-  call smp_feed_one
+  call smp_feed_any
   exx
 irq_ldone:
   ex af, af'

@@ -30,7 +30,9 @@ offset  size  contents
 +$05    2     checksum: 16-bit little-endian sum of the 5,248 data bytes
 +$07    9     reserved
 +$10    5248  song data, the contiguous RAM block:
-              +$0000  wave_ram      4 waves x 32 B ($D0 | attenuation per step)
+              +$0000  wave_ram      4 waves x 32 B ($D0 | 15-minus-level per
+                                    step; the drawn shape — playback maps levels
+                                    through the log-DAC correction separately)
               +$0080  phrase_pool   32 phrases x 64 B (16 steps x note,instr,cmd,param)
               +$0880  chains        32 chains x 32 B (16 x phrase#,transpose)
               +$0C80  song          128 rows x 4 chain numbers ($FF empty)

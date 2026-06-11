@@ -13,8 +13,14 @@
 ;    samples before releasing the main loop
 ;
 ; The Z80 shadow registers belong to the sample feed:
-;   HL' = pointer  DE' = end  B' = current byte  C' = phase
+;   PCM:  HL' = pointer  DE' = end        B' = byte  C' = phase
+;   wave: HL' = wav_buf  DE' = increment  BC' = 8.8 phase
 ; Main-thread code must never use EXX / EX AF,AF'.
+;
+; Waves play from wav_buf, not wave_ram: the DAC is logarithmic
+; (2 dB/attenuation step), so the drawn-linear levels are mapped
+; through wav_lin2log when the buffer is (re)filled. wave_ram
+; keeps the drawn shape - what the editor shows and saves.
 ; =============================================================
 
 .RAMSECTION "smpvars" SLOT 3
@@ -24,7 +30,12 @@
   smp_vbcnt    db            ; samples to feed across vblank
   smp_tmp      db
   wav_owner    db            ; track whose volume gates the wave
+  wav_cur      db            ; wave # loaded in wav_buf
   winc_ptr     dw            ; region pitch-increment table
+.ENDS
+
+.RAMSECTION "wavbuf" SLOT 3 ALIGN 32
+  wav_buf      dsb 32        ; log-corrected ready-to-OUT copy
 .ENDS
 
 .SECTION "Sample" FREE
@@ -36,8 +47,8 @@ smp_feed_any:
   jr z, wav_feed_one
   jr smp_feed_one
 
-; wavetable: HL = wave base (page:wave*32), DE = increment,
-; BC = 8.8 phase. Bytes are pre-OR'd $D0|attenuation.
+; wavetable: HL = wav_buf (32-aligned), DE = increment,
+; BC = 8.8 phase. Buffer bytes are pre-OR'd $D0|attenuation.
 wav_feed_one:
   ld a, c
   add a, e
@@ -137,20 +148,17 @@ wav_play:
   ld e, (hl)
   inc hl
   ld d, (hl)                 ; DE = phase increment
+  push de
   ld a, c
-  rrca
-  rrca
-  rrca
-  and $E0                    ; wave# * 32
-  ld c, a
-  ld hl, wave_ram            ; 256-aligned: low byte is the slot
-  ld l, c
+  call wav_copybuf           ; drawn wave -> corrected play buf
+  pop de
+  ld hl, wav_buf
   di
   push hl
   push de
   exx
   pop de                     ; increment
-  pop hl                     ; wave base
+  pop hl                     ; play buffer
   ld bc, 0                   ; phase
   exx
   ld a, 2
@@ -184,6 +192,53 @@ smp_dac_on:
 sp_done:
   ei
   ret
+
+; re-run the copy after a wave_ram edit so a playing wave follows
+; the drawing live. No shadow access: the feed reads wav_buf and
+; single-byte writes are IRQ-safe. Main thread only.
+wav_refresh:
+  ld a, (smp_mode)
+  cp 2
+  ret nz
+  ld a, (wav_cur)
+  ; fall through
+
+; fill wav_buf from wave A (0-3), mapping each drawn level
+; through the log-DAC correction. Main thread only.
+wav_copybuf:
+  ld (wav_cur), a
+  rrca
+  rrca
+  rrca
+  and $E0                    ; wave# * 32
+  ld hl, wave_ram            ; 256-aligned: low byte is the slot
+  ld l, a
+  ld de, wav_buf
+  ld b, 32
+wcb_loop:
+  ld a, (hl)
+  and $0F                    ; stored 15-level nibble
+  push hl
+  ld hl, wav_lin2log
+  add a, l
+  ld l, a
+  adc a, h
+  sub l
+  ld h, a
+  ld a, (hl)
+  pop hl
+  ld (de), a
+  inc l
+  inc de
+  djnz wcb_loop
+  ret
+
+; drawn level is linear (0..15 = 0..full scale) but attenuation
+; is 2 dB/step: pick the attenuation nearest 10^(-n/10) = v/15.
+; Indexed by the stored nibble (15 - level), pre-OR'd with $D0.
+wav_lin2log:
+  .db $D0, $D0, $D1, $D1, $D1, $D2, $D2, $D3
+  .db $D3, $D4, $D5, $D6, $D7, $D9, $DC, $DF
 
 ; stop wavetable output (main thread)
 wav_stop:
