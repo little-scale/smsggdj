@@ -1,35 +1,44 @@
 ; =============================================================
-; SMSDJ - PHRASE editor (milestone 4)
+; SMSDJ - editor: SONG / CHAIN / PHRASE screens (milestone 5)
 ;
-; Screen: one phrase (16 rows) of the selected track.
-;   columns: 0=note (3 ch), 1=instrument (1 ch),
-;            2=command (1 ch), 3=param (2 ch)
-; Cursor and playhead are palette-bit inverse video; rows are
-; redrawn through a dirty-row queue, max 4 rows per VBlank.
+; Screen map (design doc section 4, subset implemented):
+;   [SONG] <-> [CHAIN] <-> [PHRASE]      (2 held + left/right)
+; Context flows right: entering CHAIN opens the chain under the
+; SONG cursor (and selects its track); entering PHRASE opens the
+; phrase under the CHAIN cursor.
 ;
-; Controls (design doc section 3, with hold-time disambiguation):
-;   dpad            move cursor (key repeat)
-;   1 (tap)         insert last note/instr on empty step,
-;                   prelisten existing note (when stopped)
-;   1 held + dpad   edit field (L/R small, U/D big)
-;   2 held + L/R    switch track (placeholder for screen map)
-;   2 held >TH, +1  cut step field
-;   1+2 together    play/stop (within COMBO_WINDOW frames)
-;
-; A 1-press is held pending for COMBO_WINDOW frames so a
-; near-simultaneous 2 means transport, not insert.
+; Common controls (hold-time disambiguation as before):
+;   dpad           cursor       1 tap        insert/audition
+;   1 + dpad       edit         2 long + 1   cut
+;   1+2 together   play/stop (mode follows the current screen)
+; SONG header row (up from row 0): 1 = mute, 2 long + 1 = solo.
 ; =============================================================
 
 .DEFINE COMBO_WINDOW 4         ; frames: 1+2 counts as transport
 .DEFINE HOLD_TH      10        ; frames: button counts as "held"
 .DEFINE PRELISTEN_LEN 32       ; ticks: cap sustained prelisten
 
+.DEFINE SCR_SONG    0          ; values match MODE_* on purpose
+.DEFINE SCR_CHAIN   1
+.DEFINE SCR_PHRASE  2
+
 .RAMSECTION "edvars" SLOT 3
+  scr_mode     db
   ed_track     db
-  ed_row       db
-  ed_col       db
+  cur_chain    db
+  cur_phrase   db
+  song_cur     db            ; absolute song row of the cursor
+  song_col     db
+  song_view    db            ; top visible song row
+  hdr_cur      db            ; 1 = cursor on the track header
+  chn_row      db
+  chn_col      db
+  phr_row      db
+  phr_col      db
   last_note    db
   last_instr   db
+  last_chain   db
+  last_phrase  db
   b1_frames    db
   b2_frames    db
   pend1        db            ; pending-insert countdown, 0 = none
@@ -39,7 +48,7 @@
   tmp_instr    db
   tmp_cmd      db
   tmp_param    db
-  eng_drawn_row db           ; playhead row currently on screen
+  drawn_a      dsb 4         ; playhead rows currently on screen
   dirty_rows   dsb 16
 .ENDS
 
@@ -50,12 +59,30 @@ editor_init:
   ld (last_note), a
   xor a
   ld (last_instr), a
+  ld (last_chain), a
+  ld (last_phrase), a
+  ld (scr_mode), a           ; start on SONG
   ld (ed_track), a
-  ld (ed_row), a
-  ld (ed_col), a
+  ld (cur_chain), a
+  ld (cur_phrase), a
+  ld (song_cur), a
+  ld (song_col), a
+  ld (song_view), a
+  ld (hdr_cur), a
+  ld (chn_row), a
+  ld (chn_col), a
+  ld (phr_row), a
+  ld (phr_col), a
   ld (pend1), a
+  ld hl, drawn_a
   ld a, $FF
-  ld (eng_drawn_row), a
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), a
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
@@ -129,7 +156,7 @@ ei_edit:
   call do_edit
   jr ei_holds
 ei_nav:
-  call track_nav
+  call screen_nav
 ei_holds:
   ; ---- hold counters ----
   ld a, (pad_raw)
@@ -159,80 +186,512 @@ ei_h2z:
   ld (b2_frames), a
   ret
 
-; -------------------------------------------------------------
-; cursor movement (no modifier)
+; =============================================================
+; screen map: 2 held + L/R
+; =============================================================
+screen_nav:
+  ld a, (pad_edge)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  and PAD_RIGHT
+  jr nz, sn_right
+  ; ---- left: PHRASE -> CHAIN -> SONG ----
+  ld a, (scr_mode)
+  or a
+  ret z
+  dec a
+  jr sn_switch
+sn_right:
+  ld a, (scr_mode)
+  cp SCR_SONG
+  jr z, sn_tochain
+  cp SCR_CHAIN
+  ret nz
+  ; CHAIN -> PHRASE: phrase under cursor
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (hl)
+  cp $FF
+  ret z
+  ld (cur_phrase), a
+  ld a, SCR_PHRASE
+  jr sn_switch
+sn_tochain:
+  ; SONG -> CHAIN: chain under cursor, track from column
+  ld a, (hdr_cur)
+  or a
+  ret nz
+  call so_cell_ptr
+  ld a, (hl)
+  cp $FF
+  ret z
+  ld (cur_chain), a
+  ld a, (song_col)
+  ld (ed_track), a
+  ld a, SCR_CHAIN
+sn_switch:
+  ld (scr_mode), a
+  ld a, 1
+  ld (label_dirty), a
+  ld hl, drawn_a
+  ld a, $FF
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  jp mark_all_dirty
+
+; =============================================================
+; cursor movement
+; =============================================================
 cursor_move:
   ld a, (pad_rep)
   and $0F
   ret z
   ld c, a
-  ld a, (ed_row)
-  call mark_dirty_a
+  ld a, (scr_mode)
+  cp SCR_CHAIN
+  jp z, cm_chain
+  cp SCR_PHRASE
+  jp z, cm_phrase
+
+  ; ---- SONG ----
+  ld a, (hdr_cur)
+  or a
+  jr z, cm_sbody
+  bit 1, c                   ; down: leave header
+  jr z, cm_scol
+  xor a
+  ld (hdr_cur), a
+  ld a, 1
+  ld (label_dirty), a
+  ld a, (song_cur)
+  jp mark_vis_a
+cm_sbody:
   bit 1, c                   ; down
-  jr z, cm_up
-  ld a, (ed_row)
+  jr z, cm_sup
+  ld a, (song_cur)
+  cp SONG_ROWS-1
+  jr nc, cm_sup
+  call so_mark_cur
+  ld a, (song_cur)
   inc a
-  and $0F
-  ld (ed_row), a
-cm_up:
-  bit 0, c
-  jr z, cm_right
-  ld a, (ed_row)
+  ld (song_cur), a
+  call so_scroll
+cm_sup:
+  bit 0, c                   ; up
+  jr z, cm_scol
+  ld a, (song_cur)
+  ld b, a
+  ld a, (song_view)
+  cp b
+  jr nz, cm_supgo
+  ; at top of view: up enters the header row
+  ld a, 1
+  ld (hdr_cur), a
+  ld (label_dirty), a
+  ld a, (song_cur)
+  jp mark_vis_a
+cm_supgo:
+  call so_mark_cur
+  ld a, (song_cur)
   dec a
-  and $0F
-  ld (ed_row), a
-cm_right:
+  ld (song_cur), a
+  call so_scroll
+cm_scol:
+  ld a, c
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  call so_mark_cur
   bit 3, c
-  jr z, cm_left
-  ld a, (ed_col)
+  jr z, cm_sleft
+  ld a, (song_col)
   inc a
   and $03
-  ld (ed_col), a
-cm_left:
+  ld (song_col), a
+cm_sleft:
   bit 2, c
-  jr z, cm_done
-  ld a, (ed_col)
+  jr z, cm_sfin
+  ld a, (song_col)
   dec a
   and $03
-  ld (ed_col), a
-cm_done:
-  ld a, (ed_row)
+  ld (song_col), a
+cm_sfin:
+  ld a, (hdr_cur)
+  or a
+  jp z, so_mark_cur
+  ld a, 1
+  ld (label_dirty), a
+  ret
+
+  ; ---- CHAIN ----
+cm_chain:
+  ld a, (chn_row)
+  call mark_dirty_a
+  bit 1, c
+  jr z, cm_cup
+  ld a, (chn_row)
+  inc a
+  and $0F
+  ld (chn_row), a
+cm_cup:
+  bit 0, c
+  jr z, cm_ccol
+  ld a, (chn_row)
+  dec a
+  and $0F
+  ld (chn_row), a
+cm_ccol:
+  bit 3, c
+  jr z, cm_cleft
+  ld a, (chn_col)
+  xor 1
+  ld (chn_col), a
+cm_cleft:
+  bit 2, c
+  jr z, cm_cfin
+  ld a, (chn_col)
+  xor 1
+  ld (chn_col), a
+cm_cfin:
+  ld a, (chn_row)
+  jp mark_dirty_a
+
+  ; ---- PHRASE ----
+cm_phrase:
+  ld a, (phr_row)
+  call mark_dirty_a
+  bit 1, c
+  jr z, cm_pup
+  ld a, (phr_row)
+  inc a
+  and $0F
+  ld (phr_row), a
+cm_pup:
+  bit 0, c
+  jr z, cm_pright
+  ld a, (phr_row)
+  dec a
+  and $0F
+  ld (phr_row), a
+cm_pright:
+  bit 3, c
+  jr z, cm_pleft
+  ld a, (phr_col)
+  inc a
+  and $03
+  ld (phr_col), a
+cm_pleft:
+  bit 2, c
+  jr z, cm_pfin
+  ld a, (phr_col)
+  dec a
+  and $03
+  ld (phr_col), a
+cm_pfin:
+  ld a, (phr_row)
+  jp mark_dirty_a
+
+; song-screen scroll bookkeeping after a row move
+so_scroll:
+  ld a, (song_cur)
+  ld b, a
+  ld a, (song_view)
+  cp b
+  jr c, ss_below
+  jr z, ss_inview
+  ld a, b                    ; cursor above window
+  ld (song_view), a
+  jp mark_all_dirty
+ss_below:
+  add a, 15
+  cp b
+  jr nc, ss_inview
+  ld a, b                    ; cursor below window
+  sub 15
+  ld (song_view), a
+  jp mark_all_dirty
+ss_inview:
+  jp so_mark_cur
+
+; mark the cursor's visible song row dirty
+so_mark_cur:
+  ld a, (song_cur)
+mark_vis_a:                  ; A = absolute song row
+  push bc
+  ld b, a
+  ld a, (song_view)
+  ld c, a
+  ld a, b
+  sub c
+  pop bc
+  cp 16
+  ret nc                     ; off screen
+  jp mark_dirty_a
+
+; =============================================================
+; press / edit / cut dispatch
+; =============================================================
+do_press:
+  ld a, (scr_mode)
+  cp SCR_CHAIN
+  jp z, chp_press
+  cp SCR_PHRASE
+  jp z, php_press
+  ; ---- SONG ----
+  ld a, (hdr_cur)
+  or a
+  jr z, sop_body
+  ; header: mute toggle
+  ld a, (song_col)
+  call bit_for_a
+  ld b, a
+  ld a, (mute_flags)
+  xor b
+  ld (mute_flags), a
+  ld a, 1
+  ld (label_dirty), a
+  ret
+sop_body:
+  call so_cell_ptr
+  ld a, (hl)
+  cp $FF
+  ret nz
+  ld a, (last_chain)
+  ld (hl), a
+  jp so_mark_cur
+
+do_cut:
+  ld a, (scr_mode)
+  cp SCR_CHAIN
+  jp z, chp_cut
+  cp SCR_PHRASE
+  jp z, php_cut
+  ; ---- SONG ----
+  ld a, (hdr_cur)
+  or a
+  jr z, soc_body
+  ; header: solo (cut = "cut everything else")
+  ld a, (song_col)
+  call bit_for_a
+  cpl
+  and $0F
+  ld b, a
+  ld a, (mute_flags)
+  cp b
+  jr nz, soc_solo
+  xor a                      ; already solo: unmute all
+  jr soc_store
+soc_solo:
+  ld a, b
+soc_store:
+  ld (mute_flags), a
+  ld a, 1
+  ld (label_dirty), a
+  ret
+soc_body:
+  call so_cell_ptr
+  ld a, $FF
+  ld (hl), a
+  jp so_mark_cur
+
+do_edit:
+  ld a, (pad_rep)
+  and $0F
+  ret z
+  ld (ed_rep), a
+  ld a, (scr_mode)
+  cp SCR_CHAIN
+  jp z, chp_edit
+  cp SCR_PHRASE
+  jp z, php_edit
+  ; ---- SONG: edit chain number ----
+  ld a, (hdr_cur)
+  or a
+  ret nz
+  call so_cell_ptr
+  ld a, (hl)
+  cp $FF
+  jr nz, soe_have
+  ld a, (last_chain)
+soe_have:
+  ld d, a
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c                   ; right +1
+  jr z, soe_l
+  ld a, d
+  cp NUM_CHAINS-1
+  jr nc, soe_l
+  inc d
+soe_l:
+  bit 2, c                   ; left -1
+  jr z, soe_u
+  ld a, d
+  or a
+  jr z, soe_u
+  dec d
+soe_u:
+  bit 0, c                   ; up +8
+  jr z, soe_d
+  ld a, d
+  add a, 8
+  cp NUM_CHAINS
+  jr c, soe_ust
+  ld a, NUM_CHAINS-1
+soe_ust:
+  ld d, a
+soe_d:
+  bit 1, c                   ; down -8
+  jr z, soe_store
+  ld a, d
+  sub 8
+  jr nc, soe_dst
+  xor a
+soe_dst:
+  ld d, a
+soe_store:
+  ld (hl), d
+  ld a, d
+  ld (last_chain), a
+  jp so_mark_cur
+
+; -------------------------------------------------------------
+; CHAIN screen handlers
+chp_press:
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (chn_col)
+  or a
+  ret nz                     ; transpose column: nothing
+  ld a, (hl)
+  cp $FF
+  ret nz
+  ld a, (last_phrase)
+  ld (hl), a
+  ld a, (chn_row)
+  jp mark_dirty_a
+
+chp_cut:
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (chn_col)
+  or a
+  jr nz, chc_tsp
+  ld a, $FF
+  ld (hl), a
+  ld a, (chn_row)
+  jp mark_dirty_a
+chc_tsp:
+  inc hl
+  ld (hl), 0
+  ld a, (chn_row)
+  jp mark_dirty_a
+
+chp_edit:
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (chn_col)
+  or a
+  jr nz, che_tsp
+  ; phrase number
+  ld a, (hl)
+  cp $FF
+  jr nz, che_have
+  ld a, (last_phrase)
+che_have:
+  ld d, a
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, che_l
+  ld a, d
+  cp NUM_PHRASES-1
+  jr nc, che_l
+  inc d
+che_l:
+  bit 2, c
+  jr z, che_u
+  ld a, d
+  or a
+  jr z, che_u
+  dec d
+che_u:
+  bit 0, c
+  jr z, che_d
+  ld a, d
+  add a, 8
+  cp NUM_PHRASES
+  jr c, che_ust
+  ld a, NUM_PHRASES-1
+che_ust:
+  ld d, a
+che_d:
+  bit 1, c
+  jr z, che_store
+  ld a, d
+  sub 8
+  jr nc, che_dst
+  xor a
+che_dst:
+  ld d, a
+che_store:
+  ld (hl), d
+  ld a, d
+  ld (last_phrase), a
+  ld a, (chn_row)
+  jp mark_dirty_a
+che_tsp:
+  ; transpose: L/R +-1, U/D +-12 (octave), wraps
+  inc hl
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, cht_l
+  inc d
+cht_l:
+  bit 2, c
+  jr z, cht_u
+  dec d
+cht_u:
+  bit 0, c
+  jr z, cht_d
+  ld a, d
+  add a, 12
+  ld d, a
+cht_d:
+  bit 1, c
+  jr z, cht_store
+  ld a, d
+  sub 12
+  ld d, a
+cht_store:
+  ld (hl), d
+  ld a, (chn_row)
   jp mark_dirty_a
 
 ; -------------------------------------------------------------
-; 2 held + L/R: switch track (until the screen map exists)
-track_nav:
-  ld a, (pad_edge)
-  and PAD_LEFT|PAD_RIGHT
-  ret z
-  and PAD_RIGHT
-  ld a, (ed_track)
-  jr z, tn_left
-  inc a
-  jr tn_store
-tn_left:
-  dec a
-tn_store:
-  and $03
-  ld (ed_track), a
-  ld a, 1
-  ld (label_dirty), a
-  jp mark_all_dirty
-
-; -------------------------------------------------------------
-; 1 pressed (no dpad yet): insert / audition at cursor
-do_press:
-  ld a, (ed_row)
+; PHRASE screen handlers (note/instr/cmd/param, as milestone 4)
+php_press:
+  ld a, (phr_row)
   ld e, a
   call ed_step_ptr
-  ld a, (ed_col)
+  ld a, (phr_col)
   or a
   jr z, dp_note
   cp 1
   jr z, dp_instr
   cp 2
   jr z, dp_cmd
-  ret                        ; param column: nothing
+  ret
 dp_note:
   ld a, (hl)
   or a
@@ -243,7 +702,7 @@ dp_note:
   ld a, (last_instr)
   ld (hl), a
   dec hl
-  call mark_cur_dirty
+  call mark_phr_dirty
 dp_audit:
   ld d, (hl)
   inc hl
@@ -258,10 +717,10 @@ dp_instr:
   inc hl
   ld a, (hl)
   cp $10
-  ret c                      ; already set
+  ret c
   ld a, (last_instr)
   ld (hl), a
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 dp_cmd:
   inc hl
   inc hl
@@ -270,54 +729,46 @@ dp_cmd:
   ret nz
   ld a, CMD_KILL
   ld (hl), a
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 
-; -------------------------------------------------------------
-; 2 held + 1: cut field under cursor
-do_cut:
-  ld a, (ed_row)
+php_cut:
+  ld a, (phr_row)
   ld e, a
   call ed_step_ptr
-  ld a, (ed_col)
+  ld a, (phr_col)
   or a
   jr z, dc_note
   cp 1
   jr z, dc_instr
   cp 2
   jr z, dc_cmd
-  inc hl                     ; param
+  inc hl
   inc hl
   inc hl
   ld (hl), 0
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 dc_note:
   ld (hl), 0
   inc hl
   ld (hl), $FF
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 dc_instr:
   inc hl
   ld (hl), $FF
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 dc_cmd:
   inc hl
   inc hl
   ld (hl), 0
   inc hl
   ld (hl), 0
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 
-; -------------------------------------------------------------
-; 1 held + dpad: edit field under cursor
-do_edit:
-  ld a, (pad_rep)
-  and $0F
-  ret z
-  ld (ed_rep), a
-  ld a, (ed_row)
+php_edit:
+  ld a, (phr_row)
   ld e, a
   call ed_step_ptr
-  ld a, (ed_col)
+  ld a, (phr_col)
   or a
   jr z, de_note
   cp 1
@@ -373,8 +824,7 @@ den_store:
   ld (hl), d
   ld a, d
   ld (last_note), a
-  call mark_cur_dirty
-  ; prelisten with the step's instrument
+  call mark_phr_dirty
   inc hl
   ld a, (hl)
   cp $10
@@ -417,7 +867,7 @@ dei_store:
   ld (hl), d
   ld a, d
   ld (last_instr), a
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 
 de_cmd:
   ld a, (pad_edge)           ; toggle on edge only
@@ -428,7 +878,7 @@ de_cmd:
   ld a, (hl)
   xor CMD_KILL
   ld (hl), a
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 
 de_param:
   inc hl
@@ -458,7 +908,7 @@ dep_d:
   ld d, a
 dep_store:
   ld (hl), d
-  jp mark_cur_dirty
+  jp mark_phr_dirty
 
 ; -------------------------------------------------------------
 ; audition note D (note byte) instr C on the edited track,
@@ -470,7 +920,8 @@ prelisten:
   ld a, (ed_track)
   add a, a
   add a, a
-  add a, a                   ; * 8
+  add a, a
+  add a, a                   ; * 16
   push de
   ld e, a
   ld d, 0
@@ -488,12 +939,79 @@ prelisten:
   ld (ix+4), PRELISTEN_LEN
   ret
 
-; -------------------------------------------------------------
-; dirty-row bookkeeping
-mark_cur_dirty:
-  ld a, (ed_row)
-mark_dirty_a:                ; A = phrase row (preserves HL/DE:
-  push hl                    ; callers keep step pointers live)
+; =============================================================
+; pointers & dirty bookkeeping
+; =============================================================
+; HL = &song[song_cur][song_col]
+so_cell_ptr:
+  ld a, (song_cur)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl                 ; * 4
+  ld a, (song_col)
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, song
+  add hl, de
+  ret
+
+; E = chain row -> HL = &chains[cur_chain][E]
+ch_entry_ptr:
+  ld a, (cur_chain)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 32
+  ld a, e
+  add a, a
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, chains
+  add hl, de
+  ret
+
+; E = phrase row -> HL = step address in cur_phrase
+ed_step_ptr:
+  ld a, (cur_phrase)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 64
+  ld a, e
+  add a, a
+  add a, a                   ; * 4
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, phrase_pool
+  add hl, de
+  ret
+
+; A = track (0-3) -> A = bit mask
+bit_for_a:
+  ld b, a
+  ld a, 1
+  inc b
+bfa_l:
+  dec b
+  ret z
+  add a, a
+  jr bfa_l
+
+mark_phr_dirty:
+  ld a, (phr_row)
+mark_dirty_a:                ; A = visible row (preserves HL/DE)
+  push hl
   push de
   ld hl, dirty_rows
   ld e, a
@@ -513,81 +1031,15 @@ mad_l:
   djnz mad_l
   ret
 
-; E = row -> HL = step address in the edited track's phrase
-ed_step_ptr:
-  ld a, (ed_track)
-  add a, a
-  add a, a
-  add a, a
-  add a, a
-  add a, a
-  add a, a                   ; * 64
-  ld d, a
-  ld a, e
-  add a, a
-  add a, a                   ; * 4
-  add a, d
-  ld e, a
-  ld d, 0
-  ld hl, phrase_pool
-  add hl, de
-  ret
-
 ; =============================================================
 ; drawing
 ; =============================================================
 editor_draw:
-  ; track label
   ld a, (label_dirty)
   or a
-  jr z, edr_ph
-  xor a
-  ld (label_dirty), a
-  ld (text_attr), a
-  ld a, (ed_track)
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, track_names
-  add hl, de
-  push hl
-  ld b, 1
-  ld c, 16
-  call nt_addr_hl
-  call vdp_set_addr
-  pop hl
-  ld b, 2
-  call print_raw
-
-edr_ph:
-  ; playhead row changed?
-  ld a, (play_state)
-  or a
-  jr z, edr_phstop
-  ld a, (cur_row)
-  ld b, a
-  ld a, (eng_drawn_row)
-  cp b
-  jr z, edr_flush
-  cp $FF
-  jr z, edr_phnew
-  call mark_dirty_a
-edr_phnew:
-  ld a, b
-  ld (eng_drawn_row), a
-  cp $FF
-  jr z, edr_flush
-  call mark_dirty_a
-  jr edr_flush
-edr_phstop:
-  ld a, (eng_drawn_row)
-  cp $FF
-  jr z, edr_flush
-  call mark_dirty_a
-  ld a, $FF
-  ld (eng_drawn_row), a
-
-edr_flush:
+  call nz, draw_labels
+  call playhead_update
+  ; flush up to 4 dirty rows
   ld e, 0                    ; row
   ld d, 4                    ; rows-per-frame budget
 edr_fl:
@@ -604,7 +1056,7 @@ edr_fl:
   jr z, edr_next
   ld (hl), 0
   push de
-  call draw_ed_row
+  call draw_row
   pop de
   dec d
 edr_next:
@@ -617,17 +1069,498 @@ edr_done:
   ld (text_attr), a
   ret
 
-; render one full phrase row (E = row)
-draw_ed_row:
-  ; ---- row label, inverted when it is the playhead ----
+draw_row:
+  ld a, (scr_mode)
+  cp SCR_CHAIN
+  jp z, ch_draw_row
+  cp SCR_PHRASE
+  jp z, ph_draw_row
+  jp so_draw_row
+
+; -------------------------------------------------------------
+; playhead bookkeeping: compare engine position against what is
+; highlighted, mark changed rows dirty
+playhead_update:
+  ld a, (scr_mode)
+  or a
+  jr z, pu_song
+  cp SCR_CHAIN
+  jr z, pu_chain
+
+  ; PHRASE: playing row if our phrase is sounding on ed_track
+  call ed_chst
+  ld b, $FF
+  ld a, (play_state)
+  or a
+  jr z, pu_ph_set
+  ld a, (ix+10)
+  ld c, a
+  ld a, (cur_phrase)
+  cp c
+  jr nz, pu_ph_set
+  ld a, (cur_row)
+  ld b, a
+pu_ph_set:
+  ld a, (drawn_a)
+  cp b
+  ret z
+  cp $FF
+  jr z, pu_ph_new
+  call mark_dirty_a
+pu_ph_new:
+  ld a, b
+  ld (drawn_a), a
+  cp $FF
+  ret z
+  jp mark_dirty_a
+
+pu_chain:
+  ; CHAIN: playing step if our chain is active on ed_track
+  call ed_chst
+  ld b, $FF
+  ld a, (play_state)
+  or a
+  jr z, pu_ch_set
+  ld a, (ix+6)
+  or a
+  jr z, pu_ch_set
+  ld a, (ix+11)
+  ld c, a
+  ld a, (cur_chain)
+  cp c
+  jr nz, pu_ch_set
+  ld a, (ix+8)
+  ld b, a
+pu_ch_set:
+  ld a, (drawn_a)
+  cp b
+  ret z
+  cp $FF
+  jr z, pu_ch_new
+  call mark_dirty_a
+pu_ch_new:
+  ld a, b
+  ld (drawn_a), a
+  cp $FF
+  ret z
+  jp mark_dirty_a
+
+pu_song:
+  ; SONG: one playhead per track (absolute song rows)
+  ld ix, chst
+  ld hl, drawn_a
+  ld c, 4
+pu_so_l:
+  ld b, $FF
+  ld a, (play_state)
+  or a
+  jr z, pu_so_cmp
+  ld a, (eng_mode)
+  cp MODE_SONG
+  jr nz, pu_so_cmp
+  ld a, (ix+6)
+  or a
+  jr z, pu_so_cmp
+  ld b, (ix+7)
+pu_so_cmp:
+  ld a, (hl)
+  cp b
+  jr z, pu_so_next
+  cp $FF
+  jr z, pu_so_new
+  push bc
+  call mark_vis_a
+  pop bc
+pu_so_new:
+  ld (hl), b
+  ld a, b
+  cp $FF
+  jr z, pu_so_next
+  push bc
+  call mark_vis_a
+  pop bc
+pu_so_next:
+  inc hl
+  ld de, 16
+  add ix, de
+  dec c
+  jr nz, pu_so_l
+  ret
+
+; IX = chst struct of the edited track
+ed_chst:
+  ld a, (ed_track)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  ld ix, chst
+  add ix, de
+  ret
+
+; -------------------------------------------------------------
+; labels: screen name + context (row 1), column headers (row 3)
+draw_labels:
+  xor a
+  ld (label_dirty), a
+  ld (text_attr), a
+  ; wipe both lines
+  ld b, 1
+  ld c, 1
+  ld hl, str_blank
+  call print_at
+  ld b, 3
+  ld c, 1
+  ld hl, str_blank
+  call print_at
+
+  ld a, (scr_mode)
+  cp SCR_CHAIN
+  jp z, dl_chain
+  cp SCR_PHRASE
+  jp z, dl_phrase
+
+  ; ---- SONG ----
+  ld b, 1
+  ld c, 1
+  ld hl, str_song
+  call print_at
+  ; track headers with mute state, cursor when in header
+  ld c, 0                    ; track
+dl_so_hdr:
+  push bc
+  ; attr: cursor on header?
   xor a
   ld (text_attr), a
-  ld a, (eng_drawn_row)
-  cp e
-  jr nz, der_lbl
+  ld a, (hdr_cur)
+  or a
+  jr z, dl_so_attr
+  ld a, (song_col)
+  cp c
+  jr nz, dl_so_attr
   ld a, $08
   ld (text_attr), a
-der_lbl:
+dl_so_attr:
+  ; name or ".." when muted
+  ld a, (song_col)           ; (reuse C before it is clobbered)
+  ld a, (mute_flags)
+  ld d, a
+  ld a, c
+  call bit_for_a
+  and d
+  jr z, dl_so_name
+  ld hl, str_muted
+  jr dl_so_pr
+dl_so_name:
+  ld a, c
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, track_names
+  add hl, de
+dl_so_pr:
+  push hl
+  ld a, c
+  call so_track_col
+  ld c, a
+  ld b, 3
+  call nt_addr_hl
+  call vdp_set_addr
+  pop hl
+  ld b, 2
+  call print_raw
+  pop bc
+  inc c
+  ld a, c
+  cp 4
+  jr c, dl_so_hdr
+  xor a
+  ld (text_attr), a
+  ret
+
+dl_chain:
+  ld b, 1
+  ld c, 1
+  ld hl, str_chain
+  call print_at
+  ld b, 1
+  ld c, 7
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, (cur_chain)
+  call print_hex_a
+  call dl_track_tag
+  ld b, 3
+  ld c, 4
+  ld hl, str_hphr
+  call print_at
+  ld b, 3
+  ld c, 8
+  ld hl, str_htsp
+  call print_at
+  ret
+
+dl_phrase:
+  ld b, 1
+  ld c, 1
+  ld hl, str_phrase
+  call print_at
+  ld b, 1
+  ld c, 8
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, (cur_phrase)
+  call print_hex_a
+  call dl_track_tag
+  ld b, 3
+  ld c, 4
+  ld hl, str_hnote
+  call print_at
+  ld b, 3
+  ld c, 9
+  ld hl, str_hinstr
+  call print_at
+  ld b, 3
+  ld c, 12
+  ld hl, str_hcmd
+  call print_at
+  ret
+
+; "Tn" tag at row 1 col 12
+dl_track_tag:
+  ld a, (ed_track)
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, track_names
+  add hl, de
+  push hl
+  ld b, 1
+  ld c, 12
+  call nt_addr_hl
+  call vdp_set_addr
+  pop hl
+  ld b, 2
+  jp print_raw
+
+; A = track -> A = screen column of its song-screen cell
+so_track_col:
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, so_cols
+  add hl, de
+  ld a, (hl)
+  ret
+so_cols:
+  .db 5, 0, 11, 0, 17, 0, 23, 0
+
+; -------------------------------------------------------------
+; SONG screen row (E = visible row 0-15)
+so_draw_row:
+  ; absolute row
+  ld a, (song_view)
+  add a, e
+  ld (tmp_note), a           ; tmp_note = absolute song row
+  ; label
+  xor a
+  ld (text_attr), a
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 1
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, (tmp_note)
+  push de
+  call print_hex_a
+  pop de
+  ; four chain cells
+  ld c, 0
+sdr_cell:
+  push bc
+  push de
+  ; attr: cursor first, then playhead
+  xor a
+  ld (text_attr), a
+  ld a, (hdr_cur)
+  or a
+  jr nz, sdr_ph              ; cursor is on the header
+  ld a, (song_col)
+  cp c
+  jr nz, sdr_ph
+  ld a, (song_cur)
+  ld b, a
+  ld a, (tmp_note)
+  cp b
+  jr nz, sdr_ph
+  ld a, $08
+  ld (text_attr), a
+  jr sdr_val
+sdr_ph:
+  ld hl, drawn_a
+  ld b, 0
+  add hl, bc
+  ld a, (hl)
+  ld b, a
+  ld a, (tmp_note)
+  cp b
+  jr nz, sdr_val
+  ld a, $08
+  ld (text_attr), a
+sdr_val:
+  ; cell value
+  ld a, (tmp_note)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  ld b, 0
+  add hl, bc
+  ld de, song
+  add hl, de
+  ld a, (hl)
+  ld (tmp_instr), a          ; cell value
+  ; position
+  ld a, c
+  call so_track_col
+  ld c, a
+  pop de
+  push de
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  push af
+  call nt_addr_hl
+  call vdp_set_addr
+  pop af
+  ld a, (tmp_instr)
+  cp $FF
+  jr nz, sdr_hex
+  ld a, '-'
+  call print_char
+  ld a, '-'
+  call print_char
+  jr sdr_next
+sdr_hex:
+  call print_hex_a
+sdr_next:
+  pop de
+  pop bc
+  inc c
+  ld a, c
+  cp 4
+  jr c, sdr_cell
+  ret
+
+; -------------------------------------------------------------
+; CHAIN screen row (E = row)
+ch_draw_row:
+  ; label, inverted at the playing chain step
+  xor a
+  ld (text_attr), a
+  ld a, (drawn_a)
+  cp e
+  jr nz, cdr_lbl
+  ld a, $08
+  ld (text_attr), a
+cdr_lbl:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 1
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, e
+  push de
+  call print_hex_nib
+  pop de
+  ; entry
+  push de
+  call ch_entry_ptr
+  pop de
+  ld a, (hl)
+  ld (tmp_note), a           ; phrase #
+  inc hl
+  ld a, (hl)
+  ld (tmp_instr), a          ; transpose
+  ; phrase cell (col 4)
+  xor a
+  call ch_field_attr
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, (tmp_note)
+  cp $FF
+  jr nz, cdr_phex
+  ld a, '-'
+  push de
+  call print_char
+  ld a, '-'
+  call print_char
+  pop de
+  jr cdr_tsp
+cdr_phex:
+  push de
+  call print_hex_a
+  pop de
+cdr_tsp:
+  ; transpose cell (col 8)
+  ld a, 1
+  call ch_field_attr
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 8
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, (tmp_instr)
+  push de
+  call print_hex_a
+  pop de
+  ret
+
+; A = column id, E = row: text_attr for the chain screen
+ch_field_attr:
+  ld d, a
+  ld a, (chn_row)
+  cp e
+  jr nz, cfa_norm
+  ld a, (chn_col)
+  cp d
+  jr nz, cfa_norm
+  ld a, $08
+  jr cfa_set
+cfa_norm:
+  xor a
+cfa_set:
+  ld (text_attr), a
+  ret
+
+; -------------------------------------------------------------
+; PHRASE screen row (E = row), as milestone 4
+ph_draw_row:
+  xor a
+  ld (text_attr), a
+  ld a, (drawn_a)
+  cp e
+  jr nz, pdr_lbl
+  ld a, $08
+  ld (text_attr), a
+pdr_lbl:
   ld a, e
   add a, GRID_ROW
   ld b, a
@@ -641,7 +1574,6 @@ der_lbl:
   call print_hex_nib
   pop de
 
-  ; ---- fetch step into temps ----
   push de
   call ed_step_ptr
   pop de
@@ -657,26 +1589,26 @@ der_lbl:
   ld a, (hl)
   ld (tmp_param), a
 
-  ; ---- note (3 chars, col 4) ----
+  ; note (3 chars, col 4)
   xor a
-  call field_attr
+  call ph_field_attr
   ld a, (tmp_note)
   or a
-  jr nz, der_name
+  jr nz, pdr_name
   ld hl, str_rest
-  jr der_npr
-der_name:
+  jr pdr_npr
+pdr_name:
   dec a
   ld l, a
   add a, a
-  add a, l                   ; * 3
+  add a, l
   push de
   ld e, a
   ld d, 0
   ld hl, note_names
   add hl, de
   pop de
-der_npr:
+pdr_npr:
   push hl
   ld a, e
   add a, GRID_ROW
@@ -690,9 +1622,9 @@ der_npr:
   ld b, 3
   call print_raw
 
-  ; ---- instrument (1 char, col 9) ----
+  ; instrument (1 char, col 9)
   ld a, 1
-  call field_attr
+  call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
@@ -703,21 +1635,21 @@ der_npr:
   pop de
   ld a, (tmp_instr)
   cp $10
-  jr c, der_ihex
+  jr c, pdr_ihex
   ld a, '-'
   push de
   call print_char
   pop de
-  jr der_cmd
-der_ihex:
+  jr pdr_cmd
+pdr_ihex:
   push de
   call print_hex_nib
   pop de
 
-  ; ---- command (1 char, col 12) ----
-der_cmd:
+pdr_cmd:
+  ; command (1 char, col 12)
   ld a, 2
-  call field_attr
+  call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
@@ -729,16 +1661,16 @@ der_cmd:
   ld a, (tmp_cmd)
   or a
   ld a, '-'
-  jr z, der_cpr
+  jr z, pdr_cpr
   ld a, 'K'
-der_cpr:
+pdr_cpr:
   push de
   call print_char
   pop de
 
-  ; ---- param (2 chars, col 13) ----
+  ; param (2 chars, col 13)
   ld a, 3
-  call field_attr
+  call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
@@ -749,13 +1681,13 @@ der_cpr:
   pop de
   ld a, (tmp_cmd)
   or a
-  jr z, der_pdash
+  jr z, pdr_pdash
   ld a, (tmp_param)
   push de
   call print_hex_a
   pop de
   ret
-der_pdash:
+pdr_pdash:
   ld a, '-'
   push de
   call print_char
@@ -764,23 +1696,33 @@ der_pdash:
   pop de
   ret
 
-; A = column id, E = row: set text_attr (inverted under cursor)
-field_attr:
+ph_field_attr:
   ld d, a
-  ld a, (ed_row)
+  ld a, (phr_row)
   cp e
-  jr nz, fa_norm
-  ld a, (ed_col)
+  jr nz, pfa_norm
+  ld a, (phr_col)
   cp d
-  jr nz, fa_norm
+  jr nz, pfa_norm
   ld a, $08
-  jr fa_set
-fa_norm:
+  jr pfa_set
+pfa_norm:
   xor a
-fa_set:
+pfa_set:
   ld (text_attr), a
   ret
 
+; -------------------------------------------------------------
+str_song:        .db "SONG", 0
+str_chain:       .db "CHAIN", 0
+str_phrase:      .db "PHRASE", 0
+str_hphr:        .db "PHR", 0
+str_htsp:        .db "TSP", 0
+str_hnote:       .db "NOTE", 0
+str_hinstr:      .db "I", 0
+str_hcmd:        .db "CMD", 0
+str_blank:       .db "                          ", 0
+str_muted:       .db ".."
 track_names:
   .db "T1T2T3NO"
 

@@ -144,15 +144,6 @@ init_nt:
   ld hl, str_title
   call print_at
 
-  ld b, 1
-  ld c, 1
-  ld hl, str_phrase
-  call print_at
-  ld b, 1
-  ld c, 10
-  ld hl, str_track
-  call print_at
-
   ld hl, str_region_ntsc
   ld a, (region_pal)
   or a
@@ -161,20 +152,6 @@ init_nt:
 init_region_pr:
   ld b, 2
   ld c, 1
-  call print_at
-
-  ; column headers
-  ld b, 3
-  ld c, 4
-  ld hl, str_hnote
-  call print_at
-  ld b, 3
-  ld c, 9
-  ld hl, str_hinstr
-  call print_at
-  ld b, 3
-  ld c, 12
-  ld hl, str_hcmd
   call print_at
 
   ; key hints
@@ -281,7 +258,8 @@ toggle_play:
   call engine_stop
   jr tp_dirty
 tp_start:
-  call engine_play
+  ld a, (scr_mode)           ; transport context: SONG screen
+  call engine_play           ; plays the song, CHAIN/PHRASE loop
 tp_dirty:
   ld a, 1
   ld (state_dirty), a
@@ -330,18 +308,13 @@ ds_print:
 ; strings
 ; =============================================================
 str_title:       .db "SMSDJ V0.1", 0
-str_phrase:      .db "PHRASE", 0
-str_track:      .db "TRACK:", 0
 str_region_pal:  .db "REGION: PAL 50HZ ", 0
 str_region_ntsc: .db "REGION: NTSC 60HZ", 0
-str_hnote:       .db "NOTE", 0
-str_hinstr:      .db "I", 0
-str_hcmd:        .db "CMD", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_rest:        .db "---"
 str_hint1:       .db "1=INS 1+DPAD=EDIT 2+1=CUT", 0
-str_hint2:       .db "2+L/R=TRACK 1+2/PAUSE=PLAY", 0
+str_hint2:       .db "2+L/R=SCREEN 1+2/PAUSE=PLAY", 0
 
 .ENDS
 

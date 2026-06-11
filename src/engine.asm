@@ -1,48 +1,55 @@
 ; =============================================================
-; SMSDJ - sequencer engine core (milestone 3)
+; SMSDJ - sequencer engine (milestone 5: song/chain playback)
 ;
 ; Per-tick pipeline (design doc 5.2, subset):
-;   groove counter -> row advance -> trigger/commands
-;   -> software envelope -> length/kill -> PSG shadows
+;   groove counter -> row advance (-> chain/song advance at
+;   phrase boundaries) -> trigger/commands -> envelope ->
+;   length/kill -> PSG shadows -> mute gate
 ;
-; Tick source abstraction: engine_frame asks the tick source how
-; many ticks elapsed (internal source = 1 per VBlank; the MIDI
-; slave source will return the adapter's clock count instead).
+; Playback modes (transport context, design doc 3/5.4):
+;   MODE_SONG   all tracks walk song rows -> chains -> phrases
+;   MODE_CHAIN  edited track loops the current chain (solo)
+;   MODE_PHRASE edited track loops the current phrase (solo)
 ;
-; Channel state: 4 structs of 8 bytes, walked with IX.
-; (IX is fine at this scale; revisit if the fx loop grows hot.)
-;   +0 note index ($FF = none)
-;   +1 instrument index
-;   +2 current volume (musical 0-F)
-;   +3 envelope tick counter
-;   +4 length/kill countdown ($FF = off)
-;   +5 envelope cache (hi: dir 0=off/1=down/2=up, lo: speed)
-;   +6,+7 reserved
+; Channel state: 4 structs of 16 bytes, walked with IX.
+;   +0 note index ($FF = none)   +1 instrument index
+;   +2 volume (musical 0-F)      +3 envelope tick counter
+;   +4 length/kill ctr ($FF off) +5 envelope cache (dir|speed)
+;   +6 active flag               +7 song row
+;   +8 chain step ($FF = load)   +9 transpose (signed)
+;   +10 phrase # ($FF = none)    +11 chain # ($FF = none)
+;   +12..+15 reserved
 ;
-; Instrument record (16 bytes, design doc layout, subset used):
-;   +0 type (0=TONE, 1=NOISE)  +1 initial volume
-;   +2 envelope (dir<<4|speed) +3 length (ticks, 0=hold)
-;   +4 noise control nibble    +5..+15 reserved
-;
-; Commands: 0 = none, 1 = K (kill: cut note after param ticks,
-; param 0 = cut immediately).
+; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
+;   +1 init volume, +2 envelope, +3 length, +4 noise control.
+; Commands: 0 = none, 1 = K (kill after param ticks).
 ; =============================================================
 
-.DEFINE CMD_NONE 0
-.DEFINE CMD_KILL 1
+.DEFINE CMD_NONE    0
+.DEFINE CMD_KILL    1
+
+.DEFINE MODE_SONG   0
+.DEFINE MODE_CHAIN  1
+.DEFINE MODE_PHRASE 2
+
+.DEFINE SONG_ROWS   128
+.DEFINE NUM_PHRASES 32
+.DEFINE NUM_CHAINS  32
 
 .RAMSECTION "engvars" SLOT 3
   play_state   db
-  cur_row      db
-  drawn_row    db            ; last row highlighted by the UI
+  eng_mode     db
+  cur_row      db            ; phrase row, shared by all tracks
   groove_cnt   db
   groove_pos   db
-  chst         dsb 4*8       ; channel state structs
-  phrase_ptrs  dsb 4*2       ; phrase base per track
+  mute_flags   db            ; bits 0-3
+  chst         dsb 4*16      ; channel state structs
 .ENDS
 
 .RAMSECTION "songdata" SLOT 3
-  phrase_pool  dsb 8*64      ; 8 phrases (grows per design doc)
+  phrase_pool  dsb NUM_PHRASES*64
+  chains       dsb NUM_CHAINS*32   ; 16 x (phrase #, transpose)
+  song         dsb SONG_ROWS*4     ; chain # per track, $FF empty
   instruments  dsb 16*16
   grooves      dsb 16
 .ENDS
@@ -50,25 +57,61 @@
 .SECTION "Engine" FREE
 
 ; -------------------------------------------------------------
+; start playback. A = mode; for MODE_SONG the start row comes
+; from song_cur, for chain/phrase modes cur_chain/cur_phrase and
+; ed_track select the material (editor variables).
 engine_play:
+  ld (eng_mode), a
   ld a, $FF
   ld (cur_row), a            ; first tick advances to row 0
-  ld (drawn_row), a
   ld a, 1
   ld (groove_cnt), a
   xor a
   ld (groove_pos), a
+
   ld ix, chst
-  ld de, 8
-  ld b, 4
+  ld c, 0
 ep_chl:
   ld (ix+0), $FF
   ld (ix+2), 0
   ld (ix+3), 1
   ld (ix+4), $FF
   ld (ix+5), 0
+  ld (ix+8), $FF             ; chain step: load on first boundary
+  ld (ix+9), 0
+  ld (ix+10), $FF
+  ld (ix+11), $FF
+  ld a, (song_cur)
+  ld (ix+7), a
+  ; active?
+  ld a, (eng_mode)
+  cp MODE_SONG
+  jr z, ep_active
+  ld a, (ed_track)
+  cp c
+  jr z, ep_solo
+  ld (ix+6), 0
+  jr ep_next
+ep_solo:
+  ld a, (eng_mode)
+  cp MODE_CHAIN
+  jr nz, ep_phr
+  ld a, (cur_chain)
+  ld (ix+11), a
+  jr ep_active
+ep_phr:
+  ld a, (cur_phrase)
+  ld (ix+10), a
+ep_active:
+  ld (ix+6), 1
+ep_next:
+  ld de, 16
   add ix, de
-  djnz ep_chl
+  inc c
+  ld a, c
+  cp 4
+  jr c, ep_chl
+
   ld a, 1
   ld (play_state), a
   ret
@@ -78,7 +121,7 @@ engine_stop:
   ld (play_state), a
   ; zero channel volumes so the prelisten fx pass stays silent
   ld hl, chst+2
-  ld de, 8
+  ld de, 16
   ld b, 4
 es_vols:
   ld (hl), 0
@@ -99,7 +142,21 @@ engine_frame:
   ret z
   ; tick source: INTERNAL = exactly 1 tick per VBlank.
   ; (MIDI SLAVE will instead run the adapter's clock count.)
-  ; fall through to engine_tick
+  call engine_tick
+  ; mute gate: muted tracks keep sequencing, output is silenced
+  ld a, (mute_flags)
+  ld b, a
+  ld hl, psg_vols
+  ld c, 4
+mg_loop:
+  rr b
+  jr nc, mg_next
+  ld (hl), $0F
+mg_next:
+  inc hl
+  dec c
+  jr nz, mg_loop
+  ret
 
 engine_tick:
   ld hl, groove_cnt
@@ -113,6 +170,10 @@ engine_tick:
   ld hl, grooves
   add hl, de
   ld a, (hl)
+  or a
+  jr nz, et_gok
+  ld a, 6                    ; safety for empty groove
+et_gok:
   ld (groove_cnt), a
   ; advance groove pos (wrap at 16 or on 0-terminator)
   ld a, (groove_pos)
@@ -133,37 +194,171 @@ et_gwrap:
 et_gstore:
   ld (groove_pos), a
 
-  ; advance row and process it
+  ; advance row; at phrase boundaries walk chains/song
   ld a, (cur_row)
   inc a
   and $0F
   ld (cur_row), a
+  or a
+  call z, advance_positions
   call process_row
 et_fx:
   jp channels_fx
 
 ; -------------------------------------------------------------
-; read the new row on all 4 tracks
+; phrase boundary: move every active track to its next phrase
+advance_positions:
+  ld ix, chst
+  ld c, 0
+ap_loop:
+  ld a, (ix+6)
+  or a
+  jr z, ap_next
+  call advance_track
+ap_next:
+  ld de, 16
+  add ix, de
+  inc c
+  ld a, c
+  cp 4
+  jr c, ap_loop
+  ret
+
+advance_track:
+  ld a, (eng_mode)
+  cp MODE_PHRASE
+  ret z                      ; phrase loops in place
+  cp MODE_CHAIN
+  jr nz, at_song
+
+  ; ---- chain loop mode ----
+  ld a, (ix+8)
+  inc a                      ; $FF -> 0 on first boundary
+  cp 16
+  jr c, at_cread
+  xor a
+at_cread:
+  ld (ix+8), a
+  call chain_entry           ; uses (ix+11), (ix+8) -> HL
+  ld a, (hl)
+  cp $FF
+  jr nz, at_cset
+  ld (ix+8), 0               ; wrap to chain start
+  call chain_entry
+  ld a, (hl)
+  cp $FF
+  jr nz, at_cset
+  ld (ix+6), 0               ; empty chain: go silent
+  ret
+at_cset:
+  ld (ix+10), a
+  inc hl
+  ld a, (hl)
+  ld (ix+9), a
+  ret
+
+  ; ---- song mode ----
+at_song:
+  ld a, (ix+8)
+  cp $FF
+  jr z, at_load              ; first boundary: load current row
+  inc a
+  cp 16
+  jr nc, at_nextrow
+  ld (ix+8), a
+  call chain_entry
+  ld a, (hl)
+  cp $FF
+  jr z, at_nextrow
+  ld (ix+10), a
+  inc hl
+  ld a, (hl)
+  ld (ix+9), a
+  ret
+at_nextrow:
+  ld a, (ix+7)
+  inc a
+  ld (ix+7), a
+  cp SONG_ROWS
+  jr nc, at_off
+at_load:
+  ; chain # from song[songrow][track]
+  ld l, (ix+7)
+  ld h, 0
+  add hl, hl
+  add hl, hl                 ; row * 4
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld de, song
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  jr z, at_off
+  ld (ix+11), a
+  ld (ix+8), 0
+  call chain_entry
+  ld a, (hl)
+  cp $FF
+  jr z, at_off               ; empty chain
+  ld (ix+10), a
+  inc hl
+  ld a, (hl)
+  ld (ix+9), a
+  ret
+at_off:
+  ld (ix+6), 0
+  ld (ix+10), $FF
+  ret
+
+; HL = &chains[(ix+11)][(ix+8)]
+chain_entry:
+  ld l, (ix+11)
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; chain * 32
+  ld a, (ix+8)
+  add a, a
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, chains
+  add hl, de
+  ret
+
+; -------------------------------------------------------------
+; read the new row on all active tracks
 process_row:
   ld ix, chst
   ld c, 0
 pr_loop:
-  ; HL = step = phrase_ptrs[c] + row*4
-  ld a, c
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, phrase_ptrs
-  add hl, de
-  ld e, (hl)
-  inc hl
-  ld d, (hl)
+  ld a, (ix+6)
+  or a
+  jr z, pr_next
+  ld a, (ix+10)
+  cp $FF
+  jr z, pr_next
+
+  ; HL = step = phrase_pool + phrase*64 + row*4
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 64
   ld a, (cur_row)
   add a, a
   add a, a
-  ld l, a
-  ld h, 0
-  add hl, de                 ; hl = step base
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, phrase_pool
+  add hl, de
 
   ; instrument byte first, so a trigger uses it
   inc hl
@@ -177,6 +372,15 @@ pr_note:
   or a
   jr z, pr_cmd
   dec a
+  ; apply chain transpose, clamp to table
+  add a, (ix+9)
+  jp p, pr_nclamp
+  xor a
+pr_nclamp:
+  cp NOTE_COUNT
+  jr c, pr_nok
+  ld a, NOTE_COUNT-1
+pr_nok:
   ld (ix+0), a
   push hl
   push bc
@@ -198,12 +402,12 @@ pr_cmd:
 pr_kill_later:
   ld (ix+4), a
 pr_next:
-  ld de, 8
+  ld de, 16
   add ix, de
   inc c
   ld a, c
   cp 4
-  jr c, pr_loop
+  jp c, pr_loop
   ret
 
 ; trigger note on channel struct IX from instrument (ix+1)
@@ -324,7 +528,7 @@ cf_vol:
   ld d, 0
   add hl, de
   ld (hl), a
-  ld de, 8
+  ld de, 16
   add ix, de
   inc c
   ld a, c
@@ -335,6 +539,18 @@ cf_vol:
 ; -------------------------------------------------------------
 ; copy demo song from ROM into the RAM song structures
 song_init:
+  ; empty song and chains ($FF = unused)
+  ld hl, song
+  ld de, song+1
+  ld bc, SONG_ROWS*4-1
+  ld (hl), $FF
+  ldir
+  ld hl, chains
+  ld de, chains+1
+  ld bc, NUM_CHAINS*32-1
+  ld (hl), $FF
+  ldir
+
   ld hl, demo_phrases
   ld de, phrase_pool
   ld bc, 4*64
@@ -347,15 +563,14 @@ song_init:
   ld de, grooves
   ld bc, 16
   ldir
-  ; track n -> phrase n
-  ld hl, phrase_pool
-  ld (phrase_ptrs), hl
-  ld hl, phrase_pool+64
-  ld (phrase_ptrs+2), hl
-  ld hl, phrase_pool+128
-  ld (phrase_ptrs+4), hl
-  ld hl, phrase_pool+192
-  ld (phrase_ptrs+6), hl
+  ld hl, demo_chains
+  ld de, chains
+  ld bc, 4*32
+  ldir
+  ld hl, demo_song
+  ld de, song
+  ld bc, 2*4
+  ldir
   ret
 
 ; -------------------------------------------------------------
@@ -364,26 +579,50 @@ song_init:
 ; D-5=30 E-5=32 G-5=35 A-5=37
 ; -------------------------------------------------------------
 demo_phrases:
-; T1: lead (instr 0)
+; phrase 0: lead (instr 0)
   .db 25,0,0,0,    0,$FF,0,0,  28,0,0,0,    32,0,0,0
   .db 37,0,0,0,    0,$FF,0,0,  35,0,0,0,    32,0,0,0
   .db 0,$FF,0,0,   28,0,0,0,   30,0,0,0,    0,$FF,0,0
   .db 32,0,0,0,    0,$FF,0,0,  27,0,0,0,    0,$FF,CMD_KILL,3
-; T2: offbeat comp (instr 1)
+; phrase 1: offbeat comp (instr 1)
   .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
   .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
   .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
   .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
-; T3: bass (instr 2)
+; phrase 2: bass (instr 2)
   .db 1,2,0,0,     0,$FF,0,0,  1,2,0,0,     0,$FF,0,0
   .db 13,2,0,0,    0,$FF,0,0,  1,2,0,0,     0,$FF,0,0
   .db 1,2,0,0,     0,$FF,0,0,  11,2,0,0,    0,$FF,0,0
   .db 8,2,0,0,     0,$FF,0,0,  1,2,0,0,     0,$FF,CMD_KILL,4
-; NO: drums (instr 3 hat, 4 snare)
+; phrase 3: drums (instr 3 hat, 4 snare)
   .db 1,3,0,0,     0,$FF,0,0,  1,3,0,0,     0,$FF,0,0
   .db 1,4,0,0,     0,$FF,0,0,  1,3,0,0,     0,$FF,0,0
   .db 1,3,0,0,     0,$FF,0,0,  1,3,0,0,     0,$FF,0,0
   .db 1,4,0,0,     0,$FF,0,0,  1,3,0,0,     1,3,0,0
+
+; chains: 16 x (phrase, transpose), $FF = end
+demo_chains:
+; chain 0: lead phrase, then octave up
+  .db 0,0, 0,12
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+; chain 1: comp twice
+  .db 1,0, 1,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+; chain 2: bass twice
+  .db 2,0, 2,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+; chain 3: drums twice
+  .db 3,0, 3,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
+
+; song rows: chain per track
+demo_song:
+  .db 0,1,2,3
+  .db 0,1,2,3
 
 ; type, vol, env(dir|speed), len, noisectl, pad to 16
 demo_instruments:
