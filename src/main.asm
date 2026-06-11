@@ -285,9 +285,14 @@ toggle_play:
   call engine_stop
   jr tp_dirty
 tp_start:
-  ld a, (scr_mode)           ; transport context: SONG screen
-  cp MODE_PHRASE             ; plays the song, CHAIN/PHRASE loop;
-  jr c, tp_go                ; form screens behave like PHRASE
+  ld a, (scr_mode)           ; transport context (design doc 3):
+  cp SCR_INSTR               ; SONG/CHAIN/PHRASE play themselves,
+  jr c, tp_go                ; INSTR/TABLE loop the phrase for
+  cp SCR_GROOVE              ; auditioning, GROOVE/PROJECT play
+  jr c, tp_phr               ; the whole song
+  ld a, MODE_SONG
+  jr tp_go
+tp_phr:
   ld a, MODE_PHRASE
 tp_go:
   call engine_play
