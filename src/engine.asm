@@ -23,6 +23,7 @@
 ;   +17 sweep / +18 vib / +19 trem (cached at trigger)
 ;   +20 table # ($FF off)  +21 table row  +22 table tick ctr
 ;   +23 table speed        +24 table pitch offset (signed)
+;   +25 arp param (C cmd)  +26 arp phase  +27 finetune (signed)
 ;
 ; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
 ;   +1 init volume, +2 envelope, +3 length, +4 noise control,
@@ -33,10 +34,22 @@
 ; =============================================================
 
 .DEFINE CMD_NONE    0
-.DEFINE CMD_KILL    1
-.DEFINE CMD_HOP     2          ; in tables: jump to row (loop)
+.DEFINE CMD_KILL    1          ; K: cut after param ticks
+.DEFINE CMD_HOP     2          ; H: phrase -> end now; table -> jump
+.DEFINE CMD_TBL     3          ; A: start/switch table (>=16 off)
+.DEFINE CMD_ARP     4          ; C: chord arp 0,x,y
+.DEFINE CMD_ENV     5          ; E: vol x, fade y (0 off,1-7 dn,9-F up)
+.DEFINE CMD_FINE    6          ; F: finetune, period units
+.DEFINE CMD_GRV     7          ; G: select groove
+.DEFINE CMD_NOI     8          ; N: noise control override
+.DEFINE CMD_PB      9          ; P: pitch bend (signed sweep/tick)
+.DEFINE CMD_TPO     10         ; T: tempo, BPM -> even groove
+.DEFINE CMD_VIB     11         ; V: vibrato override (speed|depth)
+.DEFINE CMD_WAIT    12         ; W: shorten this row to param ticks
+.DEFINE CMD_COUNT   13
 
 .DEFINE NUM_TABLES  16
+.DEFINE NUM_GROOVES 16
 
 .DEFINE MODE_SONG   0
 .DEFINE MODE_CHAIN  1
@@ -54,6 +67,8 @@
   groove_pos   db
   mute_flags   db            ; bits 0-3
   eng_start    db            ; song row playback began on (loop point)
+  groove_sel   db            ; active groove
+  hop_pending  db            ; H command: force phrase boundary
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
@@ -63,7 +78,7 @@
   song         dsb SONG_ROWS*4     ; chain # per track, $FF empty
   instruments  dsb 16*16
   tables       dsb NUM_TABLES*64  ; 16 x (vol, pitch, cmd, param)
-  grooves      dsb 16
+  grooves      dsb NUM_GROOVES*16
 .ENDS
 
 .SECTION "Engine" FREE
@@ -74,6 +89,10 @@
 ; ed_track select the material (editor variables).
 engine_play:
   ld (eng_mode), a
+  push af
+  xor a
+  ld (hop_pending), a
+  pop af
   ld a, $FF
   ld (cur_row), a            ; first tick advances to row 0
   ld a, 1
@@ -98,6 +117,9 @@ ep_chl:
   ld (ix+12), 0              ; pitched-noise flag
   ld (ix+20), $FF            ; table off
   ld (ix+24), 0              ; table pitch offset
+  ld (ix+25), 0              ; arp off
+  ld (ix+26), 0
+  ld (ix+27), 0              ; finetune
   ld a, (song_cur)
   ld (ix+7), a
   ; active?
@@ -180,11 +202,11 @@ engine_tick:
   dec (hl)
   jr nz, et_fx
 
-  ; reload groove counter from table
+  ; reload groove counter from the selected groove
+  call groove_base
   ld a, (groove_pos)
   ld e, a
   ld d, 0
-  ld hl, grooves
   add hl, de
   ld a, (hl)
   or a
@@ -193,13 +215,13 @@ engine_tick:
 et_gok:
   ld (groove_cnt), a
   ; advance groove pos (wrap at 16 or on 0-terminator)
+  call groove_base
   ld a, (groove_pos)
   inc a
   cp 16
   jr nc, et_gwrap
   ld e, a
   ld d, 0
-  ld hl, grooves
   add hl, de
   ld b, a
   ld a, (hl)
@@ -219,8 +241,28 @@ et_gstore:
   or a
   call z, advance_positions
   call process_row
+  ld a, (hop_pending)        ; H: next tick crosses the boundary
+  or a
+  jr z, et_fx
+  xor a
+  ld (hop_pending), a
+  ld a, $0F
+  ld (cur_row), a
 et_fx:
   jp channels_fx
+
+; HL = start of the selected groove
+groove_base:
+  ld a, (groove_sel)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, grooves
+  add hl, de
+  ret
 
 ; -------------------------------------------------------------
 ; phrase boundary: move every active track to its next phrase
@@ -366,10 +408,10 @@ process_row:
 pr_loop:
   ld a, (ix+6)
   or a
-  jr z, pr_next
+  jp z, pr_next
   ld a, (ix+10)
   cp $FF
-  jr z, pr_next
+  jp z, pr_next
 
   ; HL = step = phrase_pool + phrase*64 + row*4
   ld l, a
@@ -420,16 +462,42 @@ pr_cmd:
   inc hl
   inc hl
   ld a, (hl)                 ; command
-  cp CMD_KILL
-  jr nz, pr_next
-  inc hl
-  ld a, (hl)                 ; param
   or a
-  jr nz, pr_kill_later
-  ld (ix+2), 0               ; K00: cut now
-  jr pr_next
-pr_kill_later:
-  ld (ix+4), a
+  jr z, pr_next
+  inc hl
+  ld d, (hl)                 ; param
+  ; global commands first
+  cp CMD_GRV
+  jr z, prc_grv
+  cp CMD_HOP
+  jr z, prc_hop
+  cp CMD_TPO
+  jr z, prc_tpo
+  cp CMD_WAIT
+  jr z, prc_wait
+  call exec_command          ; channel-scope
+  jp pr_next
+prc_grv:
+  ld a, d
+  and $0F
+  ld (groove_sel), a
+  xor a
+  ld (groove_pos), a
+  jp pr_next
+prc_hop:
+  ld a, 1
+  ld (hop_pending), a
+  jp pr_next
+prc_wait:
+  ld a, d
+  or a
+  jr nz, prc_wst
+  inc a
+prc_wst:
+  ld (groove_cnt), a
+  jp pr_next
+prc_tpo:
+  call set_tempo
 pr_next:
   ld de, 32
   add ix, de
@@ -437,6 +505,141 @@ pr_next:
   ld a, c
   cp 4
   jp c, pr_loop
+  ret
+
+; -------------------------------------------------------------
+; channel-scope commands: A = command, D = param, IX = channel.
+; Shared by phrase rows and table rows.
+exec_command:
+  cp CMD_KILL
+  jr z, xc_kill
+  cp CMD_TBL
+  jr z, xc_tbl
+  cp CMD_ARP
+  jr z, xc_arp
+  cp CMD_ENV
+  jr z, xc_env
+  cp CMD_FINE
+  jr z, xc_fine
+  cp CMD_NOI
+  jr z, xc_noi
+  cp CMD_PB
+  jr z, xc_pb
+  cp CMD_VIB
+  jr z, xc_vib
+  ret
+xc_kill:
+  ld a, d
+  or a
+  jr nz, xc_klater
+  ld (ix+2), 0
+  ret
+xc_klater:
+  ld (ix+4), a
+  ret
+xc_tbl:
+  ld a, d
+  cp NUM_TABLES
+  jr nc, xc_toff
+  ld (ix+20), a
+  ld (ix+21), 0
+  ld (ix+22), 1
+  ret
+xc_toff:
+  ld (ix+20), $FF
+  ld (ix+24), 0
+  ret
+xc_arp:
+  ld a, d
+  ld (ix+25), a
+  ld (ix+26), 0
+  ret
+xc_env:
+  ld a, d
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  ld (ix+2), a               ; volume
+  ld a, d
+  and $0F
+  jr z, xc_eoff
+  cp 8
+  jr nc, xc_eup
+  or $10                     ; fade down
+  jr xc_est
+xc_eup:
+  and $07
+  or $20                     ; fade up
+  jr xc_est
+xc_eoff:
+  xor a
+xc_est:
+  ld (ix+5), a
+  ld (ix+3), 1
+  ret
+xc_fine:
+  ld a, d
+  ld (ix+27), a
+  ret
+xc_noi:
+  ld a, d
+  and $07
+  ld (psg_noisectl), a
+  and $03
+  cp $03
+  ld (ix+12), 0
+  ret nz
+  ld (ix+12), 1
+  ret
+xc_pb:
+  ld a, d
+  ld (ix+17), a
+  ret
+xc_vib:
+  ld a, d
+  ld (ix+18), a
+  ret
+
+; D = BPM: write an even groove into the selected groove
+set_tempo:
+  ld a, d
+  or a
+  ret z
+  push bc
+  ld a, (region_pal)
+  or a
+  ld hl, 900                 ; NTSC: ticks = 900/BPM
+  jr z, st_div
+  ld hl, 750                 ; PAL: 750/BPM
+st_div:
+  ld e, d
+  ld d, 0
+  ld b, 0
+  or a
+st_loop:
+  sbc hl, de
+  jr c, st_done
+  inc b
+  jr st_loop
+st_done:
+  ld a, b
+  or a
+  jr nz, st_min
+  inc a
+st_min:
+  cp 16
+  jr c, st_ok
+  ld a, 15
+st_ok:
+  call groove_base
+  ld (hl), a
+  inc hl
+  ld (hl), a
+  inc hl
+  ld (hl), 0
+  pop bc
   ret
 
 ; trigger note on channel struct IX from instrument (ix+1)
@@ -496,6 +699,8 @@ tn_tbs:
   ld (ix+21), 0              ; table restarts on note
   ld (ix+22), 1              ; first row applies this tick
   ld (ix+24), 0
+  ld (ix+25), 0              ; arp clears on new note
+  ld (ix+26), 0
   ld a, d                    ; transpose, stacks with chain's
   or a
   jr z, tn_mods
@@ -533,6 +738,27 @@ tn_mods:
 ; clamped to 1..1023. Uses the IX channel's mod state.
 calc_period:
   add a, (ix+24)             ; table pitch offset (semitones)
+  ld d, a
+  ld a, (ix+25)              ; C command arp: 0, +x, +y
+  or a
+  ld a, d
+  jr z, cpd_noarp
+  ld a, (ix+26)
+  or a
+  ld a, d
+  jr z, cpd_noarp            ; phase 0: root
+  ld e, a
+  ld a, (ix+25)
+  dec e
+  jr nz, cpd_arpy
+  rrca
+  rrca
+  rrca
+  rrca                       ; phase 1: +x
+cpd_arpy:
+  and $0F
+  add a, d
+cpd_noarp:
   jp p, cpd_idx
   xor a
 cpd_idx:
@@ -602,6 +828,18 @@ cpd_vib:
   add hl, bc
   ex de, hl
 cpd_clamp:
+  ; finetune (F command), signed period units
+  ld a, (ix+27)
+  or a
+  jr z, cpd_fdone
+  ld c, a
+  rlca
+  sbc a, a
+  ld b, a
+  ex de, hl
+  add hl, bc
+  ex de, hl
+cpd_fdone:
   bit 7, d                   ; negative -> floor
   jr z, cpd_hi
   ld de, 1
@@ -700,26 +938,21 @@ cf_tpitch:
   ld (ix+24), a
   inc hl
   ld a, (hl)                 ; command column
+  or a
+  jr z, cf_tadv
   cp CMD_HOP
   jr z, cf_thop
-  cp CMD_KILL
-  jr z, cf_tkill
+  inc hl
+  ld d, (hl)
+  push bc
+  call exec_command          ; same set as phrase commands
+  pop bc
 cf_tadv:
   ld a, (ix+21)
   inc a
   and $0F
   ld (ix+21), a
   jr cf_env
-cf_tkill:
-  inc hl
-  ld a, (hl)
-  or a
-  jr nz, cf_tklater
-  ld (ix+2), 0
-  jr cf_tadv
-cf_tklater:
-  ld (ix+4), a
-  jr cf_tadv
 cf_thop:
   inc hl
   ld a, (hl)                 ; jump target row (loop point)
@@ -727,6 +960,18 @@ cf_thop:
   ld (ix+21), a
 
 cf_env:
+  ; --- arp phase (C command): cycle 0,x,y each tick ---
+  ld a, (ix+25)
+  or a
+  jr z, cf_env2
+  ld a, (ix+26)
+  inc a
+  cp 3
+  jr c, cf_arpst
+  xor a
+cf_arpst:
+  ld (ix+26), a
+cf_env2:
   ; --- envelope ---
   ; speed 1 = 4 vol steps/tick, 2 = 2 steps/tick, 3 = 1/tick,
   ; 4..F = one step every speed-2 ticks (ticks are the engine's
@@ -888,7 +1133,7 @@ si_itbl:
   ld bc, 4*4
   ldir
   ld hl, demo_groove
-  ld de, grooves
+  ld de, grooves             ; groove 0; others empty
   ld bc, 16
   ldir
   ld hl, demo_chains

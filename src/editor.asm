@@ -22,6 +22,7 @@
 .DEFINE SCR_PHRASE  2
 .DEFINE SCR_INSTR   3
 .DEFINE SCR_TABLE   4
+.DEFINE SCR_GROOVE  5
 
 .RAMSECTION "edvars" SLOT 3
   scr_mode     db
@@ -33,6 +34,8 @@
   cur_table    db
   tbl_row      db
   tbl_col      db
+  cur_groove   db
+  grv_row      db
   song_cur     db            ; absolute song row of the cursor
   song_col     db
   song_view    db            ; top visible song row
@@ -87,6 +90,8 @@ editor_init:
   ld (cur_table), a
   ld (tbl_row), a
   ld (tbl_col), a
+  ld (cur_groove), a
+  ld (grv_row), a
   ld (dt1_timer), a
   ld a, $FF
   ld (clip_scr), a
@@ -172,6 +177,8 @@ screen_nav:
   jr z, sn_seli
   cp SCR_TABLE
   jr z, sn_selt
+  cp SCR_GROOVE
+  jr z, sn_selg
   jr sn_lr
 sn_seli:
   ld a, (pad_edge)
@@ -207,6 +214,23 @@ snt_st:
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
+sn_selg:
+  ld a, (pad_edge)
+  and PAD_UP|PAD_DOWN
+  jr z, sn_lr
+  and PAD_UP
+  ld a, (cur_groove)
+  jr z, sng_dn
+  inc a
+  jr sng_st
+sng_dn:
+  dec a
+sng_st:
+  and $0F
+  ld (cur_groove), a
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
 sn_lr:
   ld a, (pad_edge)
   and PAD_LEFT|PAD_RIGHT
@@ -227,6 +251,8 @@ sn_right:
   jr z, sn_toinstr
   cp SCR_INSTR
   jr z, sn_totable
+  cp SCR_TABLE
+  jr z, sn_togroove
   cp SCR_CHAIN
   ret nz
   ; CHAIN -> PHRASE: phrase under cursor
@@ -255,6 +281,9 @@ sn_iset:
   ld (ins_row), a
   ld a, SCR_INSTR
   jr sn_switch
+sn_togroove:
+  ld a, SCR_GROOVE
+  jp sn_switch
 sn_totable:
   ; INSTR -> TABLE: the instrument's table when assigned
   call ins_ptr
@@ -312,6 +341,8 @@ cursor_move:
   jp z, cm_instr
   cp SCR_TABLE
   jp z, cm_table
+  cp SCR_GROOVE
+  jp z, cm_groove
 
   ; ---- SONG ----
   ld a, (hdr_cur)
@@ -616,6 +647,8 @@ do_press:
   jp z, inp_press
   cp SCR_TABLE
   jp z, tbp_press
+  cp SCR_GROOVE
+  jp z, grp_press
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -649,6 +682,8 @@ do_cut:
   jp z, php_cut
   cp SCR_TABLE
   jp z, tbp_cut
+  cp SCR_GROOVE
+  jp z, grp_cut
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -695,6 +730,8 @@ do_edit:
   jp z, inp_edit
   cp SCR_TABLE
   jp z, tbp_edit
+  cp SCR_GROOVE
+  jp z, grp_edit
   ; ---- SONG: edit chain number ----
   ld a, (hdr_cur)
   or a
@@ -1086,13 +1123,29 @@ dei_store:
   jp mark_phr_dirty
 
 de_cmd:
-  ld a, (pad_edge)           ; toggle on edge only
+  ld a, (pad_edge)           ; cycle commands on edge only
   and $0F
   ret z
+  ld c, a
   inc hl
   inc hl
+  ld a, c
+  and PAD_RIGHT|PAD_UP
   ld a, (hl)
-  xor CMD_KILL
+  jr z, dcm_dn
+  inc a
+  cp CMD_COUNT
+  jr c, dcm_st
+  xor a
+  jr dcm_st
+dcm_dn:
+  or a
+  jr nz, dcm_dec
+  ld a, CMD_COUNT-1
+  jr dcm_st
+dcm_dec:
+  dec a
+dcm_st:
   ld (hl), a
   jp mark_phr_dirty
 
@@ -1489,6 +1542,85 @@ ine_mark:
   jp ins_mark_field
 
 ; -------------------------------------------------------------
+; GROOVE screen: one column of tick counts (0 ends the groove)
+gr_entry_ptr:                ; E = row -> HL
+  ld a, (cur_groove)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld d, 0
+  add a, e
+  ld e, a
+  ld hl, grooves
+  add hl, de
+  ret
+
+cm_groove:
+  ld a, (grv_row)
+  call mark_dirty_a
+  bit 1, c
+  jr z, cg_up
+  ld a, (grv_row)
+  inc a
+  and $0F
+  ld (grv_row), a
+cg_up:
+  bit 0, c
+  jr z, cg_f
+  ld a, (grv_row)
+  dec a
+  and $0F
+  ld (grv_row), a
+cg_f:
+  ld a, (grv_row)
+  jp mark_dirty_a
+
+grp_press:
+  ld a, (grv_row)
+  ld e, a
+  call gr_entry_ptr
+  ld a, (hl)
+  or a
+  ret nz
+  ld (hl), 6
+  jr gr_mark
+
+grp_cut:
+  ld a, (grv_row)
+  ld e, a
+  call gr_entry_ptr
+  ld (hl), 0
+gr_mark:
+  ld a, (grv_row)
+  jp mark_dirty_a
+
+grp_edit:
+  ld a, (grv_row)
+  ld e, a
+  call gr_entry_ptr
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  and PAD_RIGHT|PAD_UP
+  jr z, gre_dn
+  ld a, d
+  cp $0F
+  jr nc, gre_dn
+  inc d
+gre_dn:
+  ld a, c
+  and PAD_LEFT|PAD_DOWN
+  jr z, gre_st
+  ld a, d
+  or a
+  jr z, gre_st
+  dec d
+gre_st:
+  ld (hl), d
+  jr gr_mark
+
+; -------------------------------------------------------------
 ; TABLE screen handlers (columns: 0 vol, 1 pitch, 2 cmd, 3 param)
 tb_entry_ptr:                ; E = row -> HL = table row
   ld a, (cur_table)
@@ -1683,18 +1815,30 @@ tpi_st:
   ld (hl), d
   jp tb_mark
 
-tbe_cmd:                     ; cycle - / K / H (edge-gated)
+tbe_cmd:                     ; cycle the command set (edge-gated)
   ld a, (pad_edge)
   and $0F
   ret z
+  ld c, a
   inc hl
   inc hl
+  ld a, c
+  and PAD_RIGHT|PAD_UP
   ld a, (hl)
+  jr z, tcm_dn
   inc a
-  cp 3
-  jr c, tec_st
+  cp CMD_COUNT
+  jr c, tcm_st
   xor a
-tec_st:
+  jr tcm_st
+tcm_dn:
+  or a
+  jr nz, tcm_dec
+  ld a, CMD_COUNT-1
+  jr tcm_st
+tcm_dec:
+  dec a
+tcm_st:
   ld (hl), a
   jp tb_mark
 
@@ -2016,6 +2160,8 @@ draw_row:
   jp z, in_draw_row
   cp SCR_TABLE
   jp z, tb_draw_row
+  cp SCR_GROOVE
+  jp z, gr_draw_row
   jp so_draw_row
 
 ; -------------------------------------------------------------
@@ -2025,6 +2171,8 @@ playhead_update:
   ld a, (scr_mode)
   cp SCR_INSTR
   ret z                      ; no playhead on the form screen
+  cp SCR_GROOVE
+  jr z, pu_groove
   cp SCR_TABLE
   jr z, pu_table
   or a
@@ -2058,6 +2206,22 @@ pu_ph_new:
   cp $FF
   ret z
   jp mark_dirty_a
+
+pu_groove:
+  ; GROOVE: position within the selected groove while playing
+  ld b, $FF
+  ld a, (play_state)
+  or a
+  jr z, pug_set
+  ld a, (groove_sel)
+  ld c, a
+  ld a, (cur_groove)
+  cp c
+  jr nz, pug_set
+  ld a, (groove_pos)
+  ld b, a
+pug_set:
+  jp pu_ph_set
 
 pu_table:
   ; TABLE: playing row if our table runs on the edited track
@@ -2187,6 +2351,8 @@ draw_labels:
   jp z, dl_instr
   cp SCR_TABLE
   jp z, dl_table
+  cp SCR_GROOVE
+  jp z, dl_groove
 
   ; ---- SONG ----
   ld b, 1
@@ -2294,6 +2460,23 @@ dl_phrase:
   call print_at
   ret
 
+dl_groove:
+  ld b, 1
+  ld c, 1
+  ld hl, str_grv
+  call print_at
+  ld b, 1
+  ld c, 8
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, (cur_groove)
+  call print_hex_a
+  ld b, 3
+  ld c, 4
+  ld hl, str_htik
+  call print_at
+  ret
+
 dl_table:
   ld b, 1
   ld c, 1
@@ -2378,13 +2561,13 @@ dsm_attr:
   pop de
   inc d
   ld a, d
-  cp 5
+  cp 6
   jr c, dsm_l
   xor a
   ld (text_attr), a
   ret
 map_letters:
-  .db "SCPIT"
+  .db "SCPITG"
 
 ; A = track -> A = screen column of its song-screen cell
 so_track_col:
@@ -2663,14 +2846,7 @@ tdr_pitch:
   call vdp_set_addr
   pop de
   ld a, (tmp_cmd)
-  or a
-  ld a, '-'
-  jr z, tdr_cpr
-  ld a, (tmp_cmd)
-  cp CMD_HOP
-  ld a, 'K'
-  jr nz, tdr_cpr
-  ld a, 'H'
+  call cmd_char
 tdr_cpr:
   push de
   call print_char
@@ -2699,6 +2875,63 @@ tdr_pdash:
   push de
   call print_char
   ld a, '-'
+  call print_char
+  pop de
+  ret
+
+; -------------------------------------------------------------
+; GROOVE screen row (E = row)
+gr_draw_row:
+  xor a
+  ld (text_attr), a
+  ld a, (drawn_a)
+  cp e
+  jr nz, gdr_lbl
+  ld a, $08
+  ld (text_attr), a
+gdr_lbl:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 1
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, e
+  push de
+  call print_hex_nib
+  pop de
+  ; tick value, cursor-inverted
+  xor a
+  ld (text_attr), a
+  ld a, (grv_row)
+  cp e
+  jr nz, gdr_val
+  ld a, $08
+  ld (text_attr), a
+gdr_val:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  push de
+  call gr_entry_ptr
+  pop de
+  ld a, (hl)
+  or a
+  jr z, gdr_dash
+  push de
+  call print_hex_nib
+  pop de
+  ret
+gdr_dash:
+  ld a, '-'
+  push de
   call print_char
   pop de
   ret
@@ -2846,10 +3079,7 @@ pdr_cmd:
   call vdp_set_addr
   pop de
   ld a, (tmp_cmd)
-  or a
-  ld a, '-'
-  jr z, pdr_cpr
-  ld a, 'K'
+  call cmd_char
 pdr_cpr:
   push de
   call print_char
@@ -3133,11 +3363,32 @@ pfa_set:
   ret
 
 ; -------------------------------------------------------------
+; A = command id -> A = display letter
+cmd_char:
+  cp CMD_COUNT
+  jr c, cch_ok
+  xor a
+cch_ok:
+  push hl
+  push de
+  ld e, a
+  ld d, 0
+  ld hl, cmd_chars
+  add hl, de
+  ld a, (hl)
+  pop de
+  pop hl
+  ret
+cmd_chars:
+  .db "-KHACEFGNPTVW"
+
 str_song:        .db "SONG", 0
 str_chain:       .db "CHAIN", 0
 str_phrase:      .db "PHRASE", 0
 str_instr:       .db "INSTR", 0
 str_tabl:        .db "TABLE", 0
+str_grv:         .db "GROOVE", 0
+str_htik:        .db "TIK", 0
 str_hv:          .db "V", 0
 str_hpit:        .db "PIT", 0
 str_hphr:        .db "PHR", 0
