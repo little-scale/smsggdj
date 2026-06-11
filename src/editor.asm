@@ -1847,14 +1847,17 @@ wvd_step:
   ld a, '*'-$20              ; cursor dot: starred block
 wvd_put:
   out (VDP_DATA), a
-  nop
-  nop
-  ld a, $08
+  nop                        ; >=29 cycles between strobes:
+  nop                        ; active-display writes get dropped
+  nop                        ; below that and the tile/attr
+  ld a, $08                  ; stream slips a byte
   out (VDP_DATA), a
   jr wvd_next
 wvd_empty:
   xor a                      ; dark field
   out (VDP_DATA), a
+  nop
+  nop
   nop
   nop
   xor a
