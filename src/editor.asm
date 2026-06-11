@@ -101,17 +101,20 @@ ei_no2:
   ld a, (pend1)
   or a
   jr z, ei_pdone
-  ld a, (pad_edge)           ; dpad while pending: flush now so
-  and $0F                    ; insert-then-edit feels instant
-  jr nz, ei_flush
+  ld a, (pad_edge)           ; dpad while pending: flush the
+  and $0F                    ; insert now, and consume this edge
+  jr nz, ei_flushskip        ; (else it would also edit/toggle)
   ld a, (pend1)
   dec a
   ld (pend1), a
   jr nz, ei_pdone
-ei_flush:
+  call do_press              ; window expired: plain insert
+  jr ei_pdone
+ei_flushskip:
   xor a
   ld (pend1), a
   call do_press
+  jp ei_holds
 ei_pdone:
   ; ---- dpad routing ----
   ld a, (pad_raw)
@@ -489,12 +492,16 @@ prelisten:
 ; dirty-row bookkeeping
 mark_cur_dirty:
   ld a, (ed_row)
-mark_dirty_a:                ; A = phrase row
+mark_dirty_a:                ; A = phrase row (preserves HL/DE:
+  push hl                    ; callers keep step pointers live)
+  push de
   ld hl, dirty_rows
   ld e, a
   ld d, 0
   add hl, de
   ld (hl), 1
+  pop de
+  pop hl
   ret
 
 mark_all_dirty:
