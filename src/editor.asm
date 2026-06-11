@@ -1039,9 +1039,10 @@ editor_draw:
   or a
   call nz, draw_labels
   call playhead_update
-  ; flush up to 4 dirty rows
+  ; flush dirty rows (3/frame: a row is now wipe + fields,
+  ; keep the VRAM burst inside the NTSC VBlank window)
   ld e, 0                    ; row
-  ld d, 4                    ; rows-per-frame budget
+  ld d, 3                    ; rows-per-frame budget
 edr_fl:
   ld a, d
   or a
@@ -1070,6 +1071,18 @@ edr_done:
   ret
 
 draw_row:
+  ; wipe the full row first: screens use different columns, so
+  ; switching would otherwise leave stale fields behind
+  push de
+  xor a
+  ld (text_attr), a
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 1
+  ld hl, str_blank
+  call print_at
+  pop de
   ld a, (scr_mode)
   cp SCR_CHAIN
   jp z, ch_draw_row
