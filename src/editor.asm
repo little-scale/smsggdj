@@ -420,8 +420,10 @@ ins_max_row:
   ld a, 6                    ; NOISE: + MODE/RATE
   ret
 
-; HL = current instrument record
+; HL = current instrument record (preserves DE: callers hold
+; the row number in E)
 ins_ptr:
+  push de
   ld a, (cur_instr)
   add a, a
   add a, a
@@ -431,6 +433,7 @@ ins_ptr:
   ld d, 0
   ld hl, instruments
   add hl, de
+  pop de
   ret
 
   ; ---- PHRASE ----
