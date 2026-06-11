@@ -51,6 +51,7 @@
   tmp_instr    db
   tmp_cmd      db
   tmp_param    db
+  ed_field     db            ; INSTR: field being drawn
   drawn_a      dsb 4         ; playhead rows currently on screen
   dirty_rows   dsb 16
 .ENDS
@@ -416,20 +417,36 @@ cm_instr:
   ld a, (ins_row)
   cp b
   jr nc, cmi_up
-  call mark_dirty_a
+  call ins_mark_field
   inc a
   ld (ins_row), a
-  call mark_dirty_a
+  call ins_mark_field
 cmi_up:
   bit 0, c                   ; up
   ret z
   ld a, (ins_row)
   or a
   ret z
-  call mark_dirty_a
+  call ins_mark_field
   dec a
   ld (ins_row), a
-  jp mark_dirty_a
+  jp ins_mark_field
+
+; mark the grid row of field A dirty (A preserved)
+ins_mark_field:
+  push hl
+  push de
+  push af
+  ld e, a
+  ld d, 0
+  ld hl, field_to_row
+  add hl, de
+  ld a, (hl)
+  call mark_dirty_a
+  pop af
+  pop de
+  pop hl
+  ret
 
 ; A = last valid field row for the current instrument type
 ins_max_row:
@@ -1307,7 +1324,7 @@ ine_rate:                    ; 512 -> 1K -> 2K -> PITCH (edge)
   ld (hl), a
 ine_mark:
   ld a, (ins_row)
-  jp mark_dirty_a
+  jp ins_mark_field
 
 ; -------------------------------------------------------------
 ; audition note D (note byte) instr C on the edited track,
@@ -1435,14 +1452,21 @@ mad_l:
 ; drawing
 ; =============================================================
 editor_draw:
+  ; label frames are expensive: drop the row budget to 1 so the
+  ; VRAM burst stays inside VBlank (writes that spill into the
+  ; active display get dropped -> white garbage blocks)
   ld a, (label_dirty)
   or a
-  call nz, draw_labels
+  jr z, edr_nolbl
+  call draw_labels
   call playhead_update
-  ; flush dirty rows (3/frame: a row is now wipe + fields,
-  ; keep the VRAM burst inside the NTSC VBlank window)
-  ld e, 0                    ; row
+  ld d, 1
+  jr edr_flush0
+edr_nolbl:
+  call playhead_update
   ld d, 3                    ; rows-per-frame budget
+edr_flush0:
+  ld e, 0                    ; row
 edr_fl:
   ld a, d
   or a
@@ -2168,20 +2192,28 @@ pdr_pdash:
   ret
 
 ; -------------------------------------------------------------
-; INSTR screen: form rows (E = field row)
-;   0 TYPE  1 VOL  2 ENV  3 SPD  4 LEN  [5 MODE  6 RATE]
+; INSTR screen: form rows (E = grid row), fields grouped with
+; blank spacer rows between sections:
+;   TYPE/VOL | ENV/SPD/LEN | TSP | SWP/VIB/TRM | MODE/RATE
 in_draw_row:
-  call ins_max_row
+  ; grid row -> field index ($FF = spacer row)
+  push de
+  ld d, 0
+  ld hl, row_to_field
+  add hl, de
+  ld a, (hl)
+  pop de
+  cp $FF
+  ret z
+  ld (ed_field), a
   ld b, a
-  ld a, e
+  call ins_max_row           ; (preserves DE and B)
   cp b
-  jr z, idr_go
-  jr nc, idr_skip            ; beyond the form: row stays blank
-idr_go:
+  ret c                      ; field beyond this type's form
   ; label (col 4)
   xor a
   ld (text_attr), a
-  ld a, e
+  ld a, (ed_field)
   ld d, a
   add a, a
   add a, a
@@ -2205,7 +2237,9 @@ idr_go:
   xor a
   ld (text_attr), a
   ld a, (ins_row)
-  cp e
+  ld d, a
+  ld a, (ed_field)
+  cp d
   jr nz, idr_addr
   ld a, $08
   ld (text_attr), a
@@ -2222,7 +2256,7 @@ idr_addr:
   push de
   call ins_ptr
   pop de
-  ld a, e
+  ld a, (ed_field)
   or a
   jp z, idr_type
   cp 1
@@ -2329,6 +2363,13 @@ idr_rate:
   add hl, de
   ld b, 5
   jp print_raw
+
+; field index -> grid row (groups separated by spacer rows)
+field_to_row:
+  .db 0, 1, 3, 4, 5, 7, 9, 10, 11, 13, 14
+; grid row -> field index ($FF = spacer)
+row_to_field:
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, $FF, 6, 7, 8, $FF, 9, 10, $FF
 
 ins_lbls:
   .db "TYPE", 0

@@ -57,9 +57,13 @@ def main():
             return 2 - ph * 4
         return ph * 4 - 4
 
+    # exponential depth curve: fine at the bottom, wild at the top
+    # (+-60 period units ~= +-4 semitones around A-4)
+    VIB_AMP = [0, 1, 2, 3, 4, 5, 6, 8, 10, 13, 17, 22, 28, 36, 46, 60]
     lines.append("vib_tables:")
     for depth in range(16):
-        row = [round(depth * tri(i)) & 0xFF for i in range(32)]
+        amp = VIB_AMP[depth]
+        row = [round(amp * tri(i)) & 0xFF for i in range(32)]
         lines.append("  .db " + ", ".join("$%02X" % v for v in row))
     lines.append("trem_tables:")
     for depth in range(16):

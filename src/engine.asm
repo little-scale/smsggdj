@@ -47,6 +47,7 @@
   groove_cnt   db
   groove_pos   db
   mute_flags   db            ; bits 0-3
+  eng_start    db            ; song row playback began on (loop point)
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
@@ -72,6 +73,8 @@ engine_play:
   ld (groove_cnt), a
   xor a
   ld (groove_pos), a
+  ld a, (song_cur)
+  ld (eng_start), a          ; song loops back here
 
   ld ix, chst
   ld c, 0
@@ -283,9 +286,11 @@ at_song:
 at_nextrow:
   ld a, (ix+7)
   inc a
-  ld (ix+7), a
   cp SONG_ROWS
-  jr nc, at_off
+  jr c, at_setrow
+  ld a, (eng_start)          ; ran off the end: loop
+at_setrow:
+  ld (ix+7), a
 at_load:
   ; chain # from song[songrow][track]
   ld l, (ix+7)
@@ -299,18 +304,28 @@ at_load:
   add hl, de
   ld a, (hl)
   cp $FF
-  jr z, at_off
+  jr z, at_wrap
   ld (ix+11), a
   ld (ix+8), 0
   call chain_entry
   ld a, (hl)
   cp $FF
-  jr z, at_off               ; empty chain
+  jr z, at_wrap              ; empty chain
   ld (ix+10), a
   inc hl
   ld a, (hl)
   ld (ix+9), a
   ret
+at_wrap:
+  ; empty slot: loop to the start row once; if we are already
+  ; there (or it is empty too) the track goes silent
+  ld a, (ix+7)
+  ld d, a
+  ld a, (eng_start)
+  cp d
+  jr z, at_off
+  ld (ix+7), a
+  jr at_load
 at_off:
   ld (ix+6), 0
   ld (ix+10), $FF
