@@ -835,9 +835,18 @@ tn_smp:
   ld a, (ix+0)
 tn_smod:
   cp SAMPLE_COUNT
-  jp c, smp_play
+  jr c, tn_sgo
   sub SAMPLE_COUNT
   jr tn_smod
+tn_sgo:
+  call smp_play
+  ; the note only selects the sample (played on T3): the host
+  ; track's own channel must stay silent
+  ld (ix+0), $FF
+  ld (ix+2), 0
+  ld (ix+5), 0
+  ld (ix+4), $FF
+  ret
 
 ; -------------------------------------------------------------
 ; A = note index -> DE = period with sweep + pitch mod applied,
