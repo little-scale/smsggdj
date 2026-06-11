@@ -12,10 +12,10 @@ usage:
 import os
 import sys
 
-MAGIC = b"SMDJ1"
+MAGIC = b"SMDJ2"
 STRIDE = 0x1500
 HDR = 16
-DATA = 5120
+DATA = 5248
 BLOB = HDR + DATA
 SLOTS = 3
 SAV_SIZE = 32768

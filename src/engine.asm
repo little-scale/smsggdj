@@ -75,12 +75,16 @@
   eng_start    db            ; song row playback began on (loop point)
   groove_sel   db            ; active groove
   hop_pending  db            ; H command: force phrase boundary
+  cur_trig_ch  db            ; channel being processed (for WAV)
   sram_ok      db            ; cart SRAM detected at boot
   sram_slots   db            ; save slots available (0/1/3)
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
-.RAMSECTION "songdata" SLOT 3
+; 256-aligned so the wavetable feed can index waves by low byte;
+; wave_ram leads the block so saves stay one contiguous copy
+.RAMSECTION "songdata" SLOT 3 ALIGN 256
+  wave_ram     dsb 4*32            ; 4 waves x 32 pre-OR'd bytes
   phrase_pool  dsb NUM_PHRASES*64
   chains       dsb NUM_CHAINS*32   ; 16 x (phrase #, transpose)
   song         dsb SONG_ROWS*4     ; chain # per track, $FF empty
@@ -417,6 +421,8 @@ process_row:
   ld ix, chst
   ld c, 0
 pr_loop:
+  ld a, c
+  ld (cur_trig_ch), a
   ld a, (ix+6)
   or a
   jp z, pr_next
@@ -822,6 +828,8 @@ tn_mods:
   ld a, b
   cp 2                       ; SMP: note picks the sample
   jr z, tn_smp
+  cp 3                       ; WAV: wavetable through the DAC
+  jr z, tn_wav
   cp 1                       ; NOISE instrument?
   ret nz
   ld a, c
@@ -846,6 +854,18 @@ tn_sgo:
   ld (ix+2), 0
   ld (ix+5), 0
   ld (ix+4), $FF
+  ret
+tn_wav:
+  ld a, c                    ; +4 byte = wave number
+  and $03
+  ld c, a
+  ld a, (cur_trig_ch)
+  ld (wav_owner), a
+  ld a, (ix+0)
+  call wav_play
+  ; host channel synthesizes nothing, but its volume/envelope
+  ; keep running: they gate the wave (vol 0 stops it)
+  ld (ix+0), $FF
   ret
 
 ; -------------------------------------------------------------
@@ -1055,6 +1075,8 @@ channels_fx:
   ld ix, chst
   ld c, 0
 cf_loop:
+  ld a, c
+  ld (cur_trig_ch), a
   ; --- delayed note (D command) ---
   ld a, (ix+28)
   or a
@@ -1275,6 +1297,17 @@ cf_vol:
   add hl, de
   ld (hl), a
 cf_next:
+  ; a wavetable stops when its owning channel falls silent
+  ld a, (smp_mode)
+  cp 2
+  jr nz, cf_adv
+  ld a, (wav_owner)
+  cp c
+  jr nz, cf_adv
+  ld a, (ix+2)
+  or a
+  call z, wav_stop
+cf_adv:
   ld de, 32
   add ix, de
   inc c
@@ -1285,10 +1318,10 @@ cf_next:
 
 ; =============================================================
 ; persistence: cart SRAM at $8000 via mapper reg $FFFC bit 3
-; layout: $8000 magic "SMDJ1", $8005 checksum16, $8010 song data
+; layout: slot base: magic "SMDJ2", +5 checksum16, +16 song data
 ; =============================================================
 .DEFINE SRAM_DATA $8010
-.DEFINE SAVE_SIZE 5120       ; phrase_pool..grooves, contiguous
+.DEFINE SAVE_SIZE 5248       ; wave_ram..grooves, contiguous
 
 sram_detect:
   ld a, $08
@@ -1386,7 +1419,7 @@ sv_go:
   ld de, 16
   add hl, de
   ex de, hl                  ; DE = slot data area
-  ld hl, phrase_pool
+  ld hl, wave_ram
   ld bc, SAVE_SIZE
   ldir
   pop hl
@@ -1410,7 +1443,7 @@ sv_go:
   inc hl
   ld (hl), 'J'
   inc hl
-  ld (hl), '1'
+  ld (hl), '2'
   xor a
   ld ($FFFC), a
   ld a, 1
@@ -1447,7 +1480,7 @@ ld_go:
   jr nz, ld_bad
   inc hl
   ld a, (hl)
-  cp '1'
+  cp '2'
   jr nz, ld_bad
   call sram_slot_base
   push hl
@@ -1472,7 +1505,7 @@ ld_go:
   call sram_slot_base
   ld de, 16
   add hl, de
-  ld de, phrase_pool
+  ld de, wave_ram
   ld bc, SAVE_SIZE
   ldir
   xor a

@@ -69,6 +69,29 @@ def main():
     for depth in range(16):
         row = [round(depth * (1 - tri((i + 8) % 32)) / 2) for i in range(32)]
         lines.append("  .db " + ", ".join("$%02X" % v for v in row))
+
+    # wavetable pitch: phase increment per feed tick (8.8 fixed),
+    # f = feed * inc / (256 * 32)  ->  inc = f * 8192 / feed
+    for label, feed in (("winc_table_pal", 15625 / 2.0),
+                        ("winc_table_ntsc", 15734.25 / 2.0)):
+        lines.append("%s:" % label)
+        for m in notes:
+            f = 440.0 * 2.0 ** ((m - 69) / 12.0)
+            inc = min(65535, round(f * 8192.0 / feed))
+            lines.append("  .dw %5d  ; %s" % (inc, NAMES[m % 12] + str(m // 12 - 1)))
+
+    # default waveforms: 32 steps, stored as ready-to-OUT bytes
+    # ($D0 | attenuation, attenuation = 15 - drawn value)
+    import math as _m
+    def wavebytes(vals):
+        return ", ".join("$%02X" % (0xD0 | (15 - v)) for v in vals)
+    sine = [round((_m.sin(2 * _m.pi * i / 32) * 0.5 + 0.5) * 15) for i in range(32)]
+    trit = [round(tri((i + 8) % 32) * 7.5 + 7.5) for i in range(32)]
+    saw = [round(i * 15 / 31.0) for i in range(32)]
+    sqr = [15] * 16 + [0] * 16
+    lines.append("default_waves:")
+    for w in (sine, trit, saw, sqr):
+        lines.append("  .db " + wavebytes(w))
     lines.append(".ENDS")
     with open(sys.argv[1], "w") as f:
         f.write("\n".join(lines) + "\n")
