@@ -190,15 +190,15 @@ screen_nav:
   jr z, sn_proj
   cp SCR_SONG
   jr z, sn_songup
-  ; on INSTR/TABLE/GROOVE, 2 + up/down selects the edited item
+  cp SCR_WAVE
+  jr z, sn_wave
   cp SCR_INSTR
-  jr z, sn_seli
+  jr z, sn_instr_up
+  ; on TABLE/GROOVE, 2 + up/down selects the edited item
   cp SCR_TABLE
   jr z, sn_selt
   cp SCR_GROOVE
   jr z, sn_selg
-  cp SCR_WAVE
-  jr z, sn_selw
   jp sn_lr
 sn_proj:
   ld a, (pad_edge)
@@ -212,20 +212,32 @@ sn_songup:
   jp z, sn_lr
   ld a, SCR_PROJ
   jp sn_switch
-sn_seli:
+sn_instr_up:                 ; WAVE sits above INSTR on the map
   ld a, (pad_edge)
-  and PAD_UP|PAD_DOWN
-  jp z, sn_lr
   and PAD_UP
-  ld a, (cur_instr)
-  jr z, sni_dn
+  jp z, sn_lr
+  ld a, SCR_WAVE
+  jp sn_switch
+sn_wave:                     ; 2+down exits, 2+L/R selects wave
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jr z, sn_wsel
+  ld a, SCR_INSTR
+  jp sn_switch
+sn_wsel:
+  ld a, (pad_edge)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  and PAD_RIGHT
+  ld a, (cur_wave)
+  jr z, snw_dn
   inc a
-  jr sni_st
-sni_dn:
+  jr snw_st
+snw_dn:
   dec a
-sni_st:
-  and $0F
-  ld (cur_instr), a
+snw_st:
+  and $03
+  ld (cur_wave), a
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
@@ -263,38 +275,16 @@ sng_st:
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
-sn_selw:
-  ld a, (pad_edge)
-  and PAD_UP|PAD_DOWN
-  jp z, sn_lr
-  and PAD_UP
-  ld a, (cur_wave)
-  jr z, snw_dn
-  inc a
-  jr snw_st
-snw_dn:
-  dec a
-snw_st:
-  and $03
-  ld (cur_wave), a
-  ld a, 1
-  ld (label_dirty), a
-  jp mark_all_dirty
 sn_lr:
   ld a, (pad_edge)
   and PAD_LEFT|PAD_RIGHT
   ret z
   and PAD_RIGHT
   jr nz, sn_right
-  ; ---- left: ... -> CHAIN -> SONG (WAVE skips PROJECT) ----
+  ; ---- left: ... -> CHAIN -> SONG ----
   ld a, (scr_mode)
   or a
   ret z
-  cp SCR_WAVE
-  jr nz, sn_ldec
-  ld a, SCR_GROOVE
-  jr sn_switch
-sn_ldec:
   dec a
   jr sn_switch
 sn_right:
@@ -307,8 +297,6 @@ sn_right:
   jr z, sn_totable
   cp SCR_TABLE
   jr z, sn_togroove
-  cp SCR_GROOVE
-  jr z, sn_towave
   cp SCR_CHAIN
   ret nz
   ; CHAIN -> PHRASE: phrase under cursor
@@ -339,9 +327,6 @@ sn_iset:
   jr sn_switch
 sn_togroove:
   ld a, SCR_GROOVE
-  jp sn_switch
-sn_towave:
-  ld a, SCR_WAVE
   jp sn_switch
 sn_totable:
   ; INSTR -> TABLE: the instrument's table when assigned
@@ -612,12 +597,12 @@ ins_max_row:
   call ins_ptr
   ld a, (hl)
   cp 1
-  ld a, 12                   ; NOISE: + MODE/RATE
+  ld a, 13                   ; NOISE: + MODE/RATE
   ret z
   cp 3
-  ld a, 11                   ; WAV: + WAVE selector
+  ld a, 12                   ; WAV: + WAVE selector
   ret z
-  ld a, 10                   ; TONE/SMP share the short form
+  ld a, 11                   ; TONE/SMP share the short form
   ret
 
 ; HL = current instrument record (preserves DE: callers hold
@@ -3011,7 +2996,7 @@ dsm_attr:
   pop de
   inc d
   ld a, d
-  cp 7
+  cp 6
   jr c, dsm_l
   ; PROJECT indicator above the map's S
   ld a, (scr_mode)
@@ -3027,11 +3012,25 @@ dsm_pattr:
   call vdp_set_addr
   ld a, 'P'
   call print_char
+  ; WAVE indicator above the I
+  ld a, (scr_mode)
+  cp SCR_WAVE
+  ld a, $00
+  jr nz, dsm_wattr
+  ld a, $08
+dsm_wattr:
+  ld (text_attr), a
+  ld b, 4
+  ld c, 28
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, 'W'
+  call print_char
   xor a
   ld (text_attr), a
   ret
 map_letters:
-  .db "SCPITGW"
+  .db "SCPITG"
 
 ; A = track -> A = screen column of its song-screen cell
 so_track_col:
@@ -3793,30 +3792,35 @@ idr_addr:
   pop de
   ld a, (ed_field)
   or a
-  jp z, idr_type
+  jp z, idr_inst
   cp 1
-  jp z, idr_vol
+  jp z, idr_type
   cp 2
-  jp z, idr_dir
+  jp z, idr_vol
   cp 3
-  jp z, idr_spd
+  jp z, idr_dir
   cp 4
-  jp z, idr_len
+  jp z, idr_spd
   cp 5
-  jp z, idr_tsp
+  jp z, idr_len
   cp 6
-  jp z, idr_swp
+  jp z, idr_tsp
   cp 7
-  jp z, idr_vib
+  jp z, idr_swp
   cp 8
-  jp z, idr_trm
+  jp z, idr_vib
   cp 9
-  jp z, idr_tbl
+  jp z, idr_trm
   cp 10
-  jp z, idr_tbs
+  jp z, idr_tbl
   cp 11
+  jp z, idr_tbs
+  cp 12
   jp z, idr_f11
   jp idr_rate
+idr_inst:
+  ld a, (cur_instr)
+  jp print_hex_nib
 idr_f11:
   push hl
   call ins_ptr
@@ -3939,20 +3943,21 @@ idr_rate:
 ; field index -> grid row (groups separated by spacer rows);
 ; noise packs tighter to fit MODE/RATE in 16 rows
 f2r_tone:
-  .db 0, 1, 3, 4, 5, 7, 9, 10, 11, 13, 14
+  .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15
 f2r_noise:
-  .db 0, 1, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15
+  .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
 f2r_wav:
-  .db 0, 1, 3, 4, 5, 7, 9, 10, 11, 13, 14, 15
+  .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15
 ; grid row -> field index ($FF = spacer)
 r2f_tone:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, $FF, 6, 7, 8, $FF, 9, 10, $FF
+  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, $FF, 10, 11
 r2f_noise:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, 7, 8, $FF, 9, 10, 11, 12
+  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
 r2f_wav:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, $FF, 6, 7, 8, $FF, 9, 10, 11
+  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, 10, 11, 12
 
 ins_lbls:
+  .db "INST", 0
   .db "TYPE", 0
   .db "VOL ", 0
   .db "ENV ", 0
