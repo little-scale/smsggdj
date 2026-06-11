@@ -42,6 +42,9 @@ vdp_set_addr:
   ld a, l
   out (VDP_CTRL), a
   ld a, h
+  nop                        ; control writes share the VDP's
+  nop                        ; ~29-cycle active-display limit
+  nop
   out (VDP_CTRL), a
   ld a, (ints_on)
   or a

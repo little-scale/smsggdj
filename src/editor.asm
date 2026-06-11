@@ -606,12 +606,16 @@ ins_max_row:
   call ins_ptr
   ld a, (hl)
   cp 1
-  ld a, 13                   ; NOISE: + MODE/RATE
-  ret z
+  jr z, imr_noise
   cp 3
-  ld a, 12                   ; WAV: + WAVE selector
-  ret z
+  jr z, imr_wav
   ld a, 11                   ; TONE/SMP share the short form
+  ret
+imr_noise:
+  ld a, 13                   ; NOISE: + MODE/RATE
+  ret
+imr_wav:
+  ld a, 12                   ; WAV: + WAVE selector
   ret
 
 ; HL = current instrument record (preserves DE: callers hold
@@ -1907,6 +1911,7 @@ wvd_next:
   ret
 
 str_wave:   .db "WAVE", 0
+str_wavlbl: .db "WAVE", 0
 str_blank7: .db "       ", 0
 str_sp1:    .db " ", 0
 
@@ -3845,10 +3850,20 @@ idr_map:
   call ins_max_row           ; (preserves DE and B)
   cp b
   ret c                      ; field beyond this type's form
-  ; label (col 4)
+  ; label (col 4); field 12 is WAVE on WAV instruments
   xor a
   ld (text_attr), a
   ld a, (ed_field)
+  cp 12
+  jr nz, idr_lblidx
+  call ins_ptr
+  ld a, (hl)
+  cp 3
+  ld a, 12
+  jr nz, idr_lblidx
+  ld hl, str_wavlbl
+  jr idr_lblgo
+idr_lblidx:
   ld d, a
   add a, a
   add a, a
@@ -3859,6 +3874,7 @@ idr_map:
   ld hl, ins_lbls
   add hl, de
   pop de
+idr_lblgo:
   push hl
   ld a, e
   add a, GRID_ROW

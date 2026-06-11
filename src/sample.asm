@@ -172,8 +172,12 @@ smp_dac_on:
   or a
   jr nz, sp_done
   ld a, $16                  ; R0: mode 4 + line ints
+  di
   out (VDP_CTRL), a
   ld a, $80
+  nop
+  nop
+  nop
   out (VDP_CTRL), a
   ld a, 1
   ld (smp_irq_on), a
@@ -205,6 +209,9 @@ smp_housekeep:
   ld a, $06                  ; R0: line ints off
   out (VDP_CTRL), a
   ld a, $80
+  nop
+  nop
+  nop
   out (VDP_CTRL), a
   ei
   ret
