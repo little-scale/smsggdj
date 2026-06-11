@@ -178,6 +178,18 @@ init_paint:
   call display_on
   ei
 
+  ; show the region line briefly at boot, then reclaim the row
+  ld b, 90
+init_wait:
+  halt
+  djnz init_wait
+  ld b, 2
+  ld c, 1
+  ld hl, str_blank
+  call print_at
+  ld a, 1
+  ld (state_dirty), a
+
 ; =============================================================
 ; main loop
 ; =============================================================

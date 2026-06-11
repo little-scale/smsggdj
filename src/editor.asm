@@ -2544,7 +2544,7 @@ dsm_l:
 dsm_attr:
   ld (text_attr), a
   ld a, d
-  add a, 27
+  add a, 26                  ; cols 26-31: six letters fit
   ld c, a
   ld b, 4
   push de
