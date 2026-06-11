@@ -11,17 +11,21 @@
 ;   MODE_CHAIN  edited track loops the current chain (solo)
 ;   MODE_PHRASE edited track loops the current phrase (solo)
 ;
-; Channel state: 4 structs of 16 bytes, walked with IX.
+; Channel state: 4 structs of 32 bytes, walked with IX.
 ;   +0 note index ($FF = none)   +1 instrument index
 ;   +2 volume (musical 0-F)      +3 envelope tick counter
 ;   +4 length/kill ctr ($FF off) +5 envelope cache (dir|speed)
 ;   +6 active flag               +7 song row
 ;   +8 chain step ($FF = load)   +9 transpose (signed)
 ;   +10 phrase # ($FF = none)    +11 chain # ($FF = none)
-;   +12..+15 reserved
+;   +12 pitched-noise flag       +13/+14 sweep accumulator
+;   +15 vib phase  +16 trem phase
+;   +17 sweep / +18 vib / +19 trem (cached at trigger)
 ;
 ; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
-;   +1 init volume, +2 envelope, +3 length, +4 noise control.
+;   +1 init volume, +2 envelope, +3 length, +4 noise control,
+;   +5 sweep (signed, period/tick), +6 pitch mod (speed|depth),
+;   +7 amp mod (speed|depth).
 ; Commands: 0 = none, 1 = K (kill after param ticks).
 ; =============================================================
 
@@ -43,7 +47,7 @@
   groove_cnt   db
   groove_pos   db
   mute_flags   db            ; bits 0-3
-  chst         dsb 4*16      ; channel state structs
+  chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
 .RAMSECTION "songdata" SLOT 3
@@ -106,7 +110,7 @@ ep_phr:
 ep_active:
   ld (ix+6), 1
 ep_next:
-  ld de, 16
+  ld de, 32
   add ix, de
   inc c
   ld a, c
@@ -122,7 +126,7 @@ engine_stop:
   ld (play_state), a
   ; zero channel volumes so the prelisten fx pass stays silent
   ld hl, chst+2
-  ld de, 16
+  ld de, 32
   ld b, 4
 es_vols:
   ld (hl), 0
@@ -217,7 +221,7 @@ ap_loop:
   jr z, ap_next
   call advance_track
 ap_next:
-  ld de, 16
+  ld de, 32
   add ix, de
   inc c
   ld a, c
@@ -403,7 +407,7 @@ pr_cmd:
 pr_kill_later:
   ld (ix+4), a
 pr_next:
-  ld de, 16
+  ld de, 32
   add ix, de
   inc c
   ld a, c
@@ -443,16 +447,157 @@ tn_spd:
 tn_len:
   ld (ix+4), a
   inc hl
-  ld (ix+12), 0              ; pitched-noise flag off by default
+  ld c, (hl)                 ; +4 noise control
+  inc hl
+  ld a, (hl)                 ; +5 sweep
+  ld (ix+17), a
+  inc hl
+  ld a, (hl)                 ; +6 pitch mod (speed|depth)
+  ld (ix+18), a
+  inc hl
+  ld a, (hl)                 ; +7 amp mod (speed|depth)
+  ld (ix+19), a
+  ; reset modulation state
+  xor a
+  ld (ix+13), a              ; sweep accumulator
+  ld (ix+14), a
+  ld (ix+15), a              ; vib phase
+  ld (ix+16), a              ; trem phase
+  ld (ix+12), a              ; pitched-noise flag off by default
   ld a, b
   cp 1                       ; NOISE instrument?
   ret nz
-  ld a, (hl)                 ; +4 noise control
+  ld a, c
   ld (psg_noisectl), a
   and $03
   cp $03                     ; rate 3 = clock from tone 3
   ret nz
   ld (ix+12), 1              ; pitched: steal T3 (design doc 5.3)
+  ret
+
+; -------------------------------------------------------------
+; A = note index -> DE = period with sweep + pitch mod applied,
+; clamped to 1..1023. Uses the IX channel's mod state.
+calc_period:
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, (note_ptr)
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)                 ; base period
+  ; --- sweep: acc += param, period += acc ---
+  ld a, (ix+17)
+  or a
+  jr z, cpd_vib
+  ld c, a                    ; sign-extend into BC
+  rlca
+  sbc a, a
+  ld b, a
+  ld l, (ix+13)
+  ld h, (ix+14)
+  add hl, bc
+  ld (ix+13), l
+  ld (ix+14), h
+  add hl, de
+  ex de, hl
+cpd_vib:
+  ; --- pitch mod: phase += speed*2, += vib_tables[depth][step] ---
+  ld a, (ix+18)
+  and $0F
+  jr z, cpd_clamp
+  ld b, a                    ; depth
+  ld a, (ix+18)
+  and $F0
+  rrca
+  rrca
+  rrca                       ; speed * 2
+  ld c, a
+  ld a, (ix+15)
+  add a, c
+  ld (ix+15), a
+  rrca
+  rrca
+  rrca
+  and $1F                    ; 32 steps per cycle
+  ld c, a
+  ld l, b
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; depth * 32
+  ld b, 0
+  add hl, bc
+  ld bc, vib_tables
+  add hl, bc
+  ld a, (hl)                 ; signed delta
+  ld c, a
+  rlca
+  sbc a, a
+  ld b, a
+  ex de, hl
+  add hl, bc
+  ex de, hl
+cpd_clamp:
+  bit 7, d                   ; negative -> floor
+  jr z, cpd_hi
+  ld de, 1
+  ret
+cpd_hi:
+  ld a, d
+  cp 4                       ; >= 1024 -> ceiling
+  jr c, cpd_zero
+  ld de, 1023
+  ret
+cpd_zero:
+  or e
+  ret nz
+  ld de, 1
+  ret
+
+; volume in A -> A with tremolo dip applied (uses IX phase)
+calc_trem:
+  ld d, a
+  ld a, (ix+19)
+  and $0F
+  ld a, d
+  ret z
+  ld e, a                    ; depth nonzero: advance phase
+  ld a, (ix+19)
+  and $0F
+  ld b, a                    ; depth
+  ld a, (ix+19)
+  and $F0
+  rrca
+  rrca
+  rrca                       ; speed * 2
+  ld c, a
+  ld a, (ix+16)
+  add a, c
+  ld (ix+16), a
+  rrca
+  rrca
+  rrca
+  and $1F
+  ld c, a
+  ld l, b
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; depth * 32
+  ld b, 0
+  add hl, bc
+  ld bc, trem_tables
+  add hl, bc
+  ld a, e                    ; volume
+  sub (hl)                   ; - dip
+  ret nc
+  xor a
   ret
 
 ; -------------------------------------------------------------
@@ -506,14 +651,9 @@ cf_out:
   ld a, (ix+0)
   cp $FF
   jr z, cf_vol
-  add a, a                   ; period lookup
-  ld e, a
-  ld d, 0
-  ld hl, (note_ptr)
-  add hl, de
-  ld e, (hl)
-  inc hl
-  ld d, (hl)
+  push bc
+  call calc_period           ; note -> DE with sweep/vib applied
+  pop bc
   push de
   ld hl, psg_tone0
   ld a, c
@@ -525,6 +665,7 @@ cf_out:
   ld (hl), e
   inc hl
   ld (hl), d
+  jr cf_vol
 cf_noise:
   ; pitched noise: drive T3's period with our note and mute
   ; T3's own output (runs after c=2, so this wins)
@@ -534,20 +675,18 @@ cf_noise:
   ld a, (ix+0)
   cp $FF
   jr z, cf_vol
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, (note_ptr)
-  add hl, de
-  ld e, (hl)
-  inc hl
-  ld d, (hl)
+  push bc
+  call calc_period
+  pop bc
   ex de, hl
   ld (psg_tone2), hl
   ld a, $0F
   ld (psg_vols+2), a
 cf_vol:
   ld a, (ix+2)
+  push bc
+  call calc_trem             ; amp mod dip
+  pop bc
   cpl
   and $0F                    ; attenuation = 15 - volume
   ld hl, psg_vols
@@ -555,7 +694,7 @@ cf_vol:
   ld d, 0
   add hl, de
   ld (hl), a
-  ld de, 16
+  ld de, 32
   add ix, de
   inc c
   ld a, c
@@ -653,7 +792,7 @@ demo_song:
 
 ; type, vol, env(dir|speed), len, noisectl, pad to 16
 demo_instruments:
-  .db 0,$0F,$12,0,$00, 0,0,0,0,0,0,0,0,0,0,0   ; 0 lead
+  .db 0,$0F,$12,0,$00, $00,$33,$00, 0,0,0,0,0,0,0,0   ; 0 lead (vib 3/3)
   .db 0,$0A,$11,0,$00, 0,0,0,0,0,0,0,0,0,0,0   ; 1 pluck
   .db 0,$0F,$13,0,$00, 0,0,0,0,0,0,0,0,0,0,0   ; 2 bass
   .db 1,$0B,$11,2,$04, 0,0,0,0,0,0,0,0,0,0,0   ; 3 hat (white /512)

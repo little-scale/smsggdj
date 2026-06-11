@@ -45,6 +45,26 @@ def main():
     for m in notes:
         name = NAMES[m % 12] + str(m // 12 - 1)
         lines.append('  .db "%s"' % name)
+
+    # LFO tables: 16 depths x 32-step triangle, precomputed so the
+    # Z80 never multiplies. vib = signed period delta (+-depth),
+    # trem = unsigned volume dip (0..depth).
+    def tri(i):
+        ph = (i % 32) / 32.0
+        if ph < 0.25:
+            return ph * 4
+        if ph < 0.75:
+            return 2 - ph * 4
+        return ph * 4 - 4
+
+    lines.append("vib_tables:")
+    for depth in range(16):
+        row = [round(depth * tri(i)) & 0xFF for i in range(32)]
+        lines.append("  .db " + ", ".join("$%02X" % v for v in row))
+    lines.append("trem_tables:")
+    for depth in range(16):
+        row = [round(depth * (1 - tri((i + 8) % 32)) / 2) for i in range(32)]
+        lines.append("  .db " + ", ".join("$%02X" % v for v in row))
     lines.append(".ENDS")
     with open(sys.argv[1], "w") as f:
         f.write("\n".join(lines) + "\n")

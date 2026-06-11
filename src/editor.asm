@@ -195,6 +195,27 @@ ei_h2z:
 ; screen map: 2 held + L/R
 ; =============================================================
 screen_nav:
+  ; on INSTR, 2 + up/down selects the instrument being edited
+  ld a, (scr_mode)
+  cp SCR_INSTR
+  jr nz, sn_lr
+  ld a, (pad_edge)
+  and PAD_UP|PAD_DOWN
+  jr z, sn_lr
+  and PAD_UP
+  ld a, (cur_instr)
+  jr z, sni_dn
+  inc a
+  jr sni_st
+sni_dn:
+  dec a
+sni_st:
+  and $0F
+  ld (cur_instr), a
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
+sn_lr:
   ld a, (pad_edge)
   and PAD_LEFT|PAD_RIGHT
   ret z
@@ -415,9 +436,9 @@ ins_max_row:
   call ins_ptr
   ld a, (hl)
   or a
-  ld a, 4                    ; TONE: TYPE/VOL/ENV/SPD/LEN
+  ld a, 7                    ; TONE: TYPE/VOL/ENV/SPD/LEN/SWP/PMD/AMD
   ret z
-  ld a, 6                    ; NOISE: + MODE/RATE
+  ld a, 9                    ; NOISE: + MODE/RATE
   ret
 
 ; HL = current instrument record (preserves DE: callers hold
@@ -1014,8 +1035,51 @@ inp_edit:
   cp 4
   jp z, ine_len
   cp 5
+  jp z, ine_swp
+  cp 6
+  jp z, ine_pmd
+  cp 7
+  jp z, ine_amd
+  cp 8
   jp z, ine_mode
   jp ine_rate
+
+; SWP/PMD/AMD: plain hex byte, L/R +-1, U/D +-$10, wraps
+ine_swp:
+  ld de, 5
+  jr ine_bofs
+ine_pmd:
+  ld de, 6
+  jr ine_bofs
+ine_amd:
+  ld de, 7
+ine_bofs:
+  add hl, de
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, inb_l
+  inc d
+inb_l:
+  bit 2, c
+  jr z, inb_u
+  dec d
+inb_u:
+  bit 0, c
+  jr z, inb_d
+  ld a, d
+  add a, 16
+  ld d, a
+inb_d:
+  bit 1, c
+  jr z, inb_st
+  ld a, d
+  sub 16
+  ld d, a
+inb_st:
+  ld (hl), d
+  jp ine_mark
 
 ine_type:                    ; TONE <-> NOISE (edge-gated)
   ld a, (pad_edge)
@@ -1224,7 +1288,8 @@ prelisten:
   add a, a
   add a, a
   add a, a
-  add a, a                   ; * 16
+  add a, a
+  add a, a                   ; * 32 (struct stride)
   push de
   ld e, a
   ld d, 0
@@ -1501,7 +1566,7 @@ pu_so_new:
   pop bc
 pu_so_next:
   inc hl
-  ld de, 16
+  ld de, 32
   add ix, de
   dec c
   jr nz, pu_so_l
@@ -1514,6 +1579,7 @@ ed_chst:
   add a, a
   add a, a
   add a, a
+  add a, a                   ; * 32 (struct stride)
   ld e, a
   ld d, 0
   ld ix, chst
@@ -2126,20 +2192,38 @@ idr_addr:
   pop de
   ld a, e
   or a
-  jr z, idr_type
+  jp z, idr_type
   cp 1
-  jr z, idr_vol
+  jp z, idr_vol
   cp 2
-  jr z, idr_dir
+  jp z, idr_dir
   cp 3
-  jr z, idr_spd
+  jp z, idr_spd
   cp 4
-  jr z, idr_len
+  jp z, idr_len
   cp 5
-  jr z, idr_mode
-  jr idr_rate
+  jp z, idr_swp
+  cp 6
+  jp z, idr_pmd
+  cp 7
+  jp z, idr_amd
+  cp 8
+  jp z, idr_mode
+  jp idr_rate
 idr_skip:
   ret
+idr_swp:
+  ld de, 5
+  jr idr_bhex
+idr_pmd:
+  ld de, 6
+  jr idr_bhex
+idr_amd:
+  ld de, 7
+idr_bhex:
+  add hl, de
+  ld a, (hl)
+  jp print_hex_a
 idr_type:
   ld a, (hl)
   or a
@@ -2215,6 +2299,9 @@ ins_lbls:
   .db "ENV ", 0
   .db "SPD ", 0
   .db "LEN ", 0
+  .db "SWP ", 0
+  .db "PMD ", 0
+  .db "AMD ", 0
   .db "MODE", 0
   .db "RATE", 0
 str_tone:   .db "TONE "
