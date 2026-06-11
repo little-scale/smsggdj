@@ -80,8 +80,10 @@ def main():
             inc = min(65535, round(f * 8192.0 / feed))
             lines.append("  .dw %5d  ; %s" % (inc, NAMES[m % 12] + str(m // 12 - 1)))
 
-    # default waveforms: 32 steps, stored as ready-to-OUT bytes
-    # ($D0 | attenuation, attenuation = 15 - drawn value)
+    # preset waveforms: 32 steps, stored as ready-to-OUT bytes
+    # ($D0 | attenuation, attenuation = 15 - drawn value).
+    # First four are the boot defaults; all eight stamp via the
+    # WAVE screen's preset cycler.
     import math as _m
     def wavebytes(vals):
         return ", ".join("$%02X" % (0xD0 | (15 - v)) for v in vals)
@@ -89,8 +91,21 @@ def main():
     trit = [round(tri((i + 8) % 32) * 7.5 + 7.5) for i in range(32)]
     saw = [round(i * 15 / 31.0) for i in range(32)]
     sqr = [15] * 16 + [0] * 16
+    p25 = [15] * 8 + [0] * 24
+    p12 = [15] * 4 + [0] * 28
+    org = []
+    for i in range(32):
+        th = 2 * _m.pi * i / 32
+        v = _m.sin(th) + _m.sin(3 * th) / 3 + _m.sin(5 * th) / 5
+        org.append(round((v / 1.4 * 0.5 + 0.5) * 15))
+    org = [max(0, min(15, v)) for v in org]
+    rseed = 0xACE1
+    rnd = []
+    for i in range(32):
+        rseed = (rseed * 0x6255 + 0x3217) & 0xFFFF
+        rnd.append(rseed >> 12)
     lines.append("default_waves:")
-    for w in (sine, trit, saw, sqr):
+    for w in (sine, trit, saw, sqr, p25, p12, org, rnd):
         lines.append("  .db " + wavebytes(w))
     lines.append(".ENDS")
     with open(sys.argv[1], "w") as f:

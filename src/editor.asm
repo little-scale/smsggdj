@@ -40,6 +40,7 @@
   grv_row      db
   cur_wave     db
   wav_col      db
+  wv_preset    db
   prj_row      db
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
@@ -102,6 +103,7 @@ editor_init:
   ld (grv_row), a
   ld (cur_wave), a
   ld (wav_col), a
+  ld (wv_preset), a
   ld (prj_row), a
   ld (prj_stat), a
   ld (prj_slot), a
@@ -711,7 +713,7 @@ do_press:
   cp SCR_PROJ
   jp z, prp_press
   cp SCR_WAVE
-  ret z
+  jp z, wvp_press
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -1666,6 +1668,36 @@ cw_l:
   and $1F
   ld (wav_col), a
   ret
+
+; tap 1: stamp the next ROM preset into the current wave
+; (sine/tri/saw/square/25%/12.5%/organ/random)
+wvp_press:
+  ld a, (wv_preset)
+  ld d, a
+  inc a
+  and $07
+  ld (wv_preset), a
+  ld a, d
+  rrca
+  rrca
+  rrca
+  and $E0
+  ld e, a
+  ld d, 0
+  ld hl, default_waves
+  add hl, de
+  ld a, (cur_wave)
+  rrca
+  rrca
+  rrca
+  and $E0
+  ld de, wave_ram
+  ld e, a
+  ld bc, 32
+  ldir
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
 
 wvp_cut:                     ; zero the step
   call wv_step_ptr
