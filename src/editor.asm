@@ -23,6 +23,7 @@
 .DEFINE SCR_INSTR   3
 .DEFINE SCR_TABLE   4
 .DEFINE SCR_GROOVE  5
+.DEFINE SCR_PROJ    6
 
 .RAMSECTION "edvars" SLOT 3
   scr_mode     db
@@ -36,6 +37,9 @@
   tbl_col      db
   cur_groove   db
   grv_row      db
+  prj_row      db
+  prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
+  proj_bpm     db
   song_cur     db            ; absolute song row of the cursor
   song_col     db
   song_view    db            ; top visible song row
@@ -92,6 +96,8 @@ editor_init:
   ld (tbl_col), a
   ld (cur_groove), a
   ld (grv_row), a
+  ld (prj_row), a
+  ld (prj_stat), a
   ld (dt1_timer), a
   ld a, $FF
   ld (clip_scr), a
@@ -171,8 +177,13 @@ ei_nav:
 ; screen map: 2 held + L/R
 ; =============================================================
 screen_nav:
-  ; on INSTR/TABLE, 2 + up/down selects the item being edited
+  ; PROJECT sits above SONG (2+up / 2+down), per the design map
   ld a, (scr_mode)
+  cp SCR_PROJ
+  jr z, sn_proj
+  cp SCR_SONG
+  jr z, sn_songup
+  ; on INSTR/TABLE/GROOVE, 2 + up/down selects the edited item
   cp SCR_INSTR
   jr z, sn_seli
   cp SCR_TABLE
@@ -180,6 +191,18 @@ screen_nav:
   cp SCR_GROOVE
   jr z, sn_selg
   jr sn_lr
+sn_proj:
+  ld a, (pad_edge)
+  and PAD_DOWN
+  ret z
+  xor a                      ; back down to SONG
+  jp sn_switch
+sn_songup:
+  ld a, (pad_edge)
+  and PAD_UP
+  jr z, sn_lr
+  ld a, SCR_PROJ
+  jp sn_switch
 sn_seli:
   ld a, (pad_edge)
   and PAD_UP|PAD_DOWN
@@ -343,6 +366,8 @@ cursor_move:
   jp z, cm_table
   cp SCR_GROOVE
   jp z, cm_groove
+  cp SCR_PROJ
+  jp z, cm_proj
 
   ; ---- SONG ----
   ld a, (hdr_cur)
@@ -649,6 +674,8 @@ do_press:
   jp z, tbp_press
   cp SCR_GROOVE
   jp z, grp_press
+  cp SCR_PROJ
+  jp z, prp_press
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -675,6 +702,8 @@ sop_body:
 do_cut:
   ld a, (scr_mode)
   cp SCR_INSTR
+  ret z
+  cp SCR_PROJ
   ret z
   cp SCR_CHAIN
   jp z, chp_cut
@@ -732,6 +761,8 @@ do_edit:
   jp z, tbp_edit
   cp SCR_GROOVE
   jp z, grp_edit
+  cp SCR_PROJ
+  jp z, prp_edit
   ; ---- SONG: edit chain number ----
   ld a, (hdr_cur)
   or a
@@ -1542,6 +1573,112 @@ ine_mark:
   jp ins_mark_field
 
 ; -------------------------------------------------------------
+; PROJECT screen: fields 0 TEMPO, 1 VIDEO, 2 SRAM, 3 SAVE, 4 LOAD
+cm_proj:
+  bit 1, c                   ; down
+  jr z, cp_up
+  ld a, (prj_row)
+  cp 4
+  jr nc, cp_up
+  call prj_mark_field
+  inc a
+  ld (prj_row), a
+  call prj_mark_field
+cp_up:
+  bit 0, c                   ; up
+  ret z
+  ld a, (prj_row)
+  or a
+  ret z
+  call prj_mark_field
+  dec a
+  ld (prj_row), a
+  jp prj_mark_field
+
+prj_mark_field:              ; A = field (preserved)
+  push hl
+  push de
+  push af
+  ld e, a
+  ld d, 0
+  ld hl, prj_f2r
+  add hl, de
+  ld a, (hl)
+  call mark_dirty_a
+  pop af
+  pop de
+  pop hl
+  ret
+
+prp_press:
+  ld a, (prj_row)
+  cp 3
+  jr z, prp_save
+  cp 4
+  ret nz
+  call song_load
+  call mark_all_dirty        ; song data replaced
+  ld a, 1
+  ld (state_dirty), a
+  ld (label_dirty), a
+  ret
+prp_save:
+  call song_save
+  ld a, 1
+  ld (state_dirty), a
+  ld (label_dirty), a
+  ret
+
+prp_edit:                    ; only TEMPO edits
+  ld a, (prj_row)
+  or a
+  ret nz
+  ld d, 0
+  ld a, (proj_bpm)
+  ld e, a
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, pe_l
+  inc e
+pe_l:
+  bit 2, c
+  jr z, pe_u
+  dec e
+pe_u:
+  bit 0, c
+  jr z, pe_d
+  ld a, e
+  add a, 10
+  ld e, a
+pe_d:
+  bit 1, c
+  jr z, pe_cl
+  ld a, e
+  sub 10
+  ld e, a
+pe_cl:
+  ld a, e                    ; clamp 40..240
+  cp 40
+  jr nc, pe_hi
+  ld a, 40
+pe_hi:
+  cp 241
+  jr c, pe_st
+  ld a, 240
+pe_st:
+  ld (proj_bpm), a
+  ld d, a
+  call set_tempo             ; same math as the T command
+  xor a
+  jp prj_mark_field
+
+prj_f2r:
+  .db 0, 2, 3, 5, 6
+prj_r2f:
+  .db 0, $FF, 1, 2, $FF, 3, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
 gr_entry_ptr:                ; E = row -> HL
   ld a, (cur_groove)
@@ -2162,6 +2299,8 @@ draw_row:
   jp z, tb_draw_row
   cp SCR_GROOVE
   jp z, gr_draw_row
+  cp SCR_PROJ
+  jp z, pr_draw_row
   jp so_draw_row
 
 ; -------------------------------------------------------------
@@ -2170,7 +2309,9 @@ draw_row:
 playhead_update:
   ld a, (scr_mode)
   cp SCR_INSTR
-  ret z                      ; no playhead on the form screen
+  ret z                      ; no playhead on form screens
+  cp SCR_PROJ
+  ret z
   cp SCR_GROOVE
   jr z, pu_groove
   cp SCR_TABLE
@@ -2353,6 +2494,8 @@ draw_labels:
   jp z, dl_table
   cp SCR_GROOVE
   jp z, dl_groove
+  cp SCR_PROJ
+  jp z, dl_proj
 
   ; ---- SONG ----
   ld b, 1
@@ -2563,6 +2706,20 @@ dsm_attr:
   ld a, d
   cp 6
   jr c, dsm_l
+  ; PROJECT indicator above the map's S
+  ld a, (scr_mode)
+  cp SCR_PROJ
+  ld a, $00
+  jr nz, dsm_pattr
+  ld a, $08
+dsm_pattr:
+  ld (text_attr), a
+  ld b, 3
+  ld c, 26
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, 'P'
+  call print_char
   xor a
   ld (text_attr), a
   ret
@@ -2878,6 +3035,135 @@ tdr_pdash:
   call print_char
   pop de
   ret
+
+; -------------------------------------------------------------
+; PROJECT screen row (E = grid row)
+pr_draw_row:
+  push de
+  ld d, 0
+  ld hl, prj_r2f
+  add hl, de
+  ld a, (hl)
+  pop de
+  cp $FF
+  ret z
+  ld (ed_field), a
+  ; label (col 4)
+  xor a
+  ld (text_attr), a
+  ld a, (ed_field)
+  ld d, a
+  add a, a
+  add a, a
+  add a, d                   ; * 5
+  push de
+  ld e, a
+  ld d, 0
+  ld hl, prj_lbls
+  add hl, de
+  pop de
+  push hl
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  pop hl
+  push de
+  call print_at
+  pop de
+  ; value attr
+  xor a
+  ld (text_attr), a
+  ld a, (prj_row)
+  ld d, a
+  ld a, (ed_field)
+  cp d
+  jr nz, prd_addr
+  ld a, $08
+  ld (text_attr), a
+prd_addr:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 10
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, (ed_field)
+  or a
+  jr z, prd_tempo
+  cp 1
+  jr z, prd_video
+  cp 2
+  jr z, prd_sram
+  ; SAVE / LOAD
+  ld hl, str_go
+  ld b, 2
+  jp print_raw
+prd_tempo:
+  ld a, (proj_bpm)
+  jp print_dec3
+prd_video:
+  ld a, (region_pal)
+  or a
+  ld hl, str_vntsc
+  jr z, prd_p4
+  ld hl, str_vpal
+prd_p4:
+  ld b, 4
+  jp print_raw
+prd_sram:
+  ld a, (sram_ok)
+  or a
+  ld hl, str_snone
+  jr z, prd_p4
+  ld hl, str_sok
+  jr prd_p4
+
+dl_proj:
+  ld b, 1
+  ld c, 1
+  ld hl, str_proj
+  call print_at
+  ; status
+  ld a, (prj_stat)
+  ld d, a
+  add a, a
+  add a, a
+  add a, a
+  sub d                      ; * 7
+  ld e, a
+  ld d, 0
+  ld hl, prj_stats
+  add hl, de
+  push hl
+  ld b, 1
+  ld c, 10
+  call nt_addr_hl
+  call vdp_set_addr
+  pop hl
+  ld b, 7
+  jp print_raw
+
+prj_lbls:
+  .db "TPO ", 0
+  .db "VID ", 0
+  .db "SRAM", 0
+  .db "SAVE", 0
+  .db "LOAD", 0
+prj_stats:
+  .db "       "
+  .db "SAVED  "
+  .db "LOADED "
+  .db "NO SRAM"
+  .db "NO DATA"
+str_proj:   .db "PROJECT", 0
+str_go:     .db "GO"
+str_vpal:   .db "PAL "
+str_vntsc:  .db "NTSC"
+str_sok:    .db "OK  "
+str_snone:  .db "NONE"
 
 ; -------------------------------------------------------------
 ; GROOVE screen row (E = row)
@@ -3396,7 +3682,7 @@ str_htsp:        .db "TSP", 0
 str_hnote:       .db "NOTE", 0
 str_hinstr:      .db "I", 0
 str_hcmd:        .db "CMD", 0
-str_blank:       .db "                          ", 0
+str_blank:       .db "                         ", 0  ; 25 cols: map lives at 26+
 str_muted:       .db ".."
 track_names:
   .db "T1T2T3NO"

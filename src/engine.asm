@@ -75,6 +75,7 @@
   eng_start    db            ; song row playback began on (loop point)
   groove_sel   db            ; active groove
   hop_pending  db            ; H command: force phrase boundary
+  sram_ok      db            ; cart SRAM detected at boot
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
@@ -1249,6 +1250,145 @@ cf_vol:
   ld a, c
   cp 4
   jp c, cf_loop
+  ret
+
+; =============================================================
+; persistence: cart SRAM at $8000 via mapper reg $FFFC bit 3
+; layout: $8000 magic "SMDJ1", $8005 checksum16, $8010 song data
+; =============================================================
+.DEFINE SRAM_DATA $8010
+.DEFINE SAVE_SIZE 5120       ; phrase_pool..grooves, contiguous
+
+sram_detect:
+  ld a, $08
+  ld ($FFFC), a
+  ld hl, $8000
+  ld b, (hl)
+  ld (hl), $A5
+  ld a, (hl)
+  cp $A5
+  jr nz, sd_no
+  ld (hl), $5A
+  ld a, (hl)
+  cp $5A
+  jr nz, sd_no
+  ld (hl), b
+  ld a, 1
+  jr sd_st
+sd_no:
+  xor a
+sd_st:
+  ld (sram_ok), a
+  xor a
+  ld ($FFFC), a
+  ret
+
+; 16-bit byte sum over the SRAM data area -> DE
+sram_sum:
+  ld hl, SRAM_DATA
+  ld bc, SAVE_SIZE
+  ld de, 0
+ss_l:
+  ld a, e
+  add a, (hl)
+  ld e, a
+  ld a, d
+  adc a, 0
+  ld d, a
+  inc hl
+  dec bc
+  ld a, b
+  or c
+  jr nz, ss_l
+  ret
+
+; save the song; prj_stat: 1 saved / 3 no sram
+song_save:
+  ld a, (sram_ok)
+  or a
+  jr nz, sv_go
+  ld a, 3
+  ld (prj_stat), a
+  ret
+sv_go:
+  call engine_stop
+  ld a, $08
+  ld ($FFFC), a
+  ld hl, phrase_pool
+  ld de, SRAM_DATA
+  ld bc, SAVE_SIZE
+  ldir
+  call sram_sum
+  ld hl, $8000
+  ld (hl), 'S'
+  inc hl
+  ld (hl), 'M'
+  inc hl
+  ld (hl), 'D'
+  inc hl
+  ld (hl), 'J'
+  inc hl
+  ld (hl), '1'
+  ld ($8005), de
+  xor a
+  ld ($FFFC), a
+  ld a, 1
+  ld (prj_stat), a
+  ret
+
+; load the song; prj_stat: 2 loaded / 3 no sram / 4 no data
+song_load:
+  ld a, (sram_ok)
+  or a
+  jr nz, ld_go
+  ld a, 3
+  ld (prj_stat), a
+  ret
+ld_go:
+  call engine_stop
+  ld a, $08
+  ld ($FFFC), a
+  ld hl, $8000
+  ld a, (hl)
+  cp 'S'
+  jr nz, ld_bad
+  inc hl
+  ld a, (hl)
+  cp 'M'
+  jr nz, ld_bad
+  inc hl
+  ld a, (hl)
+  cp 'D'
+  jr nz, ld_bad
+  inc hl
+  ld a, (hl)
+  cp 'J'
+  jr nz, ld_bad
+  inc hl
+  ld a, (hl)
+  cp '1'
+  jr nz, ld_bad
+  call sram_sum
+  ld hl, ($8005)
+  or a
+  sbc hl, de
+  ld a, h
+  or l
+  jr nz, ld_bad
+  ld hl, SRAM_DATA
+  ld de, phrase_pool
+  ld bc, SAVE_SIZE
+  ldir
+  xor a
+  ld ($FFFC), a
+  ld a, 2
+  ld (prj_stat), a
+  ret
+ld_bad:
+  xor a
+  ld ($FFFC), a
+  ld a, 4
+  ld (prj_stat), a
   ret
 
 ; -------------------------------------------------------------

@@ -126,6 +126,12 @@ init:
   call load_palette
   call song_init
   call editor_init
+  call sram_detect
+  ld a, (sram_ok)
+  or a
+  call nz, song_load         ; autoload a saved song
+  xor a
+  ld (prj_stat), a
 
   ; region-specific note table
   ld hl, note_table_ntsc
@@ -135,6 +141,15 @@ init:
   ld hl, note_table_pal
 init_nt:
   ld (note_ptr), hl
+  ld a, 150                  ; default tempo display by region
+  ld b, a
+  ld a, (region_pal)
+  or a
+  jr z, init_bpm
+  ld b, 125
+init_bpm:
+  ld a, b
+  ld (proj_bpm), a
 
   ; ---- static screen ----
   xor a

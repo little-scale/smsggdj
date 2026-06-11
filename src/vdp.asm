@@ -146,6 +146,35 @@ print_raw:
   djnz print_raw
   ret
 
+; print A as three decimal digits at current VRAM address
+print_dec3:
+  ld b, '0'
+pd_h:
+  cp 100
+  jr c, pd_hd
+  sub 100
+  inc b
+  jr pd_h
+pd_hd:
+  push af
+  ld a, b
+  call print_char
+  pop af
+  ld b, '0'
+pd_t:
+  cp 10
+  jr c, pd_td
+  sub 10
+  inc b
+  jr pd_t
+pd_td:
+  push af
+  ld a, b
+  call print_char
+  pop af
+  add a, '0'
+  jp print_char
+
 ; print A as two hex digits at current VRAM address
 print_hex_a:
   push af
