@@ -1215,6 +1215,7 @@ draw_labels:
   ld c, 1
   ld hl, str_blank
   call print_at
+  call draw_scrmap
 
   ld a, (scr_mode)
   cp SCR_CHAIN
@@ -1344,6 +1345,44 @@ dl_track_tag:
   pop hl
   ld b, 2
   jp print_raw
+
+; screen map indicator, top right: current screen inverted.
+; grows to S C P I T (+ project/groove) as screens are added.
+draw_scrmap:
+  ld d, 0                    ; screen index
+dsm_l:
+  ld a, (scr_mode)
+  cp d
+  ld a, $00
+  jr nz, dsm_attr
+  ld a, $08
+dsm_attr:
+  ld (text_attr), a
+  ld a, d
+  add a, 27
+  ld c, a
+  ld b, 1
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  push de
+  ld e, d
+  ld d, 0
+  ld hl, map_letters
+  add hl, de
+  ld a, (hl)
+  call print_char
+  pop de
+  inc d
+  ld a, d
+  cp 3
+  jr c, dsm_l
+  xor a
+  ld (text_attr), a
+  ret
+map_letters:
+  .db "SCP"
 
 ; A = track -> A = screen column of its song-screen cell
 so_track_col:
