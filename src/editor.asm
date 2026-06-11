@@ -7,14 +7,19 @@
 ; SONG cursor (and selects its track); entering PHRASE opens the
 ; phrase under the CHAIN cursor.
 ;
-; Common controls (hold-time disambiguation as before):
-;   dpad           cursor       1 tap        insert/audition
-;   1 + dpad       edit         2 long + 1   cut
-;   1+2 together   play/stop (mode follows the current screen)
-; SONG header row (up from row 0): 1 = mute, 2 long + 1 = solo.
+; Common controls (held-state disambiguation, no timing windows):
+;   dpad           cursor       1 tap          insert/audition
+;   1 + dpad       edit         1H + 2 tap     cut field
+;   2H + 1 tap     play/stop    1H + 2 held    block SELECT
+;   1 double-tap   paste        2H + dpad      screen map
+; SELECT mode (SONG/CHAIN/PHRASE/TABLE): dpad extends the box,
+;   1 tap copies, 1H + 2 cuts, 2 alone cancels. Paste anchors at
+;   the cursor row; columns stay where they were cut.
+; SONG header row (up from row 0): 1 = mute, 1H + 2 = solo.
 ; =============================================================
 
 .DEFINE DT_WINDOW    15        ; frames: double-tap window
+.DEFINE SEL_HOLD     16        ; frames: 1H+2 held = block select
 .DEFINE PRELISTEN_LEN 32       ; ticks: cap sustained prelisten
 
 .DEFINE SCR_SONG    0          ; values match MODE_* on purpose
@@ -62,6 +67,20 @@
   clip_col     db            ;   column
   clip_a       db            ;   primary byte
   clip_b       db            ;   secondary byte
+  selhold      db            ; 1H+2 hold countdown (0 = idle)
+  sel_active   db            ; 1 = SELECT mode
+  sel_1press   db            ; 1 pressed in-mode (copy on release)
+  sel_arow     db            ; anchor (row is absolute on SONG)
+  sel_acol     db
+  sel_r0       db            ; normalized box, inclusive
+  sel_r1       db
+  sel_c0       db
+  sel_c1       db
+  blk_scr      db            ; block clipboard: screen ($FF none)
+  blk_c0       db            ;   origin column
+  blk_w        db
+  blk_h        db
+  blk_data     dsb 64        ;   up to 4 cols x 16 rows
   label_dirty  db
   ed_rep       db
   tmp_note     db
@@ -108,8 +127,11 @@ editor_init:
   ld (prj_stat), a
   ld (prj_slot), a
   ld (dt1_timer), a
+  ld (selhold), a
+  ld (sel_active), a
   ld a, $FF
   ld (clip_scr), a
+  ld (blk_scr), a
   xor a
   ld hl, drawn_a
   ld a, $FF
@@ -129,8 +151,12 @@ editor_init:
 ; =============================================================
 editor_input:
   ; held-state disambiguation (no timing windows):
-  ;   1 while 2 held = transport   2 while 1 held = cut
+  ;   1 while 2 held = transport   2 while 1 held = cut/select
   ;   1 alone = insert/audition    1 double-tap = paste
+  ; an active block selection owns all the buttons
+  ld a, (sel_active)
+  or a
+  jp nz, sel_input
   ; ---- button 1 pressed ----
   ld a, (pad_edge)
   and PAD_B1
@@ -153,14 +179,43 @@ ei_1first:
   ld (dt1_timer), a
   call do_press              ; insert/audition immediately
 ei_no1:
-  ; ---- button 2 pressed ----
+  ; ---- button 2 pressed while 1 held ----
+  ; grid screens: arm a pending cut - a short tap (release) cuts
+  ; the field, holding past SEL_HOLD enters block SELECT. Other
+  ; screens keep cut-on-press.
   ld a, (pad_edge)
   and PAD_B2
-  jr z, ei_dtick
+  jr z, ei_2pend
   ld a, (pad_raw)
   and PAD_B1
+  jr z, ei_2pend
+  call scr_has_sel
+  jr z, ei_cutnow
+  ld a, SEL_HOLD
+  ld (selhold), a
+  jr ei_dtick
+ei_cutnow:
+  call do_cut
+  jr ei_dtick
+ei_2pend:
+  ; ---- pending cut: release fires it, holding on selects ----
+  ld a, (selhold)
+  or a
   jr z, ei_dtick
-  call do_cut                ; 1 held + 2 = cut
+  ld a, (pad_raw)
+  and PAD_B1|PAD_B2
+  cp PAD_B1|PAD_B2
+  jr z, ei_selcnt
+  xor a                      ; either button released: field cut
+  ld (selhold), a
+  call do_cut
+  jr ei_dtick
+ei_selcnt:
+  ld a, (selhold)
+  dec a
+  ld (selhold), a
+  jr nz, ei_dtick
+  jp sel_enter               ; threshold reached: SELECT mode
 ei_dtick:
   ; ---- double-tap countdown ----
   ld a, (dt1_timer)
@@ -2363,8 +2418,14 @@ clip_set:
   ret
 
 ; double-tap 1: paste the clipboard at the cursor when the
-; screen and column context matches the cut
+; screen and column context matches the cut. A block clipboard
+; for this screen takes the whole gesture.
 do_paste:
+  ld a, (blk_scr)
+  ld b, a
+  ld a, (scr_mode)
+  cp b
+  jp z, blk_paste
   ld a, (clip_scr)
   ld b, a
   ld a, (scr_mode)
@@ -2513,6 +2574,542 @@ prelisten:
   ret nz
   ld (ix+4), PRELISTEN_LEN
   ret
+
+; =============================================================
+; block selection (SONG/CHAIN/PHRASE/TABLE)
+; =============================================================
+; NZ if the screen (and cursor position) supports block select
+scr_has_sel:
+  ld a, (scr_mode)
+  or a
+  jr z, shs_song
+  cp SCR_CHAIN
+  jr z, shs_yes
+  cp SCR_PHRASE
+  jr z, shs_yes
+  cp SCR_TABLE
+  jr z, shs_yes
+shs_no:
+  xor a
+  ret
+shs_song:
+  ld a, (hdr_cur)            ; not on the track header
+  or a
+  jr nz, shs_no
+shs_yes:
+  ld a, 1
+  or a
+  ret
+
+; cursor position on the grid screens (row is absolute on SONG)
+sel_cur_row:
+  ld a, (scr_mode)
+  or a
+  jr nz, scw_r1
+  ld a, (song_cur)
+  ret
+scw_r1:
+  cp SCR_CHAIN
+  jr nz, scw_r2
+  ld a, (chn_row)
+  ret
+scw_r2:
+  cp SCR_PHRASE
+  jr nz, scw_r3
+  ld a, (phr_row)
+  ret
+scw_r3:
+  ld a, (tbl_row)
+  ret
+
+sel_cur_col:
+  ld a, (scr_mode)
+  or a
+  jr nz, scw_c1
+  ld a, (song_col)
+  ret
+scw_c1:
+  cp SCR_CHAIN
+  jr nz, scw_c2
+  ld a, (chn_col)
+  ret
+scw_c2:
+  cp SCR_PHRASE
+  jr nz, scw_c3
+  ld a, (phr_col)
+  ret
+scw_c3:
+  ld a, (tbl_col)
+  ret
+
+; enter SELECT: anchor at the cursor
+sel_enter:
+  xor a
+  ld (selhold), a
+  ld (sel_1press), a
+  call sel_cur_row
+  ld (sel_arow), a
+  call sel_cur_col
+  ld (sel_acol), a
+  ld a, 1
+  ld (sel_active), a
+  call sel_norm
+  jp mark_all_dirty
+
+sel_exit:
+  xor a
+  ld (sel_active), a
+  ld (sel_1press), a
+  jp mark_all_dirty
+
+; normalize anchor..cursor into sel_r0/r1/c0/c1 (inclusive)
+sel_norm:
+  call sel_cur_row
+  ld b, a
+  ld a, (sel_arow)
+  cp b
+  jr c, snm_r
+  ld c, a
+  ld a, b
+  ld b, c
+snm_r:
+  ld (sel_r0), a
+  ld a, b
+  ld (sel_r1), a
+  call sel_cur_col
+  ld b, a
+  ld a, (sel_acol)
+  cp b
+  jr c, snm_c
+  ld c, a
+  ld a, b
+  ld b, c
+snm_c:
+  ld (sel_c0), a
+  ld a, b
+  ld (sel_c1), a
+  ret
+
+; ---- SELECT mode input: dpad extends, 1 tap copies,
+;      1H + 2 cuts, 2 alone cancels ----
+sel_input:
+  ld a, (pad_edge)
+  and PAD_B2
+  jr z, si_no2
+  ld a, (pad_raw)
+  and PAD_B1
+  jp nz, blk_cut             ; 1 held + 2 = cut block
+  jp sel_exit                ; 2 alone = cancel
+si_no2:
+  ld a, (pad_edge)
+  and PAD_B1
+  jr z, si_1rel
+  ld a, 1                    ; arm copy: the entry chord's own
+  ld (sel_1press), a         ; release must not fire it
+  jr si_dpad
+si_1rel:
+  ld a, (sel_1press)
+  or a
+  jr z, si_dpad
+  ld a, (pad_raw)
+  and PAD_B1
+  jr nz, si_dpad
+  jp blk_copy                ; armed 1 released = copy block
+si_dpad:
+  ld a, (pad_rep)
+  and $0F
+  ret z
+  ld c, a
+  ; fall through
+
+; extend the selection: step the cursor, renormalize, redraw the
+; union of the old and new row spans
+sel_move:
+  ld a, (sel_r0)
+  ld d, a
+  ld a, (sel_r1)
+  ld e, a
+  push de
+  call sel_step
+  call sel_norm
+  pop de
+  ld a, (sel_r0)
+  cp d
+  jr nc, smv_r0
+  ld d, a
+smv_r0:
+  ld a, (sel_r1)
+  cp e
+  jr c, smv_r1
+  ld e, a
+smv_r1:
+  ; fall through: mark rows D..E dirty
+
+sel_mark_rows:
+  ld a, (scr_mode)
+  or a
+  jr nz, smk_go
+  ld a, (song_view)          ; SONG: absolute -> visible
+  ld b, a
+  ld a, d
+  sub b
+  jr nc, smk_d
+  xor a
+smk_d:
+  cp 16
+  ret nc                     ; span starts below the window
+  ld d, a
+  ld a, e
+  sub b
+  ret c                      ; span ends above the window
+  cp 16
+  jr c, smk_e
+  ld a, 15
+smk_e:
+  ld e, a
+smk_go:
+  ld a, d
+smk_l:
+  push de
+  call mark_dirty_a
+  pop de
+  cp e
+  ret nc
+  inc a
+  jr smk_l
+
+; step the cursor (C = dpad bits): clamped, no header entry, no
+; column wrap; SONG scrolls and caps the span at 16 rows
+sel_step:
+  ld a, (scr_mode)
+  or a
+  jr z, sst_song
+  cp SCR_CHAIN
+  jr nz, sst_nc
+  ld hl, chn_row
+  ld de, chn_col
+  ld b, 1
+  jr sst_grid
+sst_nc:
+  cp SCR_PHRASE
+  jr nz, sst_nt
+  ld hl, phr_row
+  ld de, phr_col
+  ld b, 3
+  jr sst_grid
+sst_nt:
+  ld hl, tbl_row
+  ld de, tbl_col
+  ld b, 3
+sst_grid:
+  bit 1, c                   ; down
+  jr z, ssg_gup
+  ld a, (hl)
+  cp 15
+  jr nc, ssg_gup
+  inc (hl)
+ssg_gup:
+  bit 0, c                   ; up
+  jr z, ssg_grt
+  ld a, (hl)
+  or a
+  jr z, ssg_grt
+  dec (hl)
+ssg_grt:
+  bit 3, c                   ; right
+  jr z, ssg_glt
+  ld a, (de)
+  cp b
+  jr nc, ssg_glt
+  inc a
+  ld (de), a
+ssg_glt:
+  bit 2, c                   ; left
+  ret z
+  ld a, (de)
+  or a
+  ret z
+  dec a
+  ld (de), a
+  ret
+sst_song:
+  bit 1, c                   ; down
+  jr z, ssg_up
+  ld a, (song_cur)
+  cp SONG_ROWS-1
+  jr nc, ssg_up
+  inc a
+  ld b, a
+  ld a, (sel_arow)           ; span cap: the clipboard holds 16
+  add a, 15                  ; rows
+  cp b
+  jr c, ssg_up
+  ld a, b
+  ld (song_cur), a
+ssg_up:
+  bit 0, c                   ; up
+  jr z, ssg_col
+  ld a, (song_cur)
+  or a
+  jr z, ssg_col
+  dec a
+  ld b, a
+  ld a, (sel_arow)
+  sub 15
+  jr nc, ssg_upf
+  xor a
+ssg_upf:
+  cp b                       ; floor = max(0, anchor-15)
+  jr z, ssg_upok
+  jr nc, ssg_col
+ssg_upok:
+  ld a, b
+  ld (song_cur), a
+ssg_col:
+  bit 3, c
+  jr z, ssg_lt
+  ld a, (song_col)
+  cp 3
+  jr nc, ssg_lt
+  inc a
+  ld (song_col), a
+ssg_lt:
+  bit 2, c
+  jr z, ssg_done
+  ld a, (song_col)
+  or a
+  jr z, ssg_done
+  dec a
+  ld (song_col), a
+ssg_done:
+  jp so_scroll               ; keep the cursor in view
+
+; D = column, E = row (absolute on SONG): A = $08 if the cell is
+; inside the active selection, else 0
+sel_cell_attr:
+  ld a, (sel_active)
+  or a
+  ret z
+  ld a, (sel_r0)
+  cp e
+  jr z, sca_r1
+  jr nc, sca_out             ; r0 > row
+sca_r1:
+  ld a, (sel_r1)
+  cp e
+  jr c, sca_out              ; r1 < row
+  ld a, (sel_c0)
+  cp d
+  jr z, sca_c1
+  jr nc, sca_out
+sca_c1:
+  ld a, (sel_c1)
+  cp d
+  jr c, sca_out
+  ld a, $08
+  ret
+sca_out:
+  xor a
+  ret
+
+; E = row (absolute on SONG) -> HL = first cell of the row
+sel_row_ptr:
+  ld a, (scr_mode)
+  or a
+  jr z, srp_song
+  cp SCR_CHAIN
+  jp z, ch_entry_ptr
+  cp SCR_PHRASE
+  jp z, ed_step_ptr
+  jp tb_entry_ptr
+srp_song:
+  ld l, e
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  ld de, song
+  add hl, de
+  ret
+
+; HL = this screen's per-column empty values
+sel_empties:
+  ld a, (scr_mode)
+  or a
+  jr z, sem_s
+  cp SCR_CHAIN
+  jr z, sem_c
+  cp SCR_PHRASE
+  jr z, sem_p
+  ld hl, empt_tbl
+  ret
+sem_s:
+  ld hl, empt_song
+  ret
+sem_c:
+  ld hl, empt_chain
+  ret
+sem_p:
+  ld hl, empt_phr
+  ret
+empt_song:  .db $FF, $FF, $FF, $FF
+empt_chain: .db $FF, $00
+empt_phr:   .db $00, $FF, $00, $00
+empt_tbl:   .db $FF, $00, $00, $00
+
+blk_copy:
+  call blk_grab
+  jp sel_exit
+
+blk_cut:
+  call blk_grab
+  call blk_erase
+  jp sel_exit
+
+; selection box -> block clipboard
+blk_grab:
+  ld a, (scr_mode)
+  ld (blk_scr), a
+  ld a, $FF
+  ld (clip_scr), a           ; the field clipboard is stale now
+  ld a, (sel_c0)
+  ld (blk_c0), a
+  ld b, a
+  ld a, (sel_c1)
+  sub b
+  inc a
+  ld (blk_w), a
+  ld a, (sel_r0)
+  ld b, a
+  ld (tmp_note), a           ; row walker
+  ld a, (sel_r1)
+  sub b
+  inc a
+  ld (blk_h), a
+  ld ix, blk_data
+bgr_row:
+  ld a, (tmp_note)
+  ld e, a
+  call sel_row_ptr
+  ld a, (sel_c0)
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (blk_w)
+  ld b, a
+bgr_col:
+  ld a, (hl)
+  ld (ix+0), a
+  inc hl
+  inc ix
+  djnz bgr_col
+  ld a, (sel_r1)
+  ld b, a
+  ld a, (tmp_note)
+  cp b
+  ret nc
+  inc a
+  ld (tmp_note), a
+  jr bgr_row
+
+; write the per-column empties over the selection box
+blk_erase:
+  ld a, (sel_r0)
+  ld (tmp_note), a
+ber_row:
+  ld a, (tmp_note)
+  ld e, a
+  call sel_row_ptr
+  ld a, (sel_c0)
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (sel_c0)
+  ld c, a
+ber_col:
+  push hl
+  call sel_empties
+  ld b, 0
+  add hl, bc
+  ld a, (hl)
+  pop hl
+  ld (hl), a
+  inc hl
+  ld a, (sel_c1)
+  cp c
+  jr z, ber_next
+  inc c
+  jr ber_col
+ber_next:
+  ld a, (sel_r1)
+  ld b, a
+  ld a, (tmp_note)
+  cp b
+  ret nc
+  inc a
+  ld (tmp_note), a
+  jr ber_row
+
+; paste the block: rows anchor at the cursor, columns stay where
+; they were cut (keeps every byte on its own column type)
+blk_paste:
+  ld a, (scr_mode)
+  or a
+  jr nz, bpp_arm
+  ld a, (hdr_cur)
+  or a
+  ret nz                     ; not onto the song header
+bpp_arm:
+  call sel_cur_row
+  ld (tmp_note), a           ; dest row walker
+  ld a, (blk_h)
+  ld (tmp_instr), a          ; rows remaining
+  ld ix, blk_data
+bpp_row:
+  ld a, (scr_mode)           ; clamp at the grid bottom
+  or a
+  jr z, bpp_smax
+  ld a, (tmp_note)
+  cp 16
+  ret nc
+  jr bpp_go
+bpp_smax:
+  ld a, (tmp_note)
+  cp SONG_ROWS
+  ret nc
+bpp_go:
+  ld a, (tmp_note)
+  ld e, a
+  call sel_row_ptr
+  ld a, (blk_c0)
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (blk_w)
+  ld b, a
+bpp_col:
+  ld a, (ix+0)
+  ld (hl), a
+  inc ix
+  inc hl
+  djnz bpp_col
+  ld a, (scr_mode)
+  or a
+  jr nz, bpp_mark
+  ld a, (tmp_note)
+  call mark_vis_a
+  jr bpp_step
+bpp_mark:
+  ld a, (tmp_note)
+  call mark_dirty_a
+bpp_step:
+  ld a, (tmp_instr)
+  dec a
+  ld (tmp_instr), a
+  ret z
+  ld a, (tmp_note)
+  inc a
+  ld (tmp_note), a
+  jr bpp_row
 
 ; =============================================================
 ; pointers & dirty bookkeeping
@@ -3204,7 +3801,19 @@ sdr_ph:
   ld b, a
   ld a, (tmp_note)
   cp b
-  jr nz, sdr_val
+  jr nz, sdr_sel
+  ld a, $08
+  ld (text_attr), a
+  jr sdr_val
+sdr_sel:
+  push de
+  ld d, c                    ; track = column
+  ld a, (tmp_note)
+  ld e, a                    ; absolute row
+  call sel_cell_attr
+  pop de
+  or a
+  jr z, sdr_val
   ld a, $08
   ld (text_attr), a
 sdr_val:
@@ -3249,7 +3858,7 @@ sdr_next:
   inc c
   ld a, c
   cp 4
-  jr c, sdr_cell
+  jp c, sdr_cell
   ret
 
 ; -------------------------------------------------------------
@@ -3659,7 +4268,7 @@ tb_field_attr:
   ld a, $08
   jr tfa_set
 tfa_norm:
-  xor a
+  call sel_cell_attr
 tfa_set:
   ld (text_attr), a
   ret
@@ -3676,7 +4285,7 @@ ch_field_attr:
   ld a, $08
   jr cfa_set
 cfa_norm:
-  xor a
+  call sel_cell_attr
 cfa_set:
   ld (text_attr), a
   ret
@@ -4116,7 +4725,7 @@ ph_field_attr:
   ld a, $08
   jr pfa_set
 pfa_norm:
-  xor a
+  call sel_cell_attr
 pfa_set:
   ld (text_attr), a
   ret

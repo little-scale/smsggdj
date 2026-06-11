@@ -82,7 +82,7 @@ Only D-pad + 1 + 2; PAUSE is auxiliary. Button 1 ≈ LSDJ's A (edit), button 2 �
 | **2** hold + D-pad | Navigate the screen map (LSDJ SELECT+dpad equivalent) |
 | **2** held + **1** tap | **Play/stop** (transport — primary control; 2 is the "project" modifier: navigation and transport). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
 | **1** held + **2** tap | Cut (delete the field into the clipboard) |
-| Block selection | TBD — gesture to be redefined (2-held+1 now means transport) |
+| **1** held + **2** long-hold (~⅓ s) | **Block SELECT** (SONG/CHAIN/PHRASE/TABLE): anchors at the cursor. D-pad extends the box; **1** tap = copy, **1** held + **2** = cut, **2** alone = cancel. Paste = double-tap-1: rows anchor at the cursor, columns stay where they were cut (type-safe). A short 2-tap while holding 1 stays cut-field — cut fires on 2's release on these screens. |
 | **PAUSE** (NMI) | Alias for play/stop. Double-press = panic (silence all channels, abort sample, re-arm MIDI sync) |
 | Track mute/solo | Cursor on a track header (SONG screen) + 1 = mute toggle, 1 double-tap = solo |
 
