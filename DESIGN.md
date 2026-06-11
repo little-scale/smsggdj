@@ -80,7 +80,7 @@ Only D-pad + 1 + 2; PAUSE is auxiliary. Button 1 ≈ LSDJ's A (edit), button 2 �
 | D-pad | Move cursor (with key-repeat) |
 | **1** tap | On empty step: insert note/value (repeats last entered). On PROJECT/menu: activate |
 | **1** hold + D-pad | Edit value under cursor — left/right = small step (±1 semitone / ±1), up/down = big step (±octave / ±0x10) |
-| **1** double-tap | Paste the clipboard at the cursor (same screen/column as the cut) |
+| **1** double-tap | Paste when a clipboard is armed for this screen; otherwise, if the first tap filled an empty SONG/CHAIN cell, upgrade it to the next **free** chain/phrase (LSDJ's fresh-slot gesture) |
 | **2** tap | Back: PHRASE → CHAIN → SONG (pops the navigation stack) |
 | **2** hold + D-pad | Navigate the screen map (LSDJ SELECT+dpad equivalent) |
 | **2** held + **1** tap | **Play/stop** (transport — primary control; 2 is the "project" modifier: navigation and transport). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
@@ -160,7 +160,9 @@ When a noise instrument uses *pitched* mode, the engine writes the noise pitch t
 
 ### 5.4 Playback modes
 
-Play song from row / loop chain / loop phrase (transport context, §3); per-track mute/solo; **prelisten** (notes audition on entry, PROJECT toggle).
+Play song from row / loop chain / loop phrase (transport context, §3); **prelisten** (notes audition on entry, PROJECT toggle).
+
+**Song-column semantics** (LSDJ-style, settled post-v0.2): starting playback, each track enters at the first populated cell at or below the start row — a column with nothing there does not play. An **empty cell ends the column**: the track immediately loops to the column's top (its first populated cell). A populated cell holding an **empty chain** is one deliberate rest row. Columns loop independently — equal spans stay locked, unequal spans are polymetric.
 
 **LIVE mode** (PROJECT → `PLAY: SONG/LIVE`, implemented post-v0.2): the song grid becomes a bank of loops — each track's chain repeats instead of advancing down the song. On the SONG screen while playing, the transport gesture (2H+1) *queues* the cell under the cursor onto its track; the swap lands when that track's current chain finishes (LSDJ-style quantize), shown by a triangle marker beside the queued cell. Queueing an empty cell is a quantized track stop; a queued chain on a silent track starts at the next phrase boundary. the transport gesture on the cell that is *already playing* kills that track instantly (starting the playing chain = stopping it); **PAUSE is the global stop**. Tracks at different chain lengths run polymetrically, exactly as in song mode.
 

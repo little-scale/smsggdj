@@ -64,6 +64,7 @@
   last_chain   db
   last_phrase  db
   dt1_timer    db            ; double-tap countdown
+  dt1_fresh    db            ; first tap filled an empty cell
   clip_scr     db            ; clipboard: screen ($FF = empty)
   clip_col     db            ;   column
   clip_a       db            ;   primary byte
@@ -173,11 +174,13 @@ ei_1alone:
   jr z, ei_1first
   xor a
   ld (dt1_timer), a
-  call do_paste              ; second tap = paste
+  call dt_second             ; paste, or mint a free chain/phrase
   jr ei_no1
 ei_1first:
   ld a, DT_WINDOW
   ld (dt1_timer), a
+  xor a
+  ld (dt1_fresh), a
   call do_press              ; insert/audition immediately
 ei_no1:
   ; ---- button 2 pressed while 1 held ----
@@ -821,6 +824,8 @@ sop_body:
   ret nz
   ld a, (last_chain)
   ld (hl), a
+  ld a, 1
+  ld (dt1_fresh), a          ; a second tap mints a free chain
   jp so_mark_cur
 
 do_cut:
@@ -956,6 +961,8 @@ chp_press:
   ret nz
   ld a, (last_phrase)
   ld (hl), a
+  ld a, 1
+  ld (dt1_fresh), a          ; a second tap mints a free phrase
   ld a, (chn_row)
   jp mark_dirty_a
 
@@ -1110,6 +1117,8 @@ dp_instr:
   ret c
   ld a, (last_instr)
   ld (hl), a
+  ld a, 1
+  ld (dt1_fresh), a          ; a second tap mints a free one
   jp mark_phr_dirty
 dp_cmd:
   inc hl
@@ -2178,11 +2187,11 @@ pc_l:
   jr z, pc_w
   dec a
 pc_w:
-  cp $FF                     ; wrap 0..5
+  cp $FF                     ; wrap 0..6
   jr nz, pc_hi
-  ld a, 5
+  ld a, 6
 pc_hi:
-  cp 6
+  cp 7
   jr c, pc_st
   xor a
 pc_st:
@@ -2234,9 +2243,9 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE
   jp prj_mark_field
 
 prj_f2r:
-  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 12
+  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 13
 prj_r2f:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, 9, $FF, $FF, $FF
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, $FF, 9, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -2545,6 +2554,193 @@ clip_set:
   ld (clip_col), a
   ld a, (scr_mode)
   ld (clip_scr), a
+  ret
+
+; second tap of double-tap 1: paste wins whenever a clipboard is
+; armed for this screen; otherwise, if the first tap filled an
+; empty cell, upgrade it to the next FREE chain/phrase
+dt_second:
+  ld a, (blk_scr)
+  ld b, a
+  ld a, (scr_mode)
+  cp b
+  jp z, do_paste
+  ld a, (clip_scr)
+  ld b, a
+  ld a, (scr_mode)
+  cp b
+  jp z, do_paste
+  ld a, (dt1_fresh)
+  or a
+  ret z
+  xor a
+  ld (dt1_fresh), a
+  ld a, (scr_mode)
+  or a
+  jr z, dnf_song
+  cp SCR_PHRASE
+  jr z, dnf_instr
+  cp SCR_CHAIN
+  ret nz
+  ld a, (chn_col)            ; CHAIN: the phrase column only
+  or a
+  ret nz
+  call find_free_phrase
+  cp $FF
+  ret z                      ; pool exhausted
+  ld b, a
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld (hl), b
+  ld a, b
+  ld (last_phrase), a
+  ld a, (chn_row)
+  jp mark_dirty_a
+dnf_song:
+  call find_free_chain
+  cp $FF
+  ret z
+  ld b, a
+  call so_cell_ptr
+  ld (hl), b
+  ld a, b
+  ld (last_chain), a
+  jp so_mark_cur
+dnf_instr:
+  ld a, (phr_col)            ; PHRASE: the instrument column only
+  cp 1
+  ret nz
+  call find_free_instr
+  cp $FF
+  ret z
+  ld b, a
+  ld a, (phr_row)
+  ld e, a
+  call ed_step_ptr
+  inc hl
+  ld (hl), b
+  ld a, b
+  ld (last_instr), a
+  jp mark_phr_dirty
+
+; lowest chain with no steps -> A ($FF if none)
+find_free_chain:
+  ld c, 0
+ffc_chain:
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 32
+  ld de, chains
+  add hl, de
+  ld b, 16
+ffc_step:
+  ld a, (hl)
+  cp $FF
+  jr nz, ffc_next
+  inc hl
+  inc hl
+  djnz ffc_step
+  ld a, c
+  ret
+ffc_next:
+  inc c
+  ld a, c
+  cp NUM_CHAINS
+  jr c, ffc_chain
+  ld a, $FF
+  ret
+
+; lowest instrument still matching a default record -> A
+; (two shapes: the current vol-F default, and the all-zero
+; record older saves carry for unedited slots)
+find_free_instr:
+  ld c, 0
+ffi_ins:
+  ld de, instr_default
+  call ffi_cmp
+  ret z
+  ld de, instr_default_old
+  call ffi_cmp
+  ret z
+  inc c
+  ld a, c
+  cp 16
+  jr c, ffi_ins
+  ld a, $FF
+  ret
+ffi_cmp:                     ; Z + A=C when instrument C == (DE)
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 16
+  push de
+  ld de, instruments
+  add hl, de
+  pop de
+  ld b, 16
+ffc_byte:
+  ld a, (de)
+  cp (hl)
+  jr nz, ffc_no
+  inc hl
+  inc de
+  djnz ffc_byte
+  ld a, c
+  cp a                       ; force Z
+  ret
+ffc_no:
+  or 1                       ; force NZ
+  ret
+instr_default:               ; type TONE, vol F, env off, no table
+  .db 0, $0F, 0, 0, 0, 0, 0, 0, 0, $FF, 1, 0, 0, 0, 0, 0
+instr_default_old:           ; pre-vol-F saves: zeroed slots
+  .db 0, 0, 0, 0, 0, 0, 0, 0, 0, $FF, 0, 0, 0, 0, 0, 0
+
+; lowest phrase with no notes/instruments/commands -> A
+find_free_phrase:
+  ld c, 0
+ffp_phr:
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 64
+  ld de, phrase_pool
+  add hl, de
+  ld b, 16
+ffp_step:
+  ld a, (hl)                 ; note
+  or a
+  jr nz, ffp_next
+  inc hl
+  ld a, (hl)                 ; instrument
+  cp $FF
+  jr nz, ffp_next
+  inc hl
+  ld a, (hl)                 ; command
+  or a
+  jr nz, ffp_next
+  inc hl
+  inc hl                     ; param rides with its command
+  djnz ffp_step
+  ld a, c
+  ret
+ffp_next:
+  inc c
+  ld a, c
+  cp NUM_PHRASES
+  jr c, ffp_phr
+  ld a, $FF
   ret
 
 ; double-tap 1: paste the clipboard at the cursor when the
@@ -4409,6 +4605,7 @@ str_palnm:
   .db "CYAN"
   .db "PINK"
   .db "NEON"
+  .db "KIDD"
 str_syncm:
   .db "OUT   "
   .db "PULSE "

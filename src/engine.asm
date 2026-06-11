@@ -79,7 +79,8 @@
   groove_cnt   db
   groove_pos   db
   mute_flags   db            ; bits 0-3
-  eng_start    db            ; song row playback began on (loop point)
+  eng_start    db            ; song row playback began on
+  eng_len      db            ; song rows until the wrap to row 0
   groove_sel   db            ; active groove
   hop_pending  db            ; H command: force phrase boundary
   cur_trig_ch  db            ; channel being processed (for WAV)
@@ -127,7 +128,35 @@ engine_play:
   xor a
   ld (groove_pos), a
   ld a, (song_cur)
-  ld (eng_start), a          ; song loops back here
+  ld (eng_start), a
+  ; song length: the wrap point is one past the last row that
+  ; holds any chain on any track (empty cells are silent rows)
+  ld hl, song + SONG_ROWS*4 - 1
+  ld bc, SONG_ROWS*4
+ep_scan:
+  ld a, (hl)
+  cp $FF
+  jr nz, ep_found
+  dec hl
+  dec bc
+  ld a, b
+  or c
+  jr nz, ep_scan
+ep_found:
+  ld h, b                    ; eng_len = ceil(bytes/4), min 1
+  ld l, c
+  ld de, 3
+  add hl, de
+  srl h
+  rr l
+  srl h
+  rr l
+  ld a, l
+  or a
+  jr nz, ep_lok
+  inc a
+ep_lok:
+  ld (eng_len), a
 
   ld ix, chst
   ld c, 0
@@ -155,7 +184,7 @@ ep_chl:
   ; active?
   ld a, (eng_mode)
   cp MODE_SONG
-  jr z, ep_active
+  jr z, ep_songstart
   ld a, (ed_track)
   cp c
   jr z, ep_solo
@@ -171,6 +200,20 @@ ep_solo:
 ep_phr:
   ld a, (cur_phrase)
   ld (ix+10), a
+ep_songstart:
+  ; LSDJ start: the track begins at the first populated cell at
+  ; or below the start row; a column with nothing there at all
+  ; does not play
+  ld a, (song_cur)
+  ld e, a
+  call col_next_pop
+  cp $FF
+  jr z, eps_off
+  ld (ix+7), a
+  jr ep_active
+eps_off:
+  ld (ix+6), 0
+  jr ep_next
 ep_active:
   ld (ix+6), 1
 ep_next:
@@ -295,6 +338,39 @@ mg_next:
   inc hl
   dec c
   jr nz, mg_loop
+  ret
+
+; -------------------------------------------------------------
+; first populated song cell in column C at/after row E -> A
+; (row), or $FF when the rest of the column is empty
+col_next_pop:
+  ld a, (eng_len)
+  ld d, a
+cnp_l:
+  ld a, e
+  cp d
+  jr nc, cnp_none
+  push de
+  ld l, e
+  ld h, 0
+  add hl, hl
+  add hl, hl                 ; row * 4
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld de, song
+  add hl, de
+  pop de
+  ld a, (hl)
+  cp $FF
+  jr nz, cnp_hit
+  inc e
+  jr cnp_l
+cnp_hit:
+  ld a, e
+  ret
+cnp_none:
+  ld a, $FF
   ret
 
 ; -------------------------------------------------------------
@@ -504,11 +580,13 @@ at_nextrow:
   call mark_vis_a            ; marker off (A = the queued row)
   jr at_load
 at_adv:
+  ld a, (eng_len)
+  ld d, a
   ld a, (ix+7)
   inc a
-  cp SONG_ROWS
-  jr c, at_setrow
-  ld a, (eng_start)          ; ran off the end: loop
+  cp d
+  jr c, at_setrow            ; still inside the song
+  xor a                      ; past the last row: wrap to the top
 at_setrow:
   ld (ix+7), a
 at_load:
@@ -524,32 +602,35 @@ at_load:
   add hl, de
   ld a, (hl)
   cp $FF
-  jr z, at_wrap
+  jr z, at_wrap              ; empty cell: column loops
   ld (ix+11), a
   ld (ix+8), 0
   call chain_entry
   ld a, (hl)
   cp $FF
-  jr z, at_wrap              ; empty chain
+  jr z, at_silent            ; empty chain: a rest row
   ld (ix+10), a
   inc hl
   ld a, (hl)
   ld (ix+9), a
   ret
 at_wrap:
-  ; empty slot: loop to the start row once; if we are already
-  ; there (or it is empty too) the track goes silent.
-  ; LIVE: an empty cell is a queued stop - silence immediately
+  ; empty cell ends the column. SONG: loop back to the column's
+  ; top (its first populated cell). LIVE: a queued stop.
   ld a, (play_mode)
   or a
   jr nz, at_off
-  ld a, (ix+7)
-  ld d, a
-  ld a, (eng_start)
-  cp d
-  jr z, at_off
+  ld e, 0
+  call col_next_pop
+  cp $FF
+  jr z, at_off               ; the column emptied under us
   ld (ix+7), a
-  jr at_load
+  jp at_load
+at_silent:
+  ; populated cell, empty chain: one deliberate rest row
+  ld (ix+10), $FF
+  ld (ix+8), 15              ; next boundary advances the row
+  ret
 at_off:
   ld (ix+6), 0
   ld (ix+10), $FF
@@ -1789,134 +1870,21 @@ ld_bad:
 ; -------------------------------------------------------------
 ; copy demo song from ROM into the RAM song structures
 song_init:
-  ; empty song and chains ($FF = unused)
-  ld hl, song
-  ld de, song+1
-  ld bc, SONG_ROWS*4-1
-  ld (hl), $FF
-  ldir
-  ld hl, chains
-  ld de, chains+1
-  ld bc, NUM_CHAINS*32-1
-  ld (hl), $FF
-  ldir
-
-  ld hl, demo_phrases
-  ld de, phrase_pool
-  ld bc, 4*64
-  ldir
-  ; tables: vol $FF (no change), pitch/cmd/param 0
-  ld hl, tables
-  ld b, 0                    ; 256 rows
-si_tbl:
-  ld (hl), $FF
-  inc hl
-  ld (hl), 0
-  inc hl
-  ld (hl), 0
-  inc hl
-  ld (hl), 0
-  inc hl
-  djnz si_tbl
-  ; all instruments default to no table
-  ld hl, instruments+9
-  ld de, 16
-  ld b, 16
-si_itbl:
-  ld (hl), $FF
-  add hl, de
-  djnz si_itbl
-  ld hl, demo_instruments
-  ld de, instruments
-  ld bc, 6*16
-  ldir
-  ld hl, demo_table0
-  ld de, tables
-  ld bc, 4*4
-  ldir
-  ld hl, demo_groove
-  ld de, grooves             ; groove 0; others empty
-  ld bc, 16
-  ldir
-  ld hl, demo_chains
-  ld de, chains
-  ld bc, 4*32
-  ldir
-  ld hl, demo_song
-  ld de, song
-  ld bc, 2*4
+  ; the demo song is a complete pre-built block (tools/makedemo.py)
+  ld hl, demo_song_block
+  ld de, wave_ram
+  ld bc, SAVE_SIZE
   ldir
   ret
 
-; -------------------------------------------------------------
-; demo data. note byte = note index + 1 (0 = rest)
-; A-2=1 E-3=8 G-3=11 A-3=13 E-4=20 B-4=27 A-4=25 C-5=28
-; D-5=30 E-5=32 G-5=35 A-5=37
-; -------------------------------------------------------------
-demo_phrases:
-; phrase 0: lead (instr 0)
-  .db 25,0,0,0,    0,$FF,0,0,  28,0,0,0,    32,0,0,0
-  .db 37,0,0,0,    0,$FF,0,0,  35,0,0,0,    32,0,0,0
-  .db 0,$FF,0,0,   28,0,0,0,   30,0,0,0,    0,$FF,0,0
-  .db 32,0,0,0,    0,$FF,0,0,  27,0,0,0,    0,$FF,CMD_KILL,3
-; phrase 1: offbeat comp (instr 1)
-  .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
-  .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
-  .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
-  .db 0,$FF,0,0,   13,1,0,0,   0,$FF,0,0,   20,1,0,0
-; phrase 2: bass (instr 2)
-  .db 1,2,0,0,     0,$FF,0,0,  1,2,0,0,     0,$FF,0,0
-  .db 13,2,0,0,    0,$FF,0,0,  1,2,0,0,     0,$FF,0,0
-  .db 1,2,0,0,     0,$FF,0,0,  11,2,0,0,    0,$FF,0,0
-  .db 8,2,0,0,     0,$FF,0,0,  1,2,0,0,     0,$FF,CMD_KILL,4
-; phrase 3: drums (instr 3 hat, 4 snare)
-  .db 1,3,0,0,     0,$FF,0,0,  1,3,0,0,     0,$FF,0,0
-  .db 1,4,0,0,     0,$FF,0,0,  1,3,0,0,     0,$FF,0,0
-  .db 1,3,0,0,     0,$FF,0,0,  1,3,0,0,     0,$FF,0,0
-  .db 1,4,0,0,     0,$FF,0,0,  1,3,0,0,     1,3,0,0
-
-; chains: 16 x (phrase, transpose), $FF = end
-demo_chains:
-; chain 0: lead phrase, then octave up
-  .db 0,0, 0,12
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-; chain 1: comp twice
-  .db 1,0, 1,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-; chain 2: bass twice
-  .db 2,0, 2,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-; chain 3: drums twice
-  .db 3,0, 3,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-  .db $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0, $FF,0
-
-; song rows: chain per track
-demo_song:
-  .db 0,1,2,3
-  .db 0,1,2,3
-
-; type, vol, env(dir|speed), len, noisectl, pad to 16
-demo_instruments:
-; type,vol,env,len,noise, swp,vib,trm,tsp, tbl,tbs, pad
-  .db 0,$0F,$14,0,$00, $00,$33,$00,$00, $FF,1, 0,0,0,0,0   ; 0 lead (vib 3/3)
-  .db 0,$0A,$13,0,$00, $00,$00,$00,$00, $00,2, 0,0,0,0,0   ; 1 pluck (arp table 0)
-  .db 0,$0F,$15,0,$00, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 2 bass
-  .db 1,$0B,$12,2,$04, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 3 hat (white /512)
-  .db 1,$0F,$14,8,$05, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 4 snare (white /1024)
-  .db 1,$0F,$15,0,$03, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 5 periodic bass (pitched)
-
-; table 0: minor arpeggio 0,+3,+7 looping (H back to row 0)
-demo_table0:
-  .db $FF,0,0,0
-  .db $FF,3,0,0
-  .db $FF,7,CMD_HOP,0
-  .db $FF,0,0,0
-
-demo_groove:
-  .db 6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-
 .ENDS
+
+; -------------------------------------------------------------
+; demo song block: wave_ram..grooves, generated by makedemo.py.
+; Lives in bank 1 (fixed in slot 1) - code stays in bank 0.
+.BANK 1 SLOT 1
+.SECTION "DemoSong" FREE
+demo_song_block:
+  .INCBIN "demo.bin"
+.ENDS
+.BANK 0 SLOT 0

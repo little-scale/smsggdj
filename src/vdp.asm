@@ -133,6 +133,7 @@ pal_presets:                 ; bg, fg (BGR 2:2:2)
   .db $10, $3C               ; CYAN: cyan on navy
   .db $11, $33               ; PINK: magenta on purple
   .db $39, $23               ; NEON: neon pink on light blue
+  .db $34, $0F               ; KIDD: star yellow on sky blue
 
 ; B = row, C = col -> HL = name table write address
 nt_addr_hl:

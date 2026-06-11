@@ -58,6 +58,7 @@ BANKS 2
   pad_rep        db
   das_timer      db
   pal_sel        db           ; colour scheme (pal_presets index)
+  region_timer   db           ; frames left on the boot region line
   ints_on        db           ; init done: helpers may EI
   text_attr      db            ; $00 normal, $08 inverted (palette bit)
   note_ptr       dw            ; active region note table
@@ -211,12 +212,15 @@ init_region_pr:
   ld b, 2
   ld c, 1
   call print_at
+  ld a, 90                   ; reclaim the row from the main loop
+  ld (region_timer), a
 
   ld a, 1
   ld (state_dirty), a
 
-  ; pre-paint the whole grid while the display is off
-  ld b, 4
+  ; pre-paint the whole grid while the display is off (the
+  ; per-frame budget is 3 rows: 8 passes drain all 16 + labels)
+  ld b, 8
 init_paint:
   push bc
   call editor_draw
@@ -227,18 +231,6 @@ init_paint:
   ld a, 1
   ld (ints_on), a
   ei
-
-  ; show the region line briefly at boot, then reclaim the row
-  ld b, 90
-init_wait:
-  halt
-  djnz init_wait
-  ld b, 2
-  ld c, 1
-  ld hl, str_blank
-  call print_at
-  ld a, 1
-  ld (state_dirty), a
 
 ; =============================================================
 ; main loop
@@ -270,6 +262,7 @@ main_loop:
   ;     spacing-safe in active display while a sample feeds ---
   call draw_frame_counter
   call draw_state
+  call draw_region_boot
   call editor_draw
 
   ld hl, (frame)
@@ -376,6 +369,20 @@ draw_frame_counter:
   ld a, (frame)
   call print_hex_a
   ret
+
+; the boot region line stays up ~1.8 s, then yields its row -
+; without ever blocking the main loop
+draw_region_boot:
+  ld a, (region_timer)
+  or a
+  ret z
+  dec a
+  ld (region_timer), a
+  ret nz
+  ld b, 2
+  ld c, 1
+  ld hl, str_blank
+  jp print_at
 
 draw_state:
   ld a, (state_dirty)
