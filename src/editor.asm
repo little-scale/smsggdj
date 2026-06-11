@@ -15,7 +15,8 @@
 ; SELECT mode (SONG/CHAIN/PHRASE/TABLE): dpad extends the box,
 ;   1 tap copies, 1H + 2 cuts, 2 alone cancels. Paste anchors at
 ;   the cursor row; columns stay where they were cut.
-; SONG header row (up from row 0): 1 = mute, 1H + 2 = solo.
+; SONG screen: header row is labels only (mute/solo parked -
+;   gesture TBD). LIVE: transport on the playing cell = kill.
 ; =============================================================
 
 .DEFINE DT_WINDOW    15        ; frames: double-tap window
@@ -165,7 +166,7 @@ editor_input:
   and PAD_B2
   jr z, ei_1alone
   call toggle_play           ; 2 held + 1 = play/stop
-  jr ei_dtick                ; consume: no cut on the same press
+  jp ei_dtick                ; consume: no cut on the same press
 ei_1alone:
   ld a, (dt1_timer)
   or a
@@ -488,16 +489,8 @@ cm_sup:
   bit 0, c                   ; up
   jr z, cm_scol
   ld a, (song_cur)
-  ld b, a
-  ld a, (song_view)
-  cp b
-  jr nz, cm_supgo
-  ; at top of view: up enters the header row
-  ld a, 1
-  ld (hdr_cur), a
-  ld (label_dirty), a
-  ld a, (song_cur)
-  jp mark_vis_a
+  or a                       ; row 0 is the top: the header row
+  jr z, cm_scol              ; is labels only, never the cursor
 cm_supgo:
   call so_mark_cur
   ld a, (song_cur)
@@ -574,6 +567,7 @@ cm_instr:
   jr nc, cmi_up
   call ins_mark_field
   inc a
+  call ins_wskip_d           ; WAV form: 7 -> 10
   ld (ins_row), a
   call ins_mark_field
 cmi_up:
@@ -584,8 +578,34 @@ cmi_up:
   ret z
   call ins_mark_field
   dec a
+  call ins_wskip_u           ; WAV form: 9 -> 6
   ld (ins_row), a
   jp ins_mark_field
+
+; the WAV form has no SWP/VIB/TRM (fields 7-9): hop the gap
+ins_wskip_d:
+  cp 7
+  ret nz
+  call ins_is_wav
+  ld a, 7
+  ret nz
+  ld a, 10
+  ret
+ins_wskip_u:
+  cp 9
+  ret nz
+  call ins_is_wav
+  ld a, 9
+  ret nz
+  ld a, 6
+  ret
+ins_is_wav:                  ; Z if the edited instrument is WAV
+  push de
+  call ins_ptr
+  ld a, (hl)
+  cp 3
+  pop de
+  ret
 
 ; mark the grid row of field A dirty (A preserved)
 ins_mark_field:
@@ -1843,30 +1863,31 @@ wve_st:
   ld (label_dirty), a
   jp mark_all_dirty
 
-; leaving the wave screen: clear the columns other screens never
-; redraw (0 and 25-31 across the grid)
+; leaving the wave screen: the canvas is tile-dense and spills
+; outside the columns other screens redraw - wipe the whole grid
+; area (rows 3-20, all 32 columns) and let the dirty queue
+; repaint the next screen over it
 wv_cleanup:
   push af
-  ld d, 17                   ; rows 3-19: hex readout + canvas
+  ld b, 3
 wvc_row:
-  ld a, d
-  add a, GRID_ROW-2
-  ld b, a
-  ld c, 25
-  push de
-  ld hl, str_blank7
-  call print_at
-  pop de
-  ld a, d
-  add a, GRID_ROW-1
-  ld b, a
+  push bc
   ld c, 0
-  push de
-  ld hl, str_sp1
-  call print_at
-  pop de
-  dec d
-  jr nz, wvc_row
+  call nt_addr_hl
+  call vdp_set_addr
+  ld b, 64                   ; 32 tiles x (index, attr) - zeros
+wvc_col:
+  xor a
+  out (VDP_DATA), a          ; tile 0 = space, attr 0
+  nop                        ; pad to the active-display write
+  nop                        ; spacing in case a sample plays
+  nop
+  djnz wvc_col
+  pop bc
+  inc b
+  ld a, b
+  cp 21
+  jr c, wvc_row
   pop af
   ret
 
@@ -1978,7 +1999,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 5
+  cp 9
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2012,9 +2033,9 @@ prj_mark_field:              ; A = field (preserved)
 
 prp_press:
   ld a, (prj_row)
-  cp 4
-  jr z, prp_save
   cp 5
+  jr z, prp_save
+  cp 6
   ret nz
   call song_load
   call mark_all_dirty        ; song data replaced
@@ -2029,10 +2050,18 @@ prp_save:
   ld (label_dirty), a
   ret
 
-prp_edit:                    ; TEMPO and SLOT edit
+prp_edit:
   ld a, (prj_row)
-  cp 3
+  cp 4
   jr z, prp_slot
+  cp 7
+  jp z, prp_sync
+  cp 8
+  jp z, prp_play
+  cp 1
+  jp z, prp_tsp
+  cp 9
+  jp z, prp_colr
   or a
   ret nz
   ld d, 0
@@ -2100,13 +2129,114 @@ psl_zero:
   xor a
 psl_st:
   ld (prj_slot), a
-  ld a, 3
+  ld a, 4
+  jp prj_mark_field
+prp_tsp:                     ; global transpose: L/R = semitone,
+  ld a, (ed_rep)             ; U/D = octave, +-24
+  ld c, a
+  ld a, (proj_tsp)
+  bit 3, c
+  jr z, pt_l
+  inc a
+pt_l:
+  bit 2, c
+  jr z, pt_u
+  dec a
+pt_u:
+  bit 0, c
+  jr z, pt_d
+  add a, 12
+pt_d:
+  bit 1, c
+  jr z, pt_cl
+  sub 12
+pt_cl:
+  cp 25                      ; 0..24: fine
+  jr c, pt_st
+  cp $E8                     ; -24..-1: fine
+  jr nc, pt_st
+  bit 7, a                   ; overshot: clamp by sign
+  ld a, 24
+  jr z, pt_st
+  ld a, $E8
+pt_st:
+  ld (proj_tsp), a
+  ld a, 1
+  jp prj_mark_field
+prp_colr:                    ; 1 + L/R cycles the colour scheme
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (pal_sel)
+  bit 3, c
+  jr z, pc_l
+  inc a
+pc_l:
+  bit 2, c
+  jr z, pc_w
+  dec a
+pc_w:
+  cp $FF                     ; wrap 0..5
+  jr nz, pc_hi
+  ld a, 5
+pc_hi:
+  cp 6
+  jr c, pc_st
+  xor a
+pc_st:
+  ld (pal_sel), a
+  call load_palette          ; applies immediately
+  ld a, 9
+  jp prj_mark_field
+prp_sync:                    ; 1 + L/R cycles the sync mode
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (sync_mode)
+  bit 3, c
+  jr z, psy_l
+  inc a
+psy_l:
+  bit 2, c
+  jr z, psy_cl
+  dec a
+psy_cl:
+  and $03
+  ld b, a
+  ld a, (sync_mode)
+  cp b
+  ret z
+  push bc                    ; mode change stops the transport
+  call engine_stop           ; and releases the port (out $FF)
+  pop bc
+  ld a, b
+  ld (sync_mode), a
+  ld a, 1
+  ld (state_dirty), a
+  ld a, 7
+  jp prj_mark_field
+prp_play:                    ; 1 + L/R toggles SONG/LIVE
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (play_mode)
+  xor 1
+  ld b, a
+  push bc                    ; mode change stops the transport
+  call engine_stop
+  pop bc
+  ld a, b
+  ld (play_mode), a
+  ld a, 1
+  ld (state_dirty), a
+  ld a, 8
   jp prj_mark_field
 
 prj_f2r:
-  .db 0, 2, 3, 4, 6, 7
+  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 12
 prj_r2f:
-  .db 0, $FF, 1, 2, 3, $FF, 4, 5, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, 9, $FF, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -3779,25 +3909,10 @@ sdr_cell:
   ; attr: cursor first, then playhead
   xor a
   ld (text_attr), a
-  ld a, (hdr_cur)
-  or a
-  jr nz, sdr_ph              ; cursor is on the header
   ld a, (song_col)
   cp c
-  jr nz, sdr_ph
+  jr nz, sdr_sel
   ld a, (song_cur)
-  ld b, a
-  ld a, (tmp_note)
-  cp b
-  jr nz, sdr_ph
-  ld a, $08
-  ld (text_attr), a
-  jr sdr_val
-sdr_ph:
-  ld hl, drawn_a
-  ld b, 0
-  add hl, bc
-  ld a, (hl)
   ld b, a
   ld a, (tmp_note)
   cp b
@@ -3853,6 +3968,50 @@ sdr_val:
 sdr_hex:
   call print_hex_a
 sdr_next:
+  pop de
+  pop bc
+  ; track markers in the column before the cell: hollow
+  ; triangle = queued, solid triangle = playing
+  push bc
+  push de
+  ld hl, live_q
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  ld b, a
+  ld a, (tmp_note)           ; absolute row of this line
+  cp b
+  ld b, '<'                  ; hollow: queued
+  jr z, sdr_mk
+  ld hl, drawn_a
+  ld e, c
+  add hl, de
+  ld a, (hl)
+  ld b, a
+  ld a, (tmp_note)
+  cp b
+  jr nz, sdr_nmk
+  ld b, '>'                  ; solid: playing
+sdr_mk:
+  ld a, b
+  ld (tmp_cmd), a            ; stash the glyph
+  ld a, c
+  call so_track_col
+  dec a
+  ld c, a
+  pop de
+  push de
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  call nt_addr_hl
+  call vdp_set_addr
+  xor a
+  ld (text_attr), a
+  ld a, (tmp_cmd)
+  call print_char
+sdr_nmk:
   pop de
   pop bc
   inc c
@@ -4115,16 +4274,70 @@ prd_addr:
   pop de
   ld a, (ed_field)
   or a
-  jr z, prd_tempo
+  jp z, prd_tempo
   cp 1
-  jr z, prd_video
+  jr z, prd_tsp
   cp 2
-  jr z, prd_sram
+  jp z, prd_video
   cp 3
-  jr z, prd_slot
+  jp z, prd_sram
+  cp 4
+  jp z, prd_slot
+  cp 7
+  jp z, prd_sync
+  cp 8
+  jp z, prd_play
+  cp 9
+  jr z, prd_colr
   ; SAVE / LOAD
   ld hl, str_go
   ld b, 2
+  jp print_raw
+prd_tsp:
+  ld a, (proj_tsp)
+  or a
+  jp m, ptd_neg
+  ld b, '+'
+  jr ptd_pr
+ptd_neg:
+  neg
+  ld b, '-'
+ptd_pr:
+  push af
+  ld a, b
+  call print_char
+  pop af
+  jp print_hex_a
+prd_colr:
+  ld a, (pal_sel)
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, str_palnm
+  add hl, de
+  ld b, 4
+  jp print_raw
+prd_play:
+  ld a, (play_mode)
+  or a
+  ld hl, str_psong
+  jr z, prd_pl4
+  ld hl, str_plive
+prd_pl4:
+  ld b, 4
+  jp print_raw
+prd_sync:
+  ld a, (sync_mode)
+  add a, a
+  ld d, a
+  add a, a
+  add a, d                   ; * 6
+  ld e, a
+  ld d, 0
+  ld hl, str_syncm
+  add hl, de
+  ld b, 6
   jp print_raw
 prd_slot:
   ld a, (prj_slot)
@@ -4179,12 +4392,30 @@ dl_proj:
   jp print_raw
 
 prj_lbls:
-  .db "TPO ", 0
+  .db "TMPO", 0
+  .db "TSP ", 0
   .db "VID ", 0
   .db "SRAM", 0
   .db "SLOT", 0
   .db "SAVE", 0
   .db "LOAD", 0
+  .db "SYNC", 0
+  .db "MODE", 0
+  .db "COLR", 0
+str_palnm:
+  .db "WHT "
+  .db "GRN "
+  .db "AMBR"
+  .db "CYAN"
+  .db "PINK"
+  .db "NEON"
+str_syncm:
+  .db "OUT   "
+  .db "PULSE "
+  .db "IN    "
+  .db "OFF   "
+str_psong:  .db "SONG"
+str_plive:  .db "LIVE"
 prj_stats:
   .db "       "
   .db "SAVED  "
@@ -4674,15 +4905,15 @@ f2r_tone:
   .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15
 f2r_noise:
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
-f2r_wav:
-  .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15
+f2r_wav:                     ; fields 7-9 (SWP/VIB/TRM) do not
+  .db 0, 1, 2, 4, 5, 6, 8, 0, 0, 0, 10, 11, 12  ; exist on WAV
 ; grid row -> field index ($FF = spacer)
 r2f_tone:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, $FF, 10, 11
 r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
 r2f_wav:
-  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, 10, 11, 12
+  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 10, 11, 12, $FF, $FF, $FF
 
 ins_lbls:
   .db "INST", 0

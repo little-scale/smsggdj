@@ -61,6 +61,13 @@
 .DEFINE MODE_CHAIN  1
 .DEFINE MODE_PHRASE 2
 
+; sync over controller port 2 (TR = pin 9, TH = pin 7, GND = 8)
+.DEFINE SYNC_OUT    0          ; 2-bit tick counter out on TR+TH
+.DEFINE SYNC_PULSE  1          ; Volca/PO pulse out on TR
+.DEFINE SYNC_IN     2          ; follow another unit's counter
+.DEFINE SYNC_OFF    3          ; port untouched
+.DEFINE PULSE_DIV   12         ; ticks per pulse (2 PPQN, groove 6)
+
 .DEFINE SONG_ROWS   128
 .DEFINE NUM_PHRASES 32
 .DEFINE NUM_CHAINS  32
@@ -76,6 +83,14 @@
   groove_sel   db            ; active groove
   hop_pending  db            ; H command: force phrase boundary
   cur_trig_ch  db            ; channel being processed (for WAV)
+  sync_mode    db            ; SYNC_* (0 = OUT, the default)
+  sync_cnt     db            ; master tick counter / pulse divider
+  sync_last    db            ; slave: counter value last frame
+  sync_wait    db            ; slave: armed, waiting for a clock
+  sync_ticks   db            ; (scratch)
+  play_mode    db            ; 0 = SONG, 1 = LIVE
+  proj_tsp     db            ; global transpose, signed semitones
+  live_q       dsb 4         ; queued song row per track ($FF -)
   sram_ok      db            ; cart SRAM detected at boot
   sram_slots   db            ; save slots available (0/1/3)
   chst         dsb 4*32      ; channel state structs (stride 32)
@@ -166,6 +181,25 @@ ep_next:
   cp 4
   jp c, ep_chl
 
+  ; live queue starts empty
+  ld a, $FF
+  ld (live_q), a
+  ld (live_q+1), a
+  ld (live_q+2), a
+  ld (live_q+3), a
+  ; sync transport
+  xor a
+  ld (sync_cnt), a
+  ld a, (sync_mode)
+  cp SYNC_IN
+  jr nz, ep_nosl
+  call sync_read             ; latch the line state at arm time:
+  ld a, b                    ; stale levels must not count as a
+  ld (sync_last), a          ; clock
+  ld a, 1
+  ld (sync_wait), a
+  ld (state_dirty), a        ; show WAIT
+ep_nosl:
   ld a, 1
   ld (play_state), a
   ret
@@ -173,6 +207,21 @@ ep_next:
 engine_stop:
   xor a
   ld (play_state), a
+  ld (sync_wait), a
+  ld a, $FF                  ; release the port-2 sync lines
+  out ($3F), a
+  ; drop pending live queues (and their markers)
+  ld hl, live_q
+  ld b, 4
+es_lq:
+  ld a, (hl)
+  cp $FF
+  jr z, es_lqn
+  call mark_vis_a            ; preserves HL/BC
+  ld (hl), $FF
+es_lqn:
+  inc hl
+  djnz es_lq
   ; zero channel volumes so the prelisten fx pass stays silent
   ld hl, chst+2
   ld de, 32
@@ -194,9 +243,45 @@ engine_frame:
   ld a, (play_state)
   or a
   ret z
-  ; tick source: INTERNAL = exactly 1 tick per VBlank.
-  ; (MIDI SLAVE will instead run the adapter's clock count.)
+  ; tick source (design doc 5.1): MASTER/PULSE/OFF = one tick
+  ; per vblank; SLAVE = the delta of the master's 2-bit counter,
+  ; 0-3 ticks per frame - lossless at any region pairing
+  ld a, (sync_mode)
+  cp SYNC_IN
+  jr z, ef_slave
   call engine_tick
+  call sync_out
+  jr ef_mute
+ef_slave:
+  call sync_read
+  ld a, (sync_last)
+  ld c, a
+  ld a, b
+  ld (sync_last), a
+  sub c
+  and $03
+  ld b, a                    ; B = clocks since last frame
+  ld a, (sync_wait)
+  or a
+  jr z, ef_run
+  ld a, b
+  or a
+  jr z, ef_mute              ; armed: no clock yet
+  xor a                      ; first change = transport start;
+  ld (sync_wait), a          ; force one tick so the idle ->
+  ld b, 1                    ; counter jump is not over-counted
+  ld a, 1
+  ld (state_dirty), a        ; WAIT -> PLAY
+ef_run:
+  ld a, b
+  or a
+  jr z, ef_mute              ; no clocks: hold position
+ef_tloop:
+  push bc
+  call engine_tick
+  pop bc
+  djnz ef_tloop
+ef_mute:
   ; mute gate: muted tracks keep sequencing, output is silenced
   ld a, (mute_flags)
   ld b, a
@@ -210,6 +295,59 @@ mg_next:
   inc hl
   dec c
   jr nz, mg_loop
+  ret
+
+; -------------------------------------------------------------
+; sync I/O on controller port 2. Port $3F: low nibble = pin
+; directions (0 = output), high nibble = levels; $FF = released.
+; Levels only drive on export consoles - sync needs one.
+
+; read the master's counter: B = TH<<1 | TR
+sync_read:
+  in a, ($DD)                ; bit 3 = P2 TR, bit 7 = P2 TH
+  ld b, 0
+  bit 3, a
+  jr z, sr_th
+  ld b, 1
+sr_th:
+  bit 7, a
+  ret z
+  set 1, b
+  ret
+
+; called after every internal tick while playing:
+; MASTER steps the 2-bit counter onto TR+TH; PULSE raises TR for
+; one tick every PULSE_DIV ticks (TH stays an input)
+sync_out:
+  ld a, (sync_mode)
+  or a                       ; SYNC_OUT = 0
+  jr z, syo_master
+  cp SYNC_PULSE
+  ret nz
+  ld a, (sync_cnt)
+  or a
+  ld a, $FB                  ; tick 0: TR high (pulse edge)
+  jr z, syo_pw
+  ld a, $BB                  ; TR low
+syo_pw:
+  out ($3F), a
+  ld a, (sync_cnt)
+  inc a
+  cp PULSE_DIV
+  jr c, syo_pst
+  xor a
+syo_pst:
+  ld (sync_cnt), a
+  ret
+syo_master:
+  ld a, (sync_cnt)
+  inc a
+  and $03
+  ld (sync_cnt), a
+  rrca
+  rrca                       ; counter bits 0-1 -> levels 6-7
+  or $33                     ; P2 TR+TH outputs, P1 untouched
+  out ($3F), a
   ret
 
 engine_tick:
@@ -350,6 +488,22 @@ at_song:
   ld (ix+9), a
   ret
 at_nextrow:
+  ld a, (play_mode)
+  or a
+  jr z, at_adv
+  ; ---- LIVE: take the queued row, else loop this chain ----
+  ld hl, live_q
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  jr z, at_load              ; nothing queued: reload = loop
+  ld (ix+7), a
+  ld (hl), $FF
+  call mark_vis_a            ; marker off (A = the queued row)
+  jr at_load
+at_adv:
   ld a, (ix+7)
   inc a
   cp SONG_ROWS
@@ -384,7 +538,11 @@ at_load:
   ret
 at_wrap:
   ; empty slot: loop to the start row once; if we are already
-  ; there (or it is empty too) the track goes silent
+  ; there (or it is empty too) the track goes silent.
+  ; LIVE: an empty cell is a queued stop - silence immediately
+  ld a, (play_mode)
+  or a
+  jr nz, at_off
   ld a, (ix+7)
   ld d, a
   ld a, (eng_start)
@@ -395,6 +553,84 @@ at_wrap:
 at_off:
   ld (ix+6), 0
   ld (ix+10), $FF
+  ret
+
+; -------------------------------------------------------------
+; LIVE performance actions (transport gesture on the SONG screen
+; while playing). Main thread.
+
+; queue song row A on track C: a playing track swaps when its
+; current chain ends; a silent track starts at the next phrase
+; boundary
+live_queue:
+  ld hl, live_q
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld b, a                    ; B = row to queue
+  ld a, c
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a                   ; * 32
+  ld e, a
+  ld ix, chst
+  add ix, de
+  ld a, (ix+6)
+  or a
+  jr z, lq_arm
+  ld a, (ix+7)               ; starting the chain that is already
+  cp b                       ; playing = stop the track
+  jr nz, lq_q
+  ld a, c
+  jp live_track_stop
+lq_q:
+  ld a, (hl)
+  cp $FF
+  jr z, lq_on
+  call mark_vis_a            ; re-queue: clear the old marker
+lq_on:
+  ld a, b
+  ld (hl), a
+  jp mark_vis_a              ; marker on
+lq_arm:
+  ld (ix+7), b               ; silent track: load this row at
+  ld (ix+8), $FF             ; the next phrase boundary
+  ld (ix+10), $FF
+  ld (ix+6), 1
+  ret
+
+; stop track A immediately (header gesture)
+live_track_stop:
+  ld c, a
+  ld hl, live_q
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (hl)                 ; clear a pending queue + marker
+  cp $FF
+  jr z, lts_ch
+  call mark_vis_a
+  ld (hl), $FF
+lts_ch:
+  ld a, c
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld ix, chst
+  add ix, de
+  ld (ix+6), 0
+  ld (ix+10), $FF
+  ld (ix+2), 0               ; volume 0: the wave gate sees it
+  ld hl, psg_vols
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld (hl), $0F               ; silence the channel now
   ret
 
 ; HL = &chains[(ix+11)][(ix+8)]
@@ -804,7 +1040,13 @@ tn_tbs:
   ld (ix+28), 0              ; delay
   ld (ix+30), 0              ; porta
   ld (ix+31), 0              ; retrig
-  ld a, d                    ; transpose, stacks with chain's
+  ld a, b
+  cp 2                       ; SMP: the note picks the sample
+  ld a, d                    ; slot - never transpose it
+  jr z, tn_tnone
+  ld a, (proj_tsp)
+  add a, d                   ; instrument + global transpose
+tn_tnone:
   or a
   jr z, tn_mods
   add a, (ix+0)
@@ -861,8 +1103,8 @@ tn_wav:
   ld c, a
   ld a, (cur_trig_ch)
   ld (wav_owner), a
-  ld a, (ix+0)
-  call wav_play
+  ld a, (ix+0)               ; transposes already baked in at
+  call wav_play              ; trigger (instrument + global)
   ; host channel synthesizes nothing, but its volume/envelope
   ; keep running: they gate the wave (vol 0 stops it)
   ld (ix+0), $FF

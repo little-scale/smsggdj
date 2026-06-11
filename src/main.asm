@@ -57,6 +57,7 @@ BANKS 2
   pad_edge       db
   pad_rep        db
   das_timer      db
+  pal_sel        db           ; colour scheme (pal_presets index)
   ints_on        db           ; init done: helpers may EI
   text_attr      db            ; $00 normal, $08 inverted (palette bit)
   note_ptr       dw            ; active region note table
@@ -190,6 +191,8 @@ init_bpm:
                              ; fires a sample (a click per frame)
 init_vbc:
   ld (smp_vbcnt), a
+  ld a, SYNC_OFF             ; sync stays off until asked for
+  ld (sync_mode), a
 
   ; ---- static screen ----
   xor a
@@ -207,16 +210,6 @@ init_vbc:
 init_region_pr:
   ld b, 2
   ld c, 1
-  call print_at
-
-  ; key hints
-  ld b, 21
-  ld c, 1
-  ld hl, str_hint1
-  call print_at
-  ld b, 22
-  ld c, 1
-  ld hl, str_hint2
   call print_at
 
   ld a, 1
@@ -318,18 +311,39 @@ dr_store:
 ; =============================================================
 ; transport
 ; =============================================================
-handle_pause:                  ; PAUSE = transport alias
-  ld a, (nmi_event)
-  or a
+handle_pause:                  ; PAUSE: plain transport toggle.
+  ld a, (nmi_event)            ; Never queues - in LIVE mode it
+  or a                         ; is the global stop.
   ret z
   xor a
   ld (nmi_event), a
-  ; fall through
+  ld a, (play_state)
+  or a
+  jp z, tp_start
+  jp tp_stop
 
 toggle_play:
   ld a, (play_state)
   or a
   jr z, tp_start
+  ; LIVE mode on the SONG screen: the gesture queues, not stops
+  ld a, (play_mode)
+  or a
+  jr z, tp_stop
+  ld a, (scr_mode)
+  or a                       ; SCR_SONG = 0
+  jr nz, tp_stop
+  ld a, (hdr_cur)
+  or a
+  jr nz, tp_tstop
+  ld a, (song_col)
+  ld c, a
+  ld a, (song_cur)
+  jp live_queue              ; queue the cell under the cursor
+tp_tstop:
+  ld a, (song_col)
+  jp live_track_stop         ; header: stop this track now
+tp_stop:
   call engine_stop
   jr tp_dirty
 tp_start:
@@ -380,6 +394,10 @@ ds_play:
   ld a, $08
   ld (text_attr), a
   ld hl, str_play
+  ld a, (sync_wait)          ; slave armed, no clock yet
+  or a
+  jr z, ds_print
+  ld hl, str_wait
 ds_print:
   ld b, 2
   ld c, 26
@@ -396,9 +414,8 @@ str_region_pal:  .db "REGION: PAL 50HZ ", 0
 str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
+str_wait:        .db "WAIT", 0
 str_rest:        .db "---"
-str_hint1:       .db "1=INS 2X1=PASTE 1H+2=CUT", 0
-str_hint2:       .db "2+L/R=SCREEN 2H+1=PLAY", 0
 
 .ENDS
 

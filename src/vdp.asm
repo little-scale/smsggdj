@@ -81,24 +81,58 @@ lf_loop:
   jr nz, lf_loop
   ret
 
-; two palettes: 0 = white on black, 1 (sprite pal) = black on
-; white for inverse video via the tilemap palette bit.
-; Border colour comes from sprite palette index 15 (R7 = $0F).
+; two palettes from the selected scheme: 0 = fg on bg, 1 (sprite
+; pal) = the inverse for cursor/selection video. Border colour =
+; sprite palette index 15 (R7 = $0F) = bg. Safe to call with the
+; display on (writes are spaced).
 load_palette:
+  ld a, (pal_sel)
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, pal_presets
+  add hl, de
+  ld c, (hl)                 ; bg
+  inc hl
+  ld b, (hl)                 ; fg
   ld hl, $C000
   call vdp_set_addr
-  ld hl, pal_data
-  ld b, 32
-lp_loop:
-  ld a, (hl)
+  ld a, c                    ; idx 0 = bg
   out (VDP_DATA), a
-  inc hl
-  djnz lp_loop
+  nop
+  nop
+  nop
+  nop
+  ld a, b                    ; idx 1 = fg
+  out (VDP_DATA), a
+  ld d, 14                   ; idx 2-15 = bg
+  call lp_fill
+  ld a, b                    ; sprite pal: idx 0 = fg (inverse)
+  nop
+  out (VDP_DATA), a
+  nop
+  nop
+  nop
+  nop
+  ld a, c                    ; idx 1 = bg
+  out (VDP_DATA), a
+  ld d, 14                   ; idx 2-15 = bg (15 = border)
+lp_fill:
+  nop
+  nop
+  ld a, c
+  out (VDP_DATA), a
+  dec d
+  jr nz, lp_fill
   ret
 
-pal_data:
-  .db $00 $3F $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
-  .db $3F $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+pal_presets:                 ; bg, fg (BGR 2:2:2)
+  .db $00, $3F               ; WHT: white on black
+  .db $04, $0E               ; GRN: green screen
+  .db $00, $0B               ; AMBR: amber terminal
+  .db $10, $3C               ; CYAN: cyan on navy
+  .db $11, $33               ; PINK: magenta on purple
+  .db $39, $23               ; NEON: neon pink on light blue
 
 ; B = row, C = col -> HL = name table write address
 nt_addr_hl:

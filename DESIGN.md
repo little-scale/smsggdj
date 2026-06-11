@@ -13,6 +13,9 @@ Changes in v0.2:
 
 Post-v0.2 addenda (implemented):
 - **Wavetable mode**: WAV instrument type + WAVE editor screen — 4 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ2).
+- **Block select/copy/cut/paste** on the grid screens (§3).
+- **LIVE mode** (§5.4): per-track looping chains with quantized swaps, queued from the SONG screen.
+- **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSDJ↔SMSDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
 
 ---
 
@@ -29,7 +32,7 @@ Post-v0.2 addenda (implemented):
 | Slot-2 sharing | Cart SRAM and ROM banks both map at 0x8000–0xBFFF, selected by mapper reg 0xFFFC. | Sample data (ROM) and song data (SRAM) contend for slot 2 → samples stream through a small internal-RAM ring buffer (§10.3). |
 | VDP | Mode 4, 256×192, 32×24 tile grid, 2 × 16-color palettes, per-tile palette-select bit; line-interrupt counter (active display only). | Text UI on 8×8 font tiles. Cursor/playhead = palette-bit flip (no redraws). Line IRQs drive sample playback. VRAM writes budgeted with a dirty-row queue. |
 | Input | D-pad + buttons **1** and **2** only. PAUSE is wired to NMI (edge-triggered, state not readable). | One fewer button than the Game Boy. All primary functions live on D-pad + 1 + 2; PAUSE is a convenience alias only (works even if a clone/handheld lacks it). |
-| Controller port 2 | 5 readable pins (Up/Down/Left/Right/TL) + TH; TR and TH drivable as *outputs* via port 0x3F. No interrupt capability on these pins. | Enough for a polled, handshaked parallel-nibble protocol → MIDI sync adapter (§11). Raw 31,250-baud bit-banging is not viable alongside a running tracker (§11.4). |
+| Controller port 2 | 5 readable pins (Up/Down/Left/Right/TL) + TH; TR and TH drivable as *outputs* via port 0x3F. No interrupt capability on these pins. | Enough for native master/slave sync: a 2-bit tick counter out/in on TR+TH, plus Volca-style pulse out (§11). Raw 31,250-baud MIDI bit-banging is not viable alongside a running tracker. |
 | Video timing | 50/60 Hz is fixed by the console's hardware (crystal + VDP); software cannot switch it. | "PAL/NTSC support" = the *timing engine* adapts (tick rate, BPM math, sample cadence), not the video output. Auto-detect + override, §5.1. |
 | ROM | Standard Sega mapper, header at 0x7FF0 ("TMR SEGA") required by export BIOS. | 128 KB ROM: 3 fixed/banked code+table pages, rest = sample pool banks. |
 
@@ -83,8 +86,8 @@ Only D-pad + 1 + 2; PAUSE is auxiliary. Button 1 ≈ LSDJ's A (edit), button 2 �
 | **2** held + **1** tap | **Play/stop** (transport — primary control; 2 is the "project" modifier: navigation and transport). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
 | **1** held + **2** tap | Cut (delete the field into the clipboard) |
 | **1** held + **2** long-hold (~⅓ s) | **Block SELECT** (SONG/CHAIN/PHRASE/TABLE): anchors at the cursor. D-pad extends the box; **1** tap = copy, **1** held + **2** = cut, **2** alone = cancel. Paste = double-tap-1: rows anchor at the cursor, columns stay where they were cut (type-safe). A short 2-tap while holding 1 stays cut-field — cut fires on 2's release on these screens. |
-| **PAUSE** (NMI) | Alias for play/stop. Double-press = panic (silence all channels, abort sample, re-arm MIDI sync) |
-| Track mute/solo | Cursor on a track header (SONG screen) + 1 = mute toggle, 1 double-tap = solo |
+| **PAUSE** (NMI) | Alias for play/stop. Double-press = panic (silence all channels, abort sample, re-arm sync) |
+| Track mute/solo | *Parked — gesture TBD.* The header row is labels only; the cursor never leaves the grid. (In LIVE mode, single tracks stop via the transport gesture on the playing cell, or a queued empty cell.) |
 
 No timing disambiguation is needed: the button already held when the other arrives selects the action (1 held + 2 = cut, 2 held + 1 = transport), and a lone 1 press inserts instantly. Only paste uses a window (double-tap, ~0.3 s).
 
@@ -98,7 +101,7 @@ PAUSE generates an NMI whose handler only sets a flag — it is never *required*
 
 Persistent chrome:
 - **Top bar (rows 0–1):** screen name, song title, BPM (derived from groove + tick source), play state, sync status (`INT 50` / `INT 60` / `MIDI` + clock-activity dot), current position `SS:CC:PP`.
-- **Bottom bar (row 23):** screen map indicator + context-sensitive key hints.
+- **Bottom bar:** removed — the grid gets the rows; the screen map indicator lives in the right column.
 - **Right column (cols 27–31):** 4 channel activity meters (current attenuation as a bar; sample-playback glyph on the sample channel, steal glyph on T3) + current octave + current instrument number.
 
 Screen map (navigated with 2+D-pad):
@@ -117,7 +120,7 @@ Screen map (navigated with 2+D-pad):
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
-| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OFF/MIDI**, **SYNC RES: 24/12/6 PPQN**, **SMP CH: T1/T2/T3/OFF**, blocks free, version |
+| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 
@@ -157,7 +160,9 @@ When a noise instrument uses *pitched* mode, the engine writes the noise pitch t
 
 ### 5.4 Playback modes
 
-Play song from row / loop chain / loop phrase (transport context, §3); per-track mute/solo; **prelisten** (notes audition on entry, PROJECT toggle). LSDJ-style LIVE mode deferred to v2.
+Play song from row / loop chain / loop phrase (transport context, §3); per-track mute/solo; **prelisten** (notes audition on entry, PROJECT toggle).
+
+**LIVE mode** (PROJECT → `PLAY: SONG/LIVE`, implemented post-v0.2): the song grid becomes a bank of loops — each track's chain repeats instead of advancing down the song. On the SONG screen while playing, the transport gesture (2H+1) *queues* the cell under the cursor onto its track; the swap lands when that track's current chain finishes (LSDJ-style quantize), shown by a triangle marker beside the queued cell. Queueing an empty cell is a quantized track stop; a queued chain on a silent track starts at the next phrase boundary. the transport gesture on the cell that is *already playing* kills that track instantly (starting the playing chain = stopping it); **PAUSE is the global stop**. Tracks at different chain lengths run polymetrically, exactly as in song mode.
 
 ---
 
@@ -257,7 +262,7 @@ Omitted vs LSDJ: `O` (no panning), `S` (covered by `P`), wave/duty (no hardware)
 
 ## 9. Timing: grooves
 
-Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). Groove is global by default; `G` sets per-track grooves for polyrhythms; `T` gives direct BPM entry. In MIDI SLAVE mode grooves still shape row lengths — only the tick *source* changes (at the default SYNC RES of 24 ppqn, groove 6 = 16th-note rows at any external tempo; see §11.3).
+Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). Groove is global by default; `G` sets per-track grooves for polyrhythms; `T` gives direct BPM entry. In sync-IN mode grooves still shape row lengths — only the tick *source* changes (1 wire clock = 1 tick, so groove 6 = 16th-note rows at any master tempo; see §11.3).
 
 ---
 
@@ -323,37 +328,53 @@ Wavetable synthesis through the same T3 DC-DAC as PCM samples, sharing the entir
 
 ---
 
-## 11. MIDI clock sync (controller port 2) — **must-have**
+## 11. Sync (controller port 2) — native master/slave
 
-### 11.1 Scope
-SMSDJ is a tempo **slave**: it responds to MIDI real-time bytes **Clock (0xF8), Start (0xFA), Continue (0xFB), Stop (0xFC)**. MIDI out, note input, and Song Position Pointer are v2 parking-lot items.
+Replaces the v0.2 MIDI-adapter-first plan: SMSDJ instances sync **directly to each
+other** over controller port 2, no adapter needed. PROJECT → `SYNC: OUT / PULSE /
+IN / OFF` (**OFF is the default** — the port is never driven unasked). The port only drives while the transport
+runs; stopping (or changing mode) releases the lines (`OUT ($3F), $FF`).
 
-### 11.2 Why an adapter (the Arduinoboy model)
-MIDI is 31,250-baud async serial = ~114 Z80 cycles per bit, and the controller ports cannot generate interrupts — catching an asynchronous 32 µs start bit would require polling every ~100 cycles, forever, which no tracker can do while running an engine, UI, and sample IRQs. LSDJ solves this identically: Arduinoboy translates MIDI to a Game Boy-friendly link protocol. SMSDJ specifies a small adapter (RP2040/ATtiny — firmware + schematic are project deliverables) that receives MIDI and presents *latched* data on port 2:
+Wiring: a straight cable on port 2 of both consoles — pin 9 (TR), pin 7 (TH),
+pin 8 (GND). TR/TH are software-direction pins: outputs via port `$3F` on the
+master, read back on port `$DD` (bits 3 and 7) on the slave. **Export consoles
+only** — Japanese SMS hardware ignores `$3F` level drive.
 
-| Port 2 pin | Direction | Role |
-|---|---|---|
-| Up/Down/Left/Right | adapter → console | data nibble D0–D3 |
-| TL | adapter → console | data-valid / strobe |
-| TR | console → adapter (output via port 0x3F) | poll request / ACK |
-| TH | reserved | (v2: MIDI clock thru/out) |
+### 11.1 OUT — 2-bit tick counter on TR+TH
 
-**Transaction (console-initiated, polled):** console toggles TR; adapter answers with two strobed nibbles — (1) event flags: START / STOP / CONTINUE pending, (2) **count of MIDI clocks elapsed since last poll** (0–15). The console polls at VBlank plus one mid-frame line IRQ (≈100 Hz), so the count nibble never overflows below ~2,400 BPM and **no clock is ever missed** — the adapter accumulates between polls; the console catches up by running multiple engine ticks in one frame when needed.
+One count per **engine tick** while playing (nominally 24 PPQN: groove 6 gives
+24 ticks per quarter; the wire unit is ticks, so other grooves shift the
+effective PPQN). A naive one-line pulse would drop clocks when a 60 Hz master
+feeds a 50 Hz slave (poll rate must exceed toggle rate); the mod-4 counter is
+lossless up to 3 ticks per slave frame — region-proof in every pairing, no
+interrupts, tempo exact over time because clocks are counted, not timed.
 
-### 11.3 Slave-mode semantics
-- PROJECT → `SYNC: OFF / MIDI`. In MIDI mode the internal 50/60 Hz tick source is replaced by a divided MIDI clock, PROJECT → `SYNC RES: 24 / 12 / 6 PPQN` (a divider on the accumulated clock count; the wire is always 24 ppqn — the MIDI spec fixes that).
-  - **24 (default):** 1 clock = 1 tick. At 125 BPM this is exactly 50 ticks/s = the internal PAL tick rate, so songs authored in internal mode slave with identical envelope/table/groove feel; groove 6 = 16th-note rows, LSDJ-equivalent.
-  - **12:** 2 clocks = 1 tick — headroom mode. Tick collapse (two ticks forced into one frame) starts at 250 BPM instead of 125 on PAL; preferred for fast tempos or sample-heavy songs. Track with groove `3,3` for 16th rows; swing quantizes twice as coarse.
-  - **6:** half-time experiments.
-  - No ×2 upsampling to 48 ppqn: the adapter would have to interpolate clock intervals (lag + jitter on tempo changes) and 48 ppqn exceeds the PAL frame rate above 62 BPM.
-  - Protocol load is constant regardless of SYNC RES (one 2-nibble transaction per poll); the count nibble overflows only beyond ~3,750 BPM.
-- **Start** → reset to song top, play armed. **Continue** → resume from current position. **Stop** → stop, silence channels (samples finish their ring buffer and stop).
-- Top bar shows `MIDI` + a clock-activity dot; "WAITING" state when armed but no clock arriving.
-- PAUSE in slave mode = local arm/disarm (never sends anything); double-PAUSE = panic + resync (clears clock accumulator).
-- Jitter: ticks quantize to poll points (≤10 ms) — same order as LSDJ slave mode; tempo accuracy is exact over time because clocks are counted, not timed.
+### 11.2 PULSE — Volca / Pocket Operator sync out
 
-### 11.4 Raw bit-bang mode
-Direct MIDI-cable-to-port reception is documented as **experimental/research only** (a dedicated listen mode could read bytes in a tight loop, but the tracker cannot run meanwhile). Not part of v1 spec.
+TR carries a 5 V pulse, high for one tick, every 12 ticks = **2 PPQN at the
+default groove** (the analog-sync convention); TH stays an input. The SMS can
+drive a Volca/PO sync-in directly: tip = TR, sleeve = GND.
+
+### 11.3 IN semantics
+
+- Play arms the transport (top bar shows **WAIT**, inverted); the first counter
+  change starts it and counts as exactly one tick, so the idle→counter jump is
+  never over-counted. Each frame the slave applies `(read − last) & 3` engine
+  ticks — catch-up runs multiple ticks in one frame when regions mismatch.
+- Master stops → counter freezes → slave holds position silently mid-row;
+  master resumes → both continue. No song-position pointer: each unit plays
+  from its own cursor (LSDJ live-sync model).
+- Grooves/envelopes/tables consume ticks identically in both units; at the
+  default groove both run 16th-note rows in lockstep.
+- Jitter: slave ticks quantize to its own frame (≤20 ms, slowly wandering
+  between same-region units) — same order as LSDJ slave mode. A mid-frame
+  poll can halve this later if needed.
+
+### 11.4 MIDI (future)
+
+A MIDI adapter now reduces to: receive MIDI clock/start/stop, drive the same
+2-bit counter on two pins. Far simpler than the v0.2 polled-nibble protocol;
+parked for v2 along with MIDI out and Song Position Pointer.
 
 ---
 
@@ -404,4 +425,4 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 10. **MIDI sync:** adapter firmware + port protocol, SLAVE tick source, transport semantics. Hardware loopback test rig.
 11. Polish: meters, key hints, demo song, dual-region hardware regression pass.
 
-**v2 parking lot:** LIVE mode, `Z` random command, pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.
+**v2 parking lot:** `Z` random command, pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.
