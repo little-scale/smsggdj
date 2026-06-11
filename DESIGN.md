@@ -8,13 +8,14 @@ Changes in v0.2:
 - PAL **and** NTSC support; PAL is the default assumption, auto-detected at boot with user override (§5.1).
 - Optional **sample channel**: 4-bit PCM via the SN76489 volume-register DAC trick, plus a PC-side sample conversion tool (§10, §14).
 - **MIDI clock sync (slave)** on controller port 2 — responds to MIDI Start/Stop/Continue/Clock (§11). PAUSE demoted to a secondary control.
-- ROM moves from 48 KB flat to the standard Sega mapper (128 KB) to hold sample data.
+- ROM moves from 48 KB flat to the standard Sega mapper (128 KB) to hold sample data. *(Done post-v0.2.)*
 - Confirmed decisions: double-tap-1 deep-edit jump; CH3-steal policy for pitched noise.
 
 Post-v0.2 addenda (implemented):
 - **Wavetable mode**: WAV instrument type + WAVE editor screen — 4 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ2).
 - **Block select/copy/cut/paste** on the grid screens (§3).
 - **LIVE mode** (§5.4): per-track looping chains with quantized swaps, queued from the SONG screen.
+- **128 KB mapper move**: 8 banks, sample pool in banks 2-7 with a self-describing directory (§10.3) — the contract for a browser-based ROM patching tool (planned).
 - **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSDJ↔SMSDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
 
 ---
@@ -288,7 +289,7 @@ Linear PCM must be pre-mapped to these levels — that correction is the convers
 - T3 conflict matrix: pitched noise needs T3's *period*; samples need T3's period **= 1**. They cannot coexist. Priority: **sample > pitched noise** — while a sample plays on T3, pitched-noise instruments fall back to their nearest fixed rate (same fallback as `NOI MODE = FREE`); the steal glyph shows on the meter. Putting `SMP CH = T1` avoids the conflict entirely at the cost of a melodic channel.
 
 ### 10.3 Data path
-- Sample pool lives in **banked ROM** (mapper slot 2 pages). Pool header per sample: name (5 ch), bank+offset, length, loop point/flag.
+- Sample pool lives in **banked ROM**: banks 2-7 (96 KB ≈ 24 s), implemented post-v0.2. The pool is **self-describing** (the contract for external patchers — file offset $8000, 96 KB): bank 2 starts `"SMPL"`, version, count, rate (word), then 32 directory entries × 10 bytes — bank, offset (word, $8000-based), length (word), name (5 ch). Samples never cross a bank (≤ ~16 KB ≈ 4 s each); placement is first-fit. The engine caches the count at boot and reads directory entries at trigger time (interrupts held while the directory bank is paged); the playing sample's bank stays in slot 2, owned by the feeder. **SRAM mapping covers the pool banks**, so save/load abort any in-flight sample first.
 - Slot 2 is shared with song SRAM, so playback never reads ROM directly when SRAM is active: a **256-byte page-aligned ring buffer** in internal RAM is refilled once per frame (~160 samples/frame at 7.8 kHz/50 Hz) by briefly paging ROM into slot 2, unpacking, and restoring SRAM.
 - Refill-time unpacking does all per-sample work for free at playback time: split the two nibbles, add the instrument's VOL OFS (clamp at 0xF), and pre-OR the PSG latch/channel command bits — the ring holds **ready-to-OUT bytes**. Refill cost ≈ 5–7 k cycles/frame.
 - No SRAM present → song is in internal RAM, slot 2 is free, samples stream straight from ROM (no ring needed).

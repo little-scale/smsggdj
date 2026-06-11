@@ -15,9 +15,9 @@ SLOT 3 $C000 $2000
 .ENDME
 
 .ROMBANKMAP
-BANKSTOTAL 2
+BANKSTOTAL 8
 BANKSIZE $4000
-BANKS 2
+BANKS 8
 .ENDRO
 
 .SMSTAG
@@ -152,6 +152,15 @@ init:
   call load_palette
   call song_init
   call editor_init
+  ; sample pool directory (bank 2 sits in slot 2 from boot)
+  xor a
+  ld (smp_count), a
+  ld a, ($8000)
+  cp 'S'
+  jr nz, init_nopool
+  ld a, ($8005)
+  ld (smp_count), a
+init_nopool:
   call sram_detect
   ld a, (sram_ok)
   or a
@@ -444,8 +453,6 @@ font_data:
 font_data_end:
 .ENDS
 
-.SECTION "SamplePool" FREE
+; sample pool: banks 2-7, self-describing (directory at bank 2,
+; $8000 - see tools/smsdj_sample.py for the contract)
 .INCLUDE "pool.inc"
-sample_pool:
-  .INCBIN "pool.bin"
-.ENDS

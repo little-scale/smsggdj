@@ -1163,14 +1163,19 @@ tn_mods:
   ld (ix+12), 1              ; pitched: steal T3 (design doc 5.3)
   ret
 tn_smp:
+  ld a, (smp_count)
+  ld d, a
+  or a
+  jr z, tn_squiet            ; empty pool: just silence the host
   ld a, (ix+0)
 tn_smod:
-  cp SAMPLE_COUNT
+  cp d
   jr c, tn_sgo
-  sub SAMPLE_COUNT
+  sub d
   jr tn_smod
 tn_sgo:
   call smp_play
+tn_squiet:
   ; the note only selects the sample (played on T3): the host
   ; track's own channel must stay silent
   ld (ix+0), $FF
@@ -1759,6 +1764,7 @@ song_save:
   ret
 sv_go:
   call engine_stop
+  call smp_abort             ; SRAM is about to cover the pool
   ld a, $08
   ld ($FFFC), a
   call sram_slot_base
@@ -1807,6 +1813,7 @@ song_load:
   ret
 ld_go:
   call engine_stop
+  call smp_abort             ; SRAM is about to cover the pool
   ld a, $08
   ld ($FFFC), a
   call sram_slot_base

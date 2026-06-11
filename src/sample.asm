@@ -32,6 +32,7 @@
   wav_owner    db            ; track whose volume gates the wave
   wav_cur      db            ; wave # loaded in wav_buf
   winc_ptr     dw            ; region pitch-increment table
+  smp_count    db            ; samples in the pool (boot-cached)
 .ENDS
 
 .RAMSECTION "wavbuf" SLOT 3 ALIGN 32
@@ -104,29 +105,42 @@ sf_end:
   ld (smp_active), a
   ret
 
-; start sample A (0..SAMPLE_COUNT-1); main-thread only
+; start sample A (0..smp_count-1); main-thread only. The pool
+; directory lives in bank 2; the sample's own bank is left paged
+; into slot 2 for the feeder (which owns $FFFF while playing).
 smp_play:
-  cp SAMPLE_COUNT
+  ld b, a
+  ld a, (smp_count)
+  ld c, a
+  ld a, b
+  cp c
   ret nc
-  add a, a
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, sample_table
+  ld l, a                    ; directory entry = $8008 + A * 10
+  ld h, 0
+  add hl, hl
+  ld d, h
+  ld e, l
+  add hl, hl
+  add hl, hl
+  add hl, de                 ; * 10
+  ld de, $8008
   add hl, de
+  di
+  ld a, 2                    ; page the directory in
+  ld ($FFFF), a
+  ld a, (hl)                 ; +0 sample's bank
+  inc hl
   ld e, (hl)
   inc hl
-  ld d, (hl)
+  ld d, (hl)                 ; DE = start ($8000-based)
   inc hl
   ld c, (hl)
   inc hl
   ld b, (hl)                 ; BC = length
-  ld hl, sample_pool
-  add hl, de                 ; HL = start
-  ld d, h
-  ld e, l
+  ld ($FFFF), a              ; page the sample's bank
+  ld h, d
+  ld l, e
   add hl, bc                 ; HL = end, DE = start
-  di
   push de
   push hl
   exx
@@ -239,6 +253,21 @@ wcb_loop:
 wav_lin2log:
   .db $D0, $D0, $D1, $D1, $D1, $D2, $D2, $D3
   .db $D3, $D4, $D5, $D6, $D7, $D9, $DC, $DF
+
+; abort an in-flight sample immediately (main thread) - needed
+; before mapping SRAM over the pool banks in slot 2
+smp_abort:
+  ld a, (smp_mode)
+  cp 1
+  ret nz
+  di
+  xor a
+  ld (smp_active), a
+  ld (smp_mode), a
+  ld a, $DF                  ; T3 silent
+  out (PSG_PORT), a
+  ei
+  ret
 
 ; stop wavetable output (main thread)
 wav_stop:
