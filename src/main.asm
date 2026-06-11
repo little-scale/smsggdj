@@ -258,12 +258,11 @@ main_loop:
   xor a
   ld (vblank_flag), a
 
-  ; --- VRAM updates first, while we are in vblank ---
-  call draw_frame_counter
-  call draw_state
-  call editor_draw
-
-  ; --- logic ---
+  ; --- logic + engine first: the tick's PSG writes land at a
+  ;     fixed frame phase. Drawing cost varies row to row, and
+  ;     while a wave/sample plays the vblank feeder + line IRQs
+  ;     already push the tick into active display at half speed -
+  ;     ticking after the draws audibly jittered row timing. ---
   call read_input
   call handle_pause
   call editor_input
@@ -273,6 +272,12 @@ main_loop:
   or a
   call z, channels_fx          ; prelisten envelopes while stopped
   call psg_flush
+
+  ; --- VRAM updates after: still inside vblank when idle, and
+  ;     spacing-safe in active display while a sample feeds ---
+  call draw_frame_counter
+  call draw_state
+  call editor_draw
 
   ld hl, (frame)
   inc hl
