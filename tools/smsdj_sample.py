@@ -12,6 +12,8 @@ usage:
     --asm pool.inc    WLA-DX include with the pool index
     --rate HZ         target rate (default 7813 = PAL line/2 cadence)
     --gate N          silence-gate threshold, levels (default 1)
+    --gain X          post-normalize gain with hard clipping
+                      (2-4 = louder/denser, 99 ~= 1-bit loudness)
     --no-dither       plain nearest-level quantization
     --no-norm         skip per-file normalization
     --preview         write NAME.preview.wav rendered through the
@@ -95,6 +97,7 @@ def main():
     out_bin = opt("-o")
     out_asm = opt("--asm")
     rate = int(opt("--rate", 7813))
+    gain = float(opt("--gain", 1.0))
     gate = int(opt("--gate", 1))
     dither = not opt("--no-dither", False, has_val=False)
     norm = not opt("--no-norm", False, has_val=False)
@@ -107,6 +110,8 @@ def main():
         if norm and mono:
             peak = max(0.0001, max(abs(s) for s in mono))
             mono = [s / peak for s in mono]
+        if gain != 1.0:
+            mono = [max(-1.0, min(1.0, s * gain)) for s in mono]
         codes = convert(mono, dither, gate)
         if len(codes) & 1:
             codes.append(15)
