@@ -184,9 +184,10 @@ init_bpm:
   ; vblank sample budget: (lines-192)/2
   ld a, (region_pal)
   or a
-  ld a, 35                   ; NTSC: 70 vblank lines
-  jr z, init_vbc
-  ld a, 60                   ; PAL: 121 vblank lines
+  ld a, 34                   ; NTSC: 70 vblank lines, minus one
+  jr z, init_vbc             ; slot of slack - overrunning into
+  ld a, 59                   ; the first pending line IRQ double-
+                             ; fires a sample (a click per frame)
 init_vbc:
   ld (smp_vbcnt), a
 
