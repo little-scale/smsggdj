@@ -79,8 +79,9 @@ BANKS 2
 .SECTION "IRQ" FORCE
 irq_handler:
   ex af, af'
-  in a, (VDP_CTRL)             ; ack; bit 7 = frame interrupt
-  jp m, irq_frame
+  in a, (VDP_CTRL)             ; ack (IN A,(n) sets no flags!)
+  rlca                         ; bit 7 -> carry
+  jp c, irq_frame
   ; ---- line interrupt: feed one sample nibble ----
   ld a, (smp_active)
   or a
