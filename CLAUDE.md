@@ -49,4 +49,4 @@ Any new gesture must fit this frame (user's settled design, DESIGN.md §3): butt
 
 ## Workflow
 
-Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetable synthesis are done; remaining: clone/block ops (gesture TBD), 128 KB mapper move, MIDI sync, polish.
+Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; remaining: the browser sample patcher, clone modes, config persistence, K-cuts-samples, polish, hardware verification.
