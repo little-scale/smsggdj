@@ -1328,12 +1328,16 @@ cf_adv:
   cp 4
   jp c, cf_loop
   ; wavetables are melodic: the noise channel stays silent for
-  ; exactly as long as one plays (samples leave noise audible)
+  ; exactly as long as one plays (samples leave noise audible).
+  ; Belt and braces: shadow, sent state and the chip itself.
   ld a, (smp_mode)
   cp 2
   ret nz
   ld a, $0F
   ld (psg_vols+3), a
+  ld (psg_vols_sent+3), a
+  ld a, $FF                  ; noise attenuation: silent
+  out (PSG_PORT), a
   ret
 
 ; =============================================================
