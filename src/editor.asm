@@ -1265,30 +1265,59 @@ inp_edit:
   call ins_ptr
   ld a, (ins_row)
   or a
-  jp z, ine_type
+  jp z, ine_inst
   cp 1
-  jp z, ine_vol
+  jp z, ine_type
   cp 2
-  jp z, ine_dir
+  jp z, ine_vol
   cp 3
-  jp z, ine_spd
+  jp z, ine_dir
   cp 4
-  jp z, ine_len
+  jp z, ine_spd
   cp 5
-  jp z, ine_tsp
+  jp z, ine_len
   cp 6
-  jp z, ine_swp
+  jp z, ine_tsp
   cp 7
-  jp z, ine_vib
+  jp z, ine_swp
   cp 8
-  jp z, ine_trm
+  jp z, ine_vib
   cp 9
-  jp z, ine_tbl
+  jp z, ine_trm
   cp 10
-  jp z, ine_tbs
+  jp z, ine_tbl
   cp 11
+  jp z, ine_tbs
+  cp 12
   jp z, ine_f11
   jp ine_rate
+
+; INST: which instrument the form edits (L/R +-1, U/D +-4)
+ine_inst:
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (cur_instr)
+  bit 3, c
+  jr z, ini_l
+  inc a
+ini_l:
+  bit 2, c
+  jr z, ini_u
+  dec a
+ini_u:
+  bit 0, c
+  jr z, ini_d
+  add a, 4
+ini_d:
+  bit 1, c
+  jr z, ini_st
+  sub 4
+ini_st:
+  and $0F
+  ld (cur_instr), a
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
 
 ine_f11:                     ; NOISE: mode toggle; WAV: wave 0-3
   push hl
