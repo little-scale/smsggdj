@@ -15,7 +15,7 @@ Post-v0.2 addenda (implemented):
 - **Wavetable mode**: WAV instrument type + WAVE editor screen — 4 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ2).
 - **Block select/copy/cut/paste** on the grid screens (§3).
 - **LIVE mode** (§5.4): per-track looping chains with quantized swaps, queued from the SONG screen.
-- **128 KB mapper move**: 8 banks, sample pool in banks 2-7 with a self-describing directory (§10.3) — the contract for a browser-based ROM patching tool (planned).
+- **128 KB mapper move**: 8 banks, sample pool in banks 2-7 with a self-describing directory (§10.3) — the contract for **tools/patcher.html**, a single-file browser patcher: drop a built ROM + sounds (any decodable format), trim/gain/tanh/normalize/gate/fade per sample, audition the bit-exact DAC render, and download a patched ROM — no toolchain needed.
 - **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSDJ↔SMSDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
 
 ---
@@ -409,7 +409,7 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 
 **Deliverables:**
 1. `smsdj.sms` — the ROM (128 KB, standard Sega mapper, valid TMR SEGA header + checksum).
-2. `tools/smsdj-sample` — sample conversion tool (§10.5).
+2. `tools/smsdj-sample` — sample conversion tool (§10.5); `tools/patcher.html` — browser sample patcher (done).
 3. `adapter/` — MIDI sync adapter firmware (RP2040 primary target) + protocol doc + schematic.
 4. Demo song + default sample pool + manual.
 

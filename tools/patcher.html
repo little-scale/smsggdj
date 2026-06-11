@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<!-- SMSDJ sample patcher: drop a built smsdj.sms and some sound
+     files, trim/process/audition them, and download a ROM with
+     the new sample pool. Everything runs locally in the browser.
+     Pool contract: DESIGN.md 10.3 / tools/smsdj_sample.py. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SMSDJ sample patcher</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.45 ui-monospace, Menlo, monospace; background: #101418;
+         color: #d8e0e8; max-width: 860px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 20px; } h1 span { color: #58a6ff; }
+  .zone { border: 2px dashed #2d3742; border-radius: 10px; padding: 18px;
+          margin: 12px 0; text-align: center; color: #8b98a5; cursor: pointer; }
+  .zone.armed { border-color: #58a6ff; color: #d8e0e8; }
+  .card { background: #161c22; border: 1px solid #2d3742; border-radius: 10px;
+          padding: 12px 14px; margin: 10px 0; }
+  .card.rom { border-color: #3a5a40; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row label { color: #8b98a5; font-size: 12px; }
+  canvas { width: 100%; height: 64px; background: #0b0f13; border-radius: 6px;
+           display: block; margin: 8px 0 4px; }
+  input[type=range] { width: 110px; }
+  input[type=text] { width: 64px; background: #0b0f13; color: #d8e0e8;
+          border: 1px solid #2d3742; border-radius: 4px; padding: 2px 6px;
+          text-transform: uppercase; }
+  input[type=number] { width: 54px; background: #0b0f13; color: #d8e0e8;
+          border: 1px solid #2d3742; border-radius: 4px; padding: 2px 4px; }
+  button { background: #1c2730; color: #d8e0e8; border: 1px solid #3a4754;
+           border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+  button:hover { background: #24323e; }
+  button.primary { background: #1f4e2e; border-color: #2f7a46; font-weight: 700;
+                   padding: 10px 22px; font-size: 15px; }
+  button.primary:disabled { opacity: .4; cursor: default; }
+  .bar { height: 14px; background: #0b0f13; border-radius: 7px; overflow: hidden;
+         border: 1px solid #2d3742; margin: 6px 0; }
+  .bar div { height: 100%; background: linear-gradient(90deg,#2f7a46,#58a6ff); }
+  .bar.over div { background: #c0392b; }
+  .dim { color: #8b98a5; font-size: 12px; }
+  .stat { float: right; color: #8b98a5; }
+  .tag { font-size: 11px; background: #24323e; border-radius: 4px;
+         padding: 1px 6px; margin-left: 6px; color: #9ecbff; }
+</style>
+</head>
+<body>
+<h1><span>SMSDJ</span> sample patcher</h1>
+<p class="dim">1: load your <b>smsdj.sms</b> (128 KB). 2: drop sounds —
+any format the browser can decode. 3: trim, drive, audition.
+4: download the patched ROM. Nothing leaves this page.</p>
+
+<div class="zone" id="romzone">drop smsdj.sms here (or click)</div>
+<input type="file" id="romfile" accept=".sms" hidden>
+<div id="rominfo"></div>
+
+<div class="zone" id="sndzone" style="display:none">drop sound files here (or click)</div>
+<input type="file" id="sndfile" multiple hidden>
+
+<div id="samples"></div>
+
+<div id="capacity" style="display:none">
+  <div class="bar"><div id="capfill" style="width:0%"></div></div>
+  <span class="dim" id="captext"></span>
+  <button class="primary" id="download" style="float:right">download patched ROM</button>
+  <div style="clear:both"></div>
+</div>
+
+<script>
+"use strict";
+// ---- the pool contract (must match tools/smsdj_sample.py) ----
+const POOL_OFF = 0x8000, BANK = 16384, POOL_BANKS = 6, MAX_SAMPLES = 32;
+const DIR_END = 8 + MAX_SAMPLES * 10, RATE = 7813;
+const MAX_SAMPLE = BANK - DIR_END;
+// unipolar DAC: attenuation n = 10^(-n/10), 15 = off
+const LEVELS = []; for (let n = 0; n < 15; n++) LEVELS.push(10 ** (-n / 10));
+LEVELS.push(0);
+
+let rom = null, romName = "smsdj.sms";
+const items = [];           // {name, kind:'rom'|'new', ...}
+let ac = null;
+const ctx = () => ac || (ac = new (window.AudioContext || window.webkitAudioContext)());
+
+// ---------------------------------------------------- ROM I/O
+function loadRom(buf, name) {
+  const d = new Uint8Array(buf);
+  const txt = String.fromCharCode(...d.slice(0x7ff0, 0x7ff8));
+  if (txt !== "TMR SEGA") return alert("not an SMS ROM (no TMR SEGA header)");
+  const magic = String.fromCharCode(...d.slice(POOL_OFF, POOL_OFF + 4));
+  if (magic !== "SMPL") return alert("this ROM has no SMSDJ sample pool " +
+    "(needs a build with the banked pool)");
+  rom = d; romName = name;
+  // absorb the existing pool as keepable items
+  items.length = 0;
+  const count = d[POOL_OFF + 5];
+  for (let i = 0; i < count; i++) {
+    const e = POOL_OFF + 8 + i * 10;
+    const bank = d[e], off = d[e + 1] | (d[e + 2] << 8),
+          len = d[e + 3] | (d[e + 4] << 8);
+    const name5 = String.fromCharCode(...d.slice(e + 5, e + 10)).trim();
+    const fileOff = (bank - 2) * BANK + (off - 0x8000) + POOL_OFF;
+    items.push({ kind: "rom", name: name5 || ("SMP" + i),
+                 packed: d.slice(fileOff, fileOff + len), keep: true });
+  }
+  document.getElementById("rominfo").innerHTML =
+    `<div class="card rom"><b>${name}</b> — ${d.length} bytes, pool ` +
+    `${count} sample(s)<span class="tag">checksum range: ` +
+    `${["8K","16K","32K","48K","64K","128K"][ (d[0x7fff] & 15) - 10 ] || "ext"}</span></div>`;
+  document.getElementById("sndzone").style.display = "";
+  document.getElementById("capacity").style.display = "";
+  render();
+}
+
+function checksum(d) {
+  // sum per the declared size nibble; header bytes excluded
+  let s = 0;
+  for (let i = 0; i < 0x7ff0; i++) s = (s + d[i]) & 0xffff;
+  const size = d[0x7fff] & 15;
+  const total = { 13: 0xC000, 14: 0x10000, 15: 0x20000, 0: 0x40000,
+                  1: 0x80000, 2: 0x100000 }[size];
+  if (total) for (let i = 0x8000; i < Math.min(total, d.length); i++)
+    s = (s + d[i]) & 0xffff;
+  d[0x7ffa] = s & 0xff; d[0x7ffb] = s >> 8;
+}
+
+// ---------------------------------------------- conversion DSP
+function mixMono(ab) {
+  const n = ab.length, out = new Float32Array(n);
+  for (let c = 0; c < ab.numberOfChannels; c++) {
+    const ch = ab.getChannelData(c);
+    for (let i = 0; i < n; i++) out[i] += ch[i] / ab.numberOfChannels;
+  }
+  return out;
+}
+
+function process(it) {
+  // trim -> normalize -> gain -> tanh -> fades -> resample
+  const src = it.mono, n = src.length;
+  let a = Math.floor(it.trim0 * n), b = Math.ceil(it.trim1 * n);
+  if (b - a < 2) b = Math.min(n, a + 2);
+  let s = Array.from(src.slice(a, b));
+  if (it.norm) {
+    let peak = 1e-4;
+    for (const v of s) peak = Math.max(peak, Math.abs(v));
+    s = s.map(v => v / peak);
+  }
+  if (it.gain !== 1) s = s.map(v => v * it.gain);
+  if (it.tanh > 0) {
+    const k = Math.tanh(it.tanh);
+    s = s.map(v => Math.tanh(v * it.tanh) / k);
+  }
+  s = s.map(v => Math.max(-1, Math.min(1, v)));
+  const fi = Math.min(s.length, Math.round(it.fadein / 1000 * it.rate));
+  for (let i = 0; i < fi; i++) s[i] *= i / fi;
+  const fo = Math.min(s.length, Math.round(it.fadeout / 1000 * it.rate));
+  for (let i = 0; i < fo; i++) s[s.length - 1 - i] *= i / fo;
+  // linear-interp resample to the console cadence
+  const out = [], step = it.rate / RATE, last = s.length - 1;
+  for (let pos = 0; pos < last; pos += step) {
+    const i = pos | 0, f = pos - i;
+    out.push(s[i] * (1 - f) + s[i + 1] * f);
+  }
+  return out;
+}
+
+function quantize(s, dither, gate) {
+  // mirror of smsdj_sample.py convert(): error-diffused mapping
+  // onto the logarithmic DAC levels, then the silence gate
+  const out = new Uint8Array(s.length);
+  let err = 0;
+  for (let i = 0; i < s.length; i++) {
+    let u = (s[i] + 1) / 2 + (dither ? err : 0);
+    let best = 0, bd = 1e9;
+    for (let n = 0; n < 16; n++) {
+      const d = Math.abs(LEVELS[n] - u);
+      if (d < bd) { bd = d; best = n; }
+    }
+    if (dither) err = Math.max(-0.5, Math.min(0.5, u - LEVELS[best]));
+    out[i] = best;
+  }
+  if (gate > 0) {
+    const th = LEVELS[7] - LEVELS[7 + gate];
+    for (let i = 0; i < out.length; i++)
+      if (Math.abs(LEVELS[out[i]] - 0.5) < th) out[i] = 7;
+  }
+  return out;
+}
+
+function pack(codes) {
+  const n = codes.length + (codes.length & 1);
+  const out = new Uint8Array(n / 2);
+  for (let i = 0; i < n; i += 2)
+    out[i / 2] = (codes[i] << 4) | (i + 1 < codes.length ? codes[i + 1] : 15);
+  return out;
+}
+
+function rebuild(it) {
+  if (it.kind !== "new") return;
+  it.packed = pack(quantize(process(it), it.dither, it.gate));
+}
+
+// ------------------------------------------------- audition
+function unpack(packed) {
+  const codes = new Uint8Array(packed.length * 2);
+  packed.forEach((b, i) => { codes[i * 2] = b >> 4; codes[i * 2 + 1] = b & 15; });
+  return codes;
+}
+
+function audition(packed) {
+  // bit-exact render: zero-order hold x4 keeps the buffer rate
+  // inside what browsers accept, and sounds like the real DAC
+  const codes = unpack(packed), hold = 4;
+  const buf = ctx().createBuffer(1, codes.length * hold, RATE * hold);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < codes.length; i++) {
+    const v = LEVELS[codes[i]] - 0.5;
+    for (let h = 0; h < hold; h++) ch[i * hold + h] = v;
+  }
+  const src = ctx().createBufferSource();
+  src.buffer = buf; src.connect(ctx().destination); src.start();
+}
+
+// ------------------------------------------------- packing/UI
+function placement() {
+  // first-fit, no bank crossing; returns null on overflow
+  const kept = items.filter(i => i.kind === "rom" ? i.keep : true);
+  if (kept.length > MAX_SAMPLES) return null;
+  const free = [DIR_END, 0, 0, 0, 0, 0], place = [];
+  for (const it of kept) {
+    if (!it.packed || it.packed.length > MAX_SAMPLE) return null;
+    let done = false;
+    for (let b = 0; b < POOL_BANKS; b++)
+      if (free[b] + it.packed.length <= BANK) {
+        place.push({ it, bank: 2 + b, off: 0x8000 + free[b] });
+        free[b] += it.packed.length; done = true; break;
+      }
+    if (!done) return null;
+  }
+  return { place, used: free.reduce((a, v) => a + v, 0) - DIR_END };
+}
+
+function buildRom() {
+  const p = placement();
+  if (!p) return;
+  const out = new Uint8Array(rom);   // copy
+  out.fill(0xff, POOL_OFF, POOL_OFF + POOL_BANKS * BANK);
+  const h = [0x53, 0x4d, 0x50, 0x4c, 1, p.place.length, RATE & 255, RATE >> 8];
+  out.set(h, POOL_OFF);
+  p.place.forEach((pl, i) => {
+    const e = POOL_OFF + 8 + i * 10;
+    out[e] = pl.bank;
+    out[e + 1] = pl.off & 255; out[e + 2] = pl.off >> 8;
+    out[e + 3] = pl.it.packed.length & 255; out[e + 4] = pl.it.packed.length >> 8;
+    const nm = (pl.it.name || "SMPL").toUpperCase().padEnd(5).slice(0, 5);
+    for (let c = 0; c < 5; c++) out[e + 5 + c] = nm.charCodeAt(c);
+    out.set(pl.it.packed, POOL_OFF + (pl.bank - 2) * BANK + (pl.off - 0x8000));
+  });
+  checksum(out);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([out], { type: "application/octet-stream" }));
+  a.download = romName.replace(/\.sms$/i, "") + "-patched.sms";
+  a.click();
+}
+
+function drawWave(cv, it) {
+  const g = cv.getContext("2d"), W = cv.width = cv.clientWidth * 2,
+        H = cv.height = 128;
+  g.fillStyle = "#0b0f13"; g.fillRect(0, 0, W, H);
+  const s = it.mono, step = Math.max(1, (s.length / W) | 0);
+  g.strokeStyle = "#58a6ff"; g.beginPath();
+  for (let x = 0; x < W; x++) {
+    let lo = 1, hi = -1;
+    for (let i = x * step; i < (x + 1) * step && i < s.length; i++) {
+      lo = Math.min(lo, s[i]); hi = Math.max(hi, s[i]);
+    }
+    g.moveTo(x, H / 2 - hi * H / 2); g.lineTo(x, H / 2 - lo * H / 2 + 1);
+  }
+  g.stroke();
+  g.fillStyle = "rgba(16,20,24,.82)";
+  g.fillRect(0, 0, it.trim0 * W, H);
+  g.fillRect(it.trim1 * W, 0, W, H);
+}
+
+function fmtBytes(b) { return b < 1024 ? b + " B" : (b / 1024).toFixed(1) + " K"; }
+function secs(it) { return (it.packed.length * 2 / RATE).toFixed(2) + "s"; }
+
+function render() {
+  const box = document.getElementById("samples");
+  box.innerHTML = "";
+  items.forEach((it, idx) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    if (it.kind === "rom") {
+      card.innerHTML = `<b>${it.name}</b><span class="tag">in ROM</span>
+        <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
+        <div class="row" style="margin-top:6px">
+          <label><input type="checkbox" ${it.keep ? "checked" : ""} data-k="keep"> keep</label>
+          <button data-k="play">audition</button></div>`;
+    } else {
+      card.innerHTML = `<input type="text" maxlength="5" value="${it.name}" data-k="name">
+        <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
+        <canvas></canvas>
+        <div class="row">
+          <label>trim <input type="range" min="0" max="1" step="0.001" value="${it.trim0}" data-k="trim0">
+                 <input type="range" min="0" max="1" step="0.001" value="${it.trim1}" data-k="trim1"></label>
+          <label>gain <input type="range" min="0.1" max="8" step="0.1" value="${it.gain}" data-k="gain">
+                 <span data-v="gain">${it.gain.toFixed(1)}×</span></label>
+          <label>tanh <input type="range" min="0" max="8" step="0.1" value="${it.tanh}" data-k="tanh">
+                 <span data-v="tanh">${it.tanh ? it.tanh.toFixed(1) : "off"}</span></label>
+        </div>
+        <div class="row">
+          <label><input type="checkbox" ${it.norm ? "checked" : ""} data-k="norm"> normalize</label>
+          <label><input type="checkbox" ${it.dither ? "checked" : ""} data-k="dither"> dither</label>
+          <label>gate <input type="number" min="0" max="4" value="${it.gate}" data-k="gate"></label>
+          <label>fade in <input type="number" min="0" max="500" value="${it.fadein}" data-k="fadein"> ms</label>
+          <label>fade out <input type="number" min="0" max="2000" value="${it.fadeout}" data-k="fadeout"> ms</label>
+          <button data-k="play">audition</button>
+          <button data-k="del">remove</button>
+        </div>`;
+    }
+    box.appendChild(card);
+    const cv = card.querySelector("canvas");
+    if (cv) drawWave(cv, it);
+    card.addEventListener("input", e => {
+      const k = e.target.dataset.k; if (!k) return;
+      if (k === "name") { it.name = e.target.value; return; }
+      if (k === "keep") { it.keep = e.target.checked; updateCap(); return; }
+      if (k === "norm" || k === "dither") it[k] = e.target.checked;
+      else it[k] = parseFloat(e.target.value) || 0;
+      if (k === "trim0") it.trim0 = Math.min(it.trim0, it.trim1 - 0.001);
+      if (k === "trim1") it.trim1 = Math.max(it.trim1, it.trim0 + 0.001);
+      rebuild(it);
+      if (cv) drawWave(cv, it);
+      const stat = card.querySelector(".stat");
+      stat.textContent = fmtBytes(it.packed.length) + " · " + secs(it);
+      const gv = card.querySelector('[data-v="gain"]');
+      if (gv) gv.textContent = it.gain.toFixed(1) + "×";
+      const tv = card.querySelector('[data-v="tanh"]');
+      if (tv) tv.textContent = it.tanh ? it.tanh.toFixed(1) : "off";
+      updateCap();
+    });
+    card.addEventListener("click", e => {
+      const k = e.target.dataset.k;
+      if (k === "play") audition(it.packed);
+      if (k === "del") { items.splice(idx, 1); render(); }
+    });
+  });
+  updateCap();
+}
+
+function updateCap() {
+  const p = placement(), total = POOL_BANKS * BANK - DIR_END;
+  const fill = document.getElementById("capfill"),
+        bar = fill.parentElement, btn = document.getElementById("download");
+  if (!p) {
+    bar.classList.add("over"); fill.style.width = "100%";
+    document.getElementById("captext").textContent =
+      "does not fit (96 KB pool, max 16 K / 4.1 s per sample, 32 slots)";
+    btn.disabled = true; return;
+  }
+  bar.classList.remove("over");
+  fill.style.width = (100 * p.used / total).toFixed(1) + "%";
+  document.getElementById("captext").textContent =
+    `${p.place.length} sample(s), ${fmtBytes(p.used)} of ${fmtBytes(total)} ` +
+    `(${(p.used * 2 / RATE).toFixed(1)}s of ${(total * 2 / RATE).toFixed(0)}s)`;
+  btn.disabled = false;
+}
+
+// ------------------------------------------------- wiring
+async function addSounds(files) {
+  for (const f of files) {
+    try {
+      const ab = await ctx().decodeAudioData(await f.arrayBuffer());
+      const it = {
+        kind: "new", name: f.name.replace(/\..*$/, "").slice(0, 5).toUpperCase(),
+        mono: mixMono(ab), rate: ab.sampleRate,
+        trim0: 0, trim1: 1, gain: 1, tanh: 0, norm: true, dither: true,
+        gate: 1, fadein: 0, fadeout: 5, packed: null,
+      };
+      rebuild(it);
+      items.push(it);
+    } catch (err) { alert(f.name + ": could not decode (" + err.message + ")"); }
+  }
+  render();
+}
+
+function zone(id, input, cb) {
+  const z = document.getElementById(id), inp = document.getElementById(input);
+  z.onclick = () => inp.click();
+  inp.onchange = () => { cb([...inp.files]); inp.value = ""; };
+  z.ondragover = e => { e.preventDefault(); z.classList.add("armed"); };
+  z.ondragleave = () => z.classList.remove("armed");
+  z.ondrop = e => { e.preventDefault(); z.classList.remove("armed");
+                    cb([...e.dataTransfer.files]); };
+}
+zone("romzone", "romfile", async f => {
+  if (f[0]) loadRom(await f[0].arrayBuffer(), f[0].name);
+});
+zone("sndzone", "sndfile", addSounds);
+document.getElementById("download").onclick = buildRom;
+</script>
+</body>
+</html>
