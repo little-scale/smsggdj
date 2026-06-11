@@ -186,34 +186,63 @@ ei_nav:
 ; screen map: 2 held + L/R
 ; =============================================================
 screen_nav:
-  ; PROJECT sits above SONG (2+up / 2+down), per the design map
+  ; map: PROJECT above CHAIN, GROOVE below CHAIN, WAVE above
+  ; INSTR; horizontal row is SONG CHAIN PHRASE INSTR TABLE
   ld a, (scr_mode)
   cp SCR_PROJ
   jr z, sn_proj
-  cp SCR_SONG
-  jr z, sn_songup
+  cp SCR_CHAIN
+  jr z, sn_chain
+  cp SCR_GROOVE
+  jr z, sn_groove
   cp SCR_WAVE
   jr z, sn_wave
   cp SCR_INSTR
   jr z, sn_instr_up
-  ; on TABLE/GROOVE, 2 + up/down selects the edited item
   cp SCR_TABLE
-  jr z, sn_selt
-  cp SCR_GROOVE
-  jr z, sn_selg
+  jp z, sn_selt
   jp sn_lr
 sn_proj:
   ld a, (pad_edge)
   and PAD_DOWN
   ret z
-  xor a                      ; back down to SONG
+  ld a, SCR_CHAIN            ; back down to CHAIN
   jp sn_switch
-sn_songup:
+sn_chain:
   ld a, (pad_edge)
   and PAD_UP
-  jp z, sn_lr
+  jr z, sn_chdn
   ld a, SCR_PROJ
   jp sn_switch
+sn_chdn:
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jp z, sn_lr
+  ld a, SCR_GROOVE
+  jp sn_switch
+sn_groove:                   ; 2+up exits, 2+L/R selects groove
+  ld a, (pad_edge)
+  and PAD_UP
+  jr z, sn_gsel
+  ld a, SCR_CHAIN
+  jp sn_switch
+sn_gsel:
+  ld a, (pad_edge)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  and PAD_RIGHT
+  ld a, (cur_groove)
+  jr z, sng_dn
+  inc a
+  jr sng_st
+sng_dn:
+  dec a
+sng_st:
+  and $0F
+  ld (cur_groove), a
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
 sn_instr_up:                 ; WAVE sits above INSTR on the map
   ld a, (pad_edge)
   and PAD_UP
@@ -260,23 +289,6 @@ snt_st:
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
-sn_selg:
-  ld a, (pad_edge)
-  and PAD_UP|PAD_DOWN
-  jp z, sn_lr
-  and PAD_UP
-  ld a, (cur_groove)
-  jr z, sng_dn
-  inc a
-  jr sng_st
-sng_dn:
-  dec a
-sng_st:
-  and $0F
-  ld (cur_groove), a
-  ld a, 1
-  ld (label_dirty), a
-  jp mark_all_dirty
 sn_lr:
   ld a, (pad_edge)
   and PAD_LEFT|PAD_RIGHT
@@ -297,8 +309,6 @@ sn_right:
   jr z, sn_toinstr
   cp SCR_INSTR
   jr z, sn_totable
-  cp SCR_TABLE
-  jr z, sn_togroove
   cp SCR_CHAIN
   ret nz
   ; CHAIN -> PHRASE: phrase under cursor
@@ -327,9 +337,6 @@ sn_iset:
   ld (ins_row), a
   ld a, SCR_INSTR
   jr sn_switch
-sn_togroove:
-  ld a, SCR_GROOVE
-  jp sn_switch
 sn_totable:
   ; INSTR -> TABLE: the instrument's table when assigned
   call ins_ptr
@@ -3076,7 +3083,7 @@ dsm_attr:
   pop de
   inc d
   ld a, d
-  cp 6
+  cp 5
   jr c, dsm_l
   ; PROJECT indicator above the map's S
   ld a, (scr_mode)
@@ -3087,10 +3094,24 @@ dsm_attr:
 dsm_pattr:
   ld (text_attr), a
   ld b, 4
-  ld c, 25
+  ld c, 26
   call nt_addr_hl
   call vdp_set_addr
   ld a, 'P'
+  call print_char
+  ; GROOVE indicator below the C
+  ld a, (scr_mode)
+  cp SCR_GROOVE
+  ld a, $00
+  jr nz, dsm_gattr
+  ld a, $08
+dsm_gattr:
+  ld (text_attr), a
+  ld b, 6
+  ld c, 26
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, 'G'
   call print_char
   ; WAVE indicator above the I
   ld a, (scr_mode)
@@ -3110,7 +3131,7 @@ dsm_wattr:
   ld (text_attr), a
   ret
 map_letters:
-  .db "SCPITG"
+  .db "SCPIT"
 
 ; A = track -> A = screen column of its song-screen cell
 so_track_col:
