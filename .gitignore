@@ -1,3 +1,5 @@
 build/
 tools/emulicious/
 .DS_Store
+samples/*.preview.wav
+*.preview.wav
