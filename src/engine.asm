@@ -1327,6 +1327,13 @@ cf_adv:
   ld a, c
   cp 4
   jp c, cf_loop
+  ; wavetables are melodic: the noise channel stays silent for
+  ; exactly as long as one plays (samples leave noise audible)
+  ld a, (smp_mode)
+  cp 2
+  ret nz
+  ld a, $0F
+  ld (psg_vols+3), a
   ret
 
 ; =============================================================
