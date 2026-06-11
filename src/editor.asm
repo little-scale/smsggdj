@@ -1671,6 +1671,8 @@ wvp_cut:                     ; zero the step
   call wv_step_ptr
   ld a, $DF
   ld (hl), a
+  ld a, 1
+  ld (label_dirty), a
   jp mark_all_dirty
 
 wvp_edit:                    ; 1+U/D = value, 1+L/R = move (draw)
@@ -1714,16 +1716,18 @@ wve_st:
   and $0F
   or $D0
   ld (hl), a
+  ld a, 1
+  ld (label_dirty), a
   jp mark_all_dirty
 
 ; leaving the wave screen: clear the columns other screens never
 ; redraw (0 and 25-31 across the grid)
 wv_cleanup:
   push af
-  ld d, 16
+  ld d, 17                   ; rows 3-19: hex readout + canvas
 wvc_row:
   ld a, d
-  add a, GRID_ROW-1
+  add a, GRID_ROW-2
   ld b, a
   ld c, 25
   push de
@@ -1753,9 +1757,37 @@ dl_wave:
   call nt_addr_hl
   call vdp_set_addr
   ld a, (cur_wave)
-  jp print_hex_nib
+  call print_hex_nib
+  ; per-step hex readout across row 3 (LSDJ-style)
+  xor a
+  ld (text_attr), a
+  ld b, 3
+  ld c, 0
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, (cur_wave)
+  rrca
+  rrca
+  rrca
+  and $E0
+  ld hl, wave_ram
+  ld l, a
+  ld c, 0
+dlw_hex:
+  ld a, (hl)
+  cpl
+  and $0F
+  call print_hex_nib
+  inc hl
+  inc c
+  ld a, c
+  cp 32
+  jr c, dlw_hex
+  ret
 
-; one grid row of the waveform (E = row; bar tops at row 0)
+; one grid row of the waveform (E = row): LSDJ-style dot plot -
+; each step shows a single point at its level, cursor's point
+; is a starred block
 wv_draw_row:
   ld a, e
   add a, GRID_ROW
@@ -1765,11 +1797,9 @@ wv_draw_row:
   call nt_addr_hl
   call vdp_set_addr
   pop de
-  ; threshold for this row: visible when value >= 15 - row
-  ld a, 15
+  ld a, 15                   ; this row shows value 15 - row
   sub e
   ld d, a
-  ; walk the 32 steps
   ld a, (cur_wave)
   rrca
   rrca
@@ -1783,15 +1813,13 @@ wvd_step:
   cpl
   and $0F                    ; drawn value
   cp d
-  jr c, wvd_empty
-  ; bar cell: inverted space ('*' marks the cursor column)
-  ld a, (wav_col)
+  jr nz, wvd_empty
+  ld a, (wav_col)            ; the dot lives on this row
   cp c
-  ld a, ' '
+  ld a, 0                    ; solid block (inverted space)
   jr nz, wvd_put
-  ld a, '*'
+  ld a, '*'-$20              ; cursor dot: starred block
 wvd_put:
-  sub $20
   out (VDP_DATA), a
   nop
   nop
@@ -1799,13 +1827,7 @@ wvd_put:
   out (VDP_DATA), a
   jr wvd_next
 wvd_empty:
-  ld a, (wav_col)
-  cp c
-  ld a, ' '                  ; cursor column stays visible
-  jr nz, wvd_eput
-  ld a, '.'
-wvd_eput:
-  sub $20
+  xor a                      ; dark field
   out (VDP_DATA), a
   nop
   nop
