@@ -317,8 +317,8 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_rest:        .db "---"
-str_hint1:       .db "1=INS 1+DPAD=EDIT 1H+2=CUT", 0
-str_hint2:       .db "2+L/R=SCREEN 1+2/PAUSE=PLAY", 0
+str_hint1:       .db "1=INS 2X1=PASTE 1H+2=CUT", 0
+str_hint2:       .db "2+L/R=SCREEN 2H+1=PLAY", 0
 
 .ENDS
 

@@ -14,8 +14,7 @@
 ; SONG header row (up from row 0): 1 = mute, 2 long + 1 = solo.
 ; =============================================================
 
-.DEFINE COMBO_WINDOW 4         ; frames: 1+2 counts as transport
-.DEFINE HOLD_TH      10        ; frames: button counts as "held"
+.DEFINE DT_WINDOW    15        ; frames: double-tap window
 .DEFINE PRELISTEN_LEN 32       ; ticks: cap sustained prelisten
 
 .DEFINE SCR_SONG    0          ; values match MODE_* on purpose
@@ -46,9 +45,11 @@
   last_instr   db
   last_chain   db
   last_phrase  db
-  b1_frames    db
-  b2_frames    db
-  pend1        db            ; pending-insert countdown, 0 = none
+  dt1_timer    db            ; double-tap countdown
+  clip_scr     db            ; clipboard: screen ($FF = empty)
+  clip_col     db            ;   column
+  clip_a       db            ;   primary byte
+  clip_b       db            ;   secondary byte
   label_dirty  db
   ed_rep       db
   tmp_note     db
@@ -86,7 +87,10 @@ editor_init:
   ld (cur_table), a
   ld (tbl_row), a
   ld (tbl_col), a
-  ld (pend1), a
+  ld (dt1_timer), a
+  ld a, $FF
+  ld (clip_scr), a
+  xor a
   ld hl, drawn_a
   ld a, $FF
   ld (hl), a
@@ -104,6 +108,9 @@ editor_init:
 ; input
 ; =============================================================
 editor_input:
+  ; held-state disambiguation (no timing windows):
+  ;   1 while 2 held = transport   2 while 1 held = cut
+  ;   1 alone = insert/audition    1 double-tap = paste
   ; ---- button 1 pressed ----
   ld a, (pad_edge)
   and PAD_B1
@@ -111,51 +118,37 @@ editor_input:
   ld a, (pad_raw)
   and PAD_B2
   jr z, ei_1alone
-  ld a, (b2_frames)          ; 1 while 2 down: transport if
-  cp HOLD_TH                 ; near-simultaneous (2 long-held +
-  jr nc, ei_no1              ; 1 is reserved for paste)
-  call toggle_play
-  jr ei_no1
+  call toggle_play           ; 2 held + 1 = play/stop
+  jr ei_dtick                ; consume: no cut on the same press
 ei_1alone:
-  ld a, COMBO_WINDOW         ; defer insert: 2 may follow
-  ld (pend1), a
+  ld a, (dt1_timer)
+  or a
+  jr z, ei_1first
+  xor a
+  ld (dt1_timer), a
+  call do_paste              ; second tap = paste
+  jr ei_no1
+ei_1first:
+  ld a, DT_WINDOW
+  ld (dt1_timer), a
+  call do_press              ; insert/audition immediately
 ei_no1:
   ; ---- button 2 pressed ----
   ld a, (pad_edge)
   and PAD_B2
-  jr z, ei_no2
+  jr z, ei_dtick
   ld a, (pad_raw)
   and PAD_B1
-  jr z, ei_no2
-  ld a, (b1_frames)          ; 2 while 1 down: cut if 1 was
-  cp HOLD_TH                 ; held, transport if simultaneous
-  jr c, ei_2trans
-  call do_cut
-  jr ei_no2
-ei_2trans:
-  xor a
-  ld (pend1), a
-  call toggle_play
-ei_no2:
-  ; ---- pending insert ----
-  ld a, (pend1)
+  jr z, ei_dtick
+  call do_cut                ; 1 held + 2 = cut
+ei_dtick:
+  ; ---- double-tap countdown ----
+  ld a, (dt1_timer)
   or a
-  jr z, ei_pdone
-  ld a, (pad_edge)           ; dpad while pending: flush the
-  and $0F                    ; insert now, and consume this edge
-  jr nz, ei_flushskip        ; (else it would also edit/toggle)
-  ld a, (pend1)
+  jr z, ei_dpad
   dec a
-  ld (pend1), a
-  jr nz, ei_pdone
-  call do_press              ; window expired: plain insert
-  jr ei_pdone
-ei_flushskip:
-  xor a
-  ld (pend1), a
-  call do_press
-  jp ei_holds
-ei_pdone:
+  ld (dt1_timer), a
+ei_dpad:
   ; ---- dpad routing ----
   ld a, (pad_raw)
   and PAD_B1
@@ -163,41 +156,11 @@ ei_pdone:
   ld a, (pad_raw)
   and PAD_B2
   jr nz, ei_nav
-  call cursor_move
-  jr ei_holds
+  jp cursor_move
 ei_edit:
-  call do_edit
-  jr ei_holds
+  jp do_edit
 ei_nav:
-  call screen_nav
-ei_holds:
-  ; ---- hold counters ----
-  ld a, (pad_raw)
-  and PAD_B1
-  jr z, ei_h1z
-  ld a, (b1_frames)
-  cp 200
-  jr nc, ei_h2
-  inc a
-  ld (b1_frames), a
-  jr ei_h2
-ei_h1z:
-  xor a
-  ld (b1_frames), a
-ei_h2:
-  ld a, (pad_raw)
-  and PAD_B2
-  jr z, ei_h2z
-  ld a, (b2_frames)
-  cp 200
-  ret nc
-  inc a
-  ld (b2_frames), a
-  ret
-ei_h2z:
-  xor a
-  ld (b2_frames), a
-  ret
+  jp screen_nav
 
 ; =============================================================
 ; screen map: 2 held + L/R
@@ -710,6 +673,10 @@ soc_store:
   ret
 soc_body:
   call so_cell_ptr
+  ld a, (hl)
+  ld (clip_a), a
+  ld a, (song_col)
+  call clip_set
   ld a, $FF
   ld (hl), a
   jp so_mark_cur
@@ -803,12 +770,20 @@ chp_cut:
   ld a, (chn_col)
   or a
   jr nz, chc_tsp
+  ld a, (hl)
+  ld (clip_a), a
+  xor a
+  call clip_set
   ld a, $FF
   ld (hl), a
   ld a, (chn_row)
   jp mark_dirty_a
 chc_tsp:
   inc hl
+  ld a, (hl)
+  ld (clip_a), a
+  ld a, 1
+  call clip_set
   ld (hl), 0
   ld a, (chn_row)
   jp mark_dirty_a
@@ -964,22 +939,44 @@ php_cut:
   inc hl
   inc hl
   inc hl
+  ld a, (hl)
+  ld (clip_a), a
+  ld a, 3
+  call clip_set
   ld (hl), 0
   jp mark_phr_dirty
 dc_note:
-  ld (hl), 0
+  ld a, (hl)
+  ld (clip_a), a
   inc hl
+  ld a, (hl)
+  ld (clip_b), a
+  xor a
+  call clip_set
   ld (hl), $FF
+  dec hl
+  ld (hl), 0
   jp mark_phr_dirty
 dc_instr:
   inc hl
+  ld a, (hl)
+  ld (clip_a), a
+  ld a, 1
+  call clip_set
   ld (hl), $FF
   jp mark_phr_dirty
 dc_cmd:
   inc hl
   inc hl
-  ld (hl), 0
+  ld a, (hl)
+  ld (clip_a), a
   inc hl
+  ld a, (hl)
+  ld (clip_b), a
+  ld a, 2
+  call clip_set
+  ld (hl), 0
+  dec hl
   ld (hl), 0
   jp mark_phr_dirty
 
@@ -1554,20 +1551,39 @@ tbp_cut:
   inc hl
   inc hl
   inc hl
+  ld a, (hl)
+  ld (clip_a), a
+  ld a, 3
+  call clip_set
   ld (hl), 0
   jr tb_mark
 tbc_vol:
+  ld a, (hl)
+  ld (clip_a), a
+  xor a
+  call clip_set
   ld (hl), $FF
   jr tb_mark
 tbc_pitch:
   inc hl
+  ld a, (hl)
+  ld (clip_a), a
+  ld a, 1
+  call clip_set
   ld (hl), 0
   jr tb_mark
 tbc_cmd:
   inc hl
   inc hl
-  ld (hl), 0
+  ld a, (hl)
+  ld (clip_a), a
   inc hl
+  ld a, (hl)
+  ld (clip_b), a
+  ld a, 2
+  call clip_set
+  ld (hl), 0
+  dec hl
   ld (hl), 0
   jr tb_mark
 
@@ -1681,6 +1697,134 @@ tbe_cmd:                     ; cycle - / K / H (edge-gated)
 tec_st:
   ld (hl), a
   jp tb_mark
+
+; -------------------------------------------------------------
+; clipboard: A = column (preserves HL)
+clip_set:
+  ld (clip_col), a
+  ld a, (scr_mode)
+  ld (clip_scr), a
+  ret
+
+; double-tap 1: paste the clipboard at the cursor when the
+; screen and column context matches the cut
+do_paste:
+  ld a, (clip_scr)
+  ld b, a
+  ld a, (scr_mode)
+  cp b
+  ret nz
+  cp SCR_INSTR
+  ret z
+  ; current column per screen
+  or a
+  jr nz, dpa_notsong
+  ld a, (hdr_cur)
+  or a
+  ret nz
+  ld a, (song_col)
+  jr dpa_col
+dpa_notsong:
+  cp SCR_CHAIN
+  jr nz, dpa_nc
+  ld a, (chn_col)
+  jr dpa_col
+dpa_nc:
+  cp SCR_PHRASE
+  jr nz, dpa_np
+  ld a, (phr_col)
+  jr dpa_col
+dpa_np:
+  ld a, (tbl_col)
+dpa_col:
+  ld b, a
+  ld a, (clip_col)
+  cp b
+  ret nz
+  ; dispatch
+  ld a, (scr_mode)
+  or a
+  jr z, dpa_song
+  cp SCR_CHAIN
+  jr z, dpa_chain
+  cp SCR_PHRASE
+  jr z, dpa_phrase
+  ; ---- TABLE ----
+  ld a, (tbl_row)
+  ld e, a
+  call tb_entry_ptr
+  ld a, (clip_col)
+  ld e, a
+  ld d, 0
+  add hl, de                 ; columns are bytes in order
+  ld a, (clip_a)
+  ld (hl), a
+  ld a, (clip_col)
+  cp 2
+  jr nz, dpa_tbm
+  inc hl
+  ld a, (clip_b)
+  ld (hl), a
+dpa_tbm:
+  ld a, (tbl_row)
+  jp mark_dirty_a
+dpa_song:
+  call so_cell_ptr
+  ld a, (clip_a)
+  ld (hl), a
+  jp so_mark_cur
+dpa_chain:
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (clip_col)
+  or a
+  jr z, dpa_chp
+  inc hl
+dpa_chp:
+  ld a, (clip_a)
+  ld (hl), a
+  ld a, (chn_row)
+  jp mark_dirty_a
+dpa_phrase:
+  ld a, (phr_row)
+  ld e, a
+  call ed_step_ptr
+  ld a, (clip_col)
+  or a
+  jr z, dpa_pnote
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (clip_a)
+  ld (hl), a
+  ld a, (clip_col)
+  cp 2
+  jr nz, dpa_phm
+  inc hl
+  ld a, (clip_b)
+  ld (hl), a
+dpa_phm:
+  jp mark_phr_dirty
+dpa_pnote:
+  ld a, (clip_a)
+  ld (hl), a
+  inc hl
+  ld a, (clip_b)
+  ld (hl), a
+  call mark_phr_dirty
+  ; audition the pasted note
+  ld a, (clip_a)
+  or a
+  ret z
+  ld d, a
+  ld a, (clip_b)
+  cp $10
+  jr c, dpa_pl
+  ld a, (last_instr)
+dpa_pl:
+  ld c, a
+  jp prelisten
 
 ; -------------------------------------------------------------
 ; audition note D (note byte) instr C on the edited track,

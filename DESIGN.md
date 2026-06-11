@@ -74,17 +74,16 @@ Only D-pad + 1 + 2; PAUSE is auxiliary. Button 1 ≈ LSDJ's A (edit), button 2 �
 | D-pad | Move cursor (with key-repeat) |
 | **1** tap | On empty step: insert note/value (repeats last entered). On PROJECT/menu: activate |
 | **1** hold + D-pad | Edit value under cursor — left/right = small step (±1 semitone / ±1), up/down = big step (±octave / ±0x10) |
-| **1** double-tap | Deep-edit jump: open the instrument/table/chain the cursor points at *(confirmed)* |
+| **1** double-tap | Paste the clipboard at the cursor (same screen/column as the cut) |
 | **2** tap | Back: PHRASE → CHAIN → SONG (pops the navigation stack) |
 | **2** hold + D-pad | Navigate the screen map (LSDJ SELECT+dpad equivalent) |
-| **1+2** simultaneous tap | **Play/stop** (transport — primary control). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
-| **1** held (>150 ms), then **2** tap | Cut (delete step into clipboard) |
-| **2** held (>150 ms), then **1** tap | Paste |
-| **2** hold + **1** hold + D-pad | Mark block selection, then 1 = copy, 2 = cut |
+| **2** held + **1** tap | **Play/stop** (transport — primary control; 2 is the "project" modifier: navigation and transport). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
+| **1** held + **2** tap | Cut (delete the field into the clipboard) |
+| Block selection | TBD — gesture to be redefined (2-held+1 now means transport) |
 | **PAUSE** (NMI) | Alias for play/stop. Double-press = panic (silence all channels, abort sample, re-arm MIDI sync) |
 | Track mute/solo | Cursor on a track header (SONG screen) + 1 = mute toggle, 1 double-tap = solo |
 
-Transport vs. cut/paste disambiguation: 1+2 pressed within ~3 frames of each other = transport; a modifier held longer first = cut/paste. (Same feel as LSDJ's SELECT combos.)
+No timing disambiguation is needed: the button already held when the other arrives selects the action (1 held + 2 = cut, 2 held + 1 = transport), and a lone 1 press inserts instantly. Only paste uses a window (double-tap, ~0.3 s).
 
 PAUSE generates an NMI whose handler only sets a flag — it is never *required*, so the tracker remains fully usable on hardware without a working PAUSE button.
 
