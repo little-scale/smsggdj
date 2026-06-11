@@ -23,7 +23,8 @@ vdp_reg_data:
   .db $0F, $87                 ; R7: border = sprite palette idx 15
   .db $00, $88                 ; R8: hscroll 0
   .db $00, $89                 ; R9: vscroll 0
-  .db $FF, $8A                 ; R10: line interrupt off
+  .db $01, $8A                 ; R10: line int every 2 scanlines
+                               ;      (fires only when R0.4 set)
 vdp_reg_data_end:
 
 display_on:
@@ -34,12 +35,18 @@ display_on:
   ret
 
 ; set VRAM/CRAM address: HL = address (caller pre-ORs $4000 for
-; VRAM write, $C000 for CRAM)
+; VRAM write, $C000 for CRAM). Interrupt-safe: a line IRQ reading
+; the status port between the two bytes would reset the latch.
 vdp_set_addr:
+  di
   ld a, l
   out (VDP_CTRL), a
   ld a, h
   out (VDP_CTRL), a
+  ld a, (ints_on)
+  or a
+  ret z
+  ei
   ret
 
 vdp_clear_vram:
@@ -131,6 +138,8 @@ pa_loop:
 print_char:
   sub $20
   out (VDP_DATA), a
+  nop
+  nop
   ld a, (text_attr)
   out (VDP_DATA), a
   ret
@@ -140,6 +149,8 @@ print_raw:
   ld a, (hl)
   sub $20
   out (VDP_DATA), a
+  nop
+  nop
   ld a, (text_attr)
   out (VDP_DATA), a
   inc hl

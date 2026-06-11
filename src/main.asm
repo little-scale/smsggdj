@@ -57,6 +57,7 @@ BANKS 2
   pad_edge       db
   pad_rep        db
   das_timer      db
+  ints_on        db           ; init done: helpers may EI
   text_attr      db            ; $00 normal, $08 inverted (palette bit)
   note_ptr       dw            ; active region note table
 .ENDS
@@ -77,11 +78,33 @@ BANKS 2
 .ORGA $0038
 .SECTION "IRQ" FORCE
 irq_handler:
-  push af
-  in a, (VDP_CTRL)             ; ack frame interrupt
+  ex af, af'
+  in a, (VDP_CTRL)             ; ack; bit 7 = frame interrupt
+  jp m, irq_frame
+  ; ---- line interrupt: feed one sample nibble ----
+  ld a, (smp_active)
+  or a
+  jr z, irq_ldone
+  exx
+  call smp_feed_one
+  exx
+irq_ldone:
+  ex af, af'
+  ei
+  reti
+irq_frame:
+  ; while a sample plays, feed it through the whole vblank
+  ; (cycle-counted; the line counter only runs in active display)
+  ld a, (smp_active)
+  or a
+  jr z, irq_fdone
+  exx
+  call smp_vblank_feed
+  exx
+irq_fdone:
   ld a, 1
   ld (vblank_flag), a
-  pop af
+  ex af, af'
   ei
   reti
 .ENDS
@@ -150,6 +173,14 @@ init_nt:
 init_bpm:
   ld a, b
   ld (proj_bpm), a
+  ; vblank sample budget: (lines-192)/2
+  ld a, (region_pal)
+  or a
+  ld a, 35                   ; NTSC: 70 vblank lines
+  jr z, init_vbc
+  ld a, 60                   ; PAL: 121 vblank lines
+init_vbc:
+  ld (smp_vbcnt), a
 
   ; ---- static screen ----
   xor a
@@ -191,6 +222,8 @@ init_paint:
   djnz init_paint
 
   call display_on
+  ld a, 1
+  ld (ints_on), a
   ei
 
   ; show the region line briefly at boot, then reclaim the row
@@ -225,6 +258,7 @@ main_loop:
   call read_input
   call handle_pause
   call editor_input
+  call smp_housekeep
   call engine_frame
   ld a, (play_state)
   or a
@@ -358,6 +392,7 @@ str_hint2:       .db "2+L/R=SCREEN 2H+1=PLAY", 0
 .INCLUDE "src/input.asm"
 .INCLUDE "src/psg.asm"
 .INCLUDE "src/engine.asm"
+.INCLUDE "src/sample.asm"
 .INCLUDE "src/editor.asm"
 .INCLUDE "notes.inc"
 
@@ -369,4 +404,10 @@ str_hint2:       .db "2+L/R=SCREEN 2H+1=PLAY", 0
 font_data:
   .INCBIN "font.bin"
 font_data_end:
+.ENDS
+
+.SECTION "SamplePool" FREE
+.INCLUDE "pool.inc"
+sample_pool:
+  .INCBIN "pool.bin"
 .ENDS

@@ -27,7 +27,7 @@
 ;   +28 delay ctr  +29 delayed note  +30 porta speed
 ;   +31 retrig (counter hi | interval lo)
 ;
-; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
+; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE 2=SMP),
 ;   +1 init volume, +2 envelope, +3 length, +4 noise control,
 ;   +5 sweep (signed, period/tick), +6 vib (speed|depth),
 ;   +7 trem (speed|depth), +8 transpose (signed semitones),
@@ -820,6 +820,8 @@ tn_mods:
   ld (ix+16), a              ; trem phase
   ld (ix+12), a              ; pitched-noise flag off by default
   ld a, b
+  cp 2                       ; SMP: note picks the sample
+  jr z, tn_smp
   cp 1                       ; NOISE instrument?
   ret nz
   ld a, c
@@ -829,6 +831,13 @@ tn_mods:
   ret nz
   ld (ix+12), 1              ; pitched: steal T3 (design doc 5.3)
   ret
+tn_smp:
+  ld a, (ix+0)
+tn_smod:
+  cp SAMPLE_COUNT
+  jp c, smp_play
+  sub SAMPLE_COUNT
+  jr tn_smod
 
 ; -------------------------------------------------------------
 ; A = note index -> DE = period with sweep + pitch mod applied,
@@ -1198,6 +1207,13 @@ cf_len:
   ; --- write shadows ---
 cf_out:
   ld a, c
+  cp 2                       ; T3 belongs to a playing sample
+  jr nz, cf_not2
+  ld a, (smp_active)
+  or a
+  jp nz, cf_next
+cf_not2:
+  ld a, c
   cp 3
   jr z, cf_noise
   ld a, (ix+0)
@@ -1221,6 +1237,9 @@ cf_out:
 cf_noise:
   ; pitched noise: drive T3's period with our note and mute
   ; T3's own output (runs after c=2, so this wins)
+  ld a, (smp_active)         ; unless a sample owns T3
+  or a
+  jr nz, cf_vol
   ld a, (ix+12)
   or a
   jr z, cf_vol
@@ -1246,6 +1265,7 @@ cf_vol:
   ld d, 0
   add hl, de
   ld (hl), a
+cf_next:
   ld de, 32
   add ix, de
   inc c

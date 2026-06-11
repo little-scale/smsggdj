@@ -516,10 +516,10 @@ ins_f2r:
   ld e, a
   call ins_ptr
   ld a, (hl)
-  or a
-  ld hl, f2r_tone
-  jr z, if2r_go
+  cp 1
   ld hl, f2r_noise
+  jr z, if2r_go
+  ld hl, f2r_tone
 if2r_go:
   ld d, 0
   add hl, de
@@ -567,10 +567,10 @@ ct_f:
 ins_max_row:
   call ins_ptr
   ld a, (hl)
-  or a
-  ld a, 10                   ; TONE: ...TSP/SWP/VIB/TRM/TBL/TBS
-  ret z
+  cp 1
   ld a, 12                   ; NOISE: + MODE/RATE
+  ret z
+  ld a, 10                   ; TONE/SMP share the short form
   ret
 
 ; HL = current instrument record (preserves DE: callers hold
@@ -1378,12 +1378,16 @@ inb_st:
   ld (hl), d
   jp ine_mark
 
-ine_type:                    ; TONE <-> NOISE (edge-gated)
+ine_type:                    ; TONE -> NOISE -> SMP (edge-gated)
   ld a, (pad_edge)
   and $0F
   ret z
   ld a, (hl)
-  xor 1
+  inc a
+  cp 3
+  jr c, ine_tst
+  xor a
+ine_tst:
   ld (hl), a
   call ins_max_row
   ld b, a
@@ -3451,10 +3455,10 @@ in_draw_row:
   push de
   call ins_ptr
   ld a, (hl)
-  or a
-  ld hl, r2f_tone
-  jr z, idr_map
+  cp 1
   ld hl, r2f_noise
+  jr z, idr_map
+  ld hl, r2f_tone
 idr_map:
   ld d, 0
   add hl, de
@@ -3574,7 +3578,10 @@ idr_type:
   or a
   ld hl, str_tone
   jr z, idr_p5
+  cp 1
   ld hl, str_noise
+  jr z, idr_p5
+  ld hl, str_smp
 idr_p5:
   ld b, 5
   jp print_raw
@@ -3663,6 +3670,7 @@ ins_lbls:
   .db "MODE", 0
   .db "RATE", 0
 str_tone:   .db "TONE "
+str_smp:    .db "SMP  "
 str_noise:  .db "NOISE"
 str_white:  .db "WHITE"
 str_perio:  .db "PERIO"
