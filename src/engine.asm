@@ -21,16 +21,22 @@
 ;   +12 pitched-noise flag       +13/+14 sweep accumulator
 ;   +15 vib phase  +16 trem phase
 ;   +17 sweep / +18 vib / +19 trem (cached at trigger)
+;   +20 table # ($FF off)  +21 table row  +22 table tick ctr
+;   +23 table speed        +24 table pitch offset (signed)
 ;
 ; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
 ;   +1 init volume, +2 envelope, +3 length, +4 noise control,
 ;   +5 sweep (signed, period/tick), +6 vib (speed|depth),
-;   +7 trem (speed|depth), +8 transpose (signed semitones).
+;   +7 trem (speed|depth), +8 transpose (signed semitones),
+;   +9 table ($FF = none), +10 table speed (ticks/row).
 ; Commands: 0 = none, 1 = K (kill after param ticks).
 ; =============================================================
 
 .DEFINE CMD_NONE    0
 .DEFINE CMD_KILL    1
+.DEFINE CMD_HOP     2          ; in tables: jump to row (loop)
+
+.DEFINE NUM_TABLES  16
 
 .DEFINE MODE_SONG   0
 .DEFINE MODE_CHAIN  1
@@ -56,6 +62,7 @@
   chains       dsb NUM_CHAINS*32   ; 16 x (phrase #, transpose)
   song         dsb SONG_ROWS*4     ; chain # per track, $FF empty
   instruments  dsb 16*16
+  tables       dsb NUM_TABLES*64  ; 16 x (vol, pitch, cmd, param)
   grooves      dsb 16
 .ENDS
 
@@ -89,6 +96,8 @@ ep_chl:
   ld (ix+10), $FF
   ld (ix+11), $FF
   ld (ix+12), 0              ; pitched-noise flag
+  ld (ix+20), $FF            ; table off
+  ld (ix+24), 0              ; table pitch offset
   ld a, (song_cur)
   ld (ix+7), a
   ; active?
@@ -473,10 +482,24 @@ tn_len:
   ld a, (hl)                 ; +7 amp mod (speed|depth)
   ld (ix+19), a
   inc hl
-  ld a, (hl)                 ; +8 transpose (signed semitones)
+  ld d, (hl)                 ; +8 transpose (apply below)
+  inc hl
+  ld a, (hl)                 ; +9 table # ($FF = none)
+  ld (ix+20), a
+  inc hl
+  ld a, (hl)                 ; +10 table speed (0 -> 1)
+  or a
+  jr nz, tn_tbs
+  ld a, 1
+tn_tbs:
+  ld (ix+23), a
+  ld (ix+21), 0              ; table restarts on note
+  ld (ix+22), 1              ; first row applies this tick
+  ld (ix+24), 0
+  ld a, d                    ; transpose, stacks with chain's
   or a
   jr z, tn_mods
-  add a, (ix+0)              ; stacks with the chain transpose
+  add a, (ix+0)
   jp m, tn_tlo
   cp NOTE_COUNT
   jr c, tn_tst
@@ -509,6 +532,14 @@ tn_mods:
 ; A = note index -> DE = period with sweep + pitch mod applied,
 ; clamped to 1..1023. Uses the IX channel's mod state.
 calc_period:
+  add a, (ix+24)             ; table pitch offset (semitones)
+  jp p, cpd_idx
+  xor a
+cpd_idx:
+  cp NOTE_COUNT
+  jr c, cpd_idx2
+  ld a, NOTE_COUNT-1
+cpd_idx2:
   add a, a
   ld e, a
   ld d, 0
@@ -634,6 +665,68 @@ channels_fx:
   ld ix, chst
   ld c, 0
 cf_loop:
+  ; --- table tick (design doc 7: vol / pitch / command) ---
+  ld a, (ix+20)
+  cp NUM_TABLES
+  jr nc, cf_env
+  dec (ix+22)
+  jr nz, cf_env
+  ld a, (ix+23)
+  ld (ix+22), a              ; reload speed counter
+  ld a, (ix+20)              ; row ptr = tables + tbl*64 + row*4
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld a, (ix+21)
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, tables
+  add hl, de
+  ld a, (hl)                 ; vol column ($FF = no change)
+  cp $10
+  jr nc, cf_tpitch
+  ld (ix+2), a
+cf_tpitch:
+  inc hl
+  ld a, (hl)                 ; pitch column (signed semitones)
+  ld (ix+24), a
+  inc hl
+  ld a, (hl)                 ; command column
+  cp CMD_HOP
+  jr z, cf_thop
+  cp CMD_KILL
+  jr z, cf_tkill
+cf_tadv:
+  ld a, (ix+21)
+  inc a
+  and $0F
+  ld (ix+21), a
+  jr cf_env
+cf_tkill:
+  inc hl
+  ld a, (hl)
+  or a
+  jr nz, cf_tklater
+  ld (ix+2), 0
+  jr cf_tadv
+cf_tklater:
+  ld (ix+4), a
+  jr cf_tadv
+cf_thop:
+  inc hl
+  ld a, (hl)                 ; jump target row (loop point)
+  and $0F
+  ld (ix+21), a
+
+cf_env:
   ; --- envelope ---
   ; speed 1 = 4 vol steps/tick, 2 = 2 steps/tick, 3 = 1/tick,
   ; 4..F = one step every speed-2 ticks (ticks are the engine's
@@ -642,9 +735,6 @@ cf_loop:
   and $0F
   jr z, cf_len               ; speed 0 = env off
   ld b, a
-  ld a, (ix+5)
-  and $F0
-  jr z, cf_len               ; dir 0 = env off
   ld a, b
   cp 3
   jr c, cf_envfast
@@ -663,8 +753,8 @@ cf_envfast:
 cf_envstep:
   ld a, (ix+5)
   and $F0
-  cp $10
-  jr z, cf_envdn
+  cp $20                     ; UP; anything else fades down
+  jr nz, cf_envdn
   ld a, (ix+2)               ; fade up
   add a, b
   cp $0F
@@ -768,9 +858,34 @@ song_init:
   ld de, phrase_pool
   ld bc, 4*64
   ldir
+  ; tables: vol $FF (no change), pitch/cmd/param 0
+  ld hl, tables
+  ld b, 0                    ; 256 rows
+si_tbl:
+  ld (hl), $FF
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld (hl), 0
+  inc hl
+  djnz si_tbl
+  ; all instruments default to no table
+  ld hl, instruments+9
+  ld de, 16
+  ld b, 16
+si_itbl:
+  ld (hl), $FF
+  add hl, de
+  djnz si_itbl
   ld hl, demo_instruments
   ld de, instruments
   ld bc, 6*16
+  ldir
+  ld hl, demo_table0
+  ld de, tables
+  ld bc, 4*4
   ldir
   ld hl, demo_groove
   ld de, grooves
@@ -839,13 +954,20 @@ demo_song:
 
 ; type, vol, env(dir|speed), len, noisectl, pad to 16
 demo_instruments:
-; env speeds remapped for the new scale (3 = old 1, 4 = old 2 ...)
-  .db 0,$0F,$14,0,$00, $00,$33,$00,$00, 0,0,0,0,0,0,0   ; 0 lead (vib 3/3)
-  .db 0,$0A,$13,0,$00, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 1 pluck
-  .db 0,$0F,$15,0,$00, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 2 bass
-  .db 1,$0B,$12,2,$04, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 3 hat (white /512)
-  .db 1,$0F,$14,8,$05, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 4 snare (white /1024)
-  .db 1,$0F,$15,0,$03, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 5 periodic bass (pitched)
+; type,vol,env,len,noise, swp,vib,trm,tsp, tbl,tbs, pad
+  .db 0,$0F,$14,0,$00, $00,$33,$00,$00, $FF,1, 0,0,0,0,0   ; 0 lead (vib 3/3)
+  .db 0,$0A,$13,0,$00, $00,$00,$00,$00, $00,2, 0,0,0,0,0   ; 1 pluck (arp table 0)
+  .db 0,$0F,$15,0,$00, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 2 bass
+  .db 1,$0B,$12,2,$04, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 3 hat (white /512)
+  .db 1,$0F,$14,8,$05, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 4 snare (white /1024)
+  .db 1,$0F,$15,0,$03, $00,$00,$00,$00, $FF,1, 0,0,0,0,0   ; 5 periodic bass (pitched)
+
+; table 0: minor arpeggio 0,+3,+7 looping (H back to row 0)
+demo_table0:
+  .db $FF,0,0,0
+  .db $FF,3,0,0
+  .db $FF,7,CMD_HOP,0
+  .db $FF,0,0,0
 
 demo_groove:
   .db 6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0
