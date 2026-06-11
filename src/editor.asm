@@ -40,6 +40,7 @@
   prj_row      db
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
+  prj_slot     db            ; save slot 0..sram_slots-1
   song_cur     db            ; absolute song row of the cursor
   song_col     db
   song_view    db            ; top visible song row
@@ -98,6 +99,7 @@ editor_init:
   ld (grv_row), a
   ld (prj_row), a
   ld (prj_stat), a
+  ld (prj_slot), a
   ld (dt1_timer), a
   ld a, $FF
   ld (clip_scr), a
@@ -1578,7 +1580,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 4
+  cp 5
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -1612,9 +1614,9 @@ prj_mark_field:              ; A = field (preserved)
 
 prp_press:
   ld a, (prj_row)
-  cp 3
-  jr z, prp_save
   cp 4
+  jr z, prp_save
+  cp 5
   ret nz
   call song_load
   call mark_all_dirty        ; song data replaced
@@ -1629,8 +1631,10 @@ prp_save:
   ld (label_dirty), a
   ret
 
-prp_edit:                    ; only TEMPO edits
+prp_edit:                    ; TEMPO and SLOT edit
   ld a, (prj_row)
+  cp 3
+  jr z, prp_slot
   or a
   ret nz
   ld d, 0
@@ -1672,11 +1676,39 @@ pe_st:
   call set_tempo             ; same math as the T command
   xor a
   jp prj_mark_field
+prp_slot:
+  ld a, (sram_slots)
+  or a
+  ret z
+  ld d, a                    ; max+1
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (prj_slot)
+  bit 3, c
+  jr z, psl_l
+  inc a
+psl_l:
+  bit 2, c
+  jr z, psl_cl
+  dec a
+psl_cl:
+  jp m, psl_zero
+  cp d
+  jr c, psl_st
+  ld a, d
+  dec a
+  jr psl_st
+psl_zero:
+  xor a
+psl_st:
+  ld (prj_slot), a
+  ld a, 3
+  jp prj_mark_field
 
 prj_f2r:
-  .db 0, 2, 3, 5, 6
+  .db 0, 2, 3, 4, 6, 7
 prj_r2f:
-  .db 0, $FF, 1, 2, $FF, 3, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .db 0, $FF, 1, 2, 3, $FF, 4, 5, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -2689,7 +2721,7 @@ dsm_attr:
   ld a, d
   add a, 26                  ; cols 26-31: six letters fit
   ld c, a
-  ld b, 4
+  ld b, 5
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -2714,7 +2746,7 @@ dsm_attr:
   ld a, $08
 dsm_pattr:
   ld (text_attr), a
-  ld b, 3
+  ld b, 4
   ld c, 26
   call nt_addr_hl
   call vdp_set_addr
@@ -3097,10 +3129,16 @@ prd_addr:
   jr z, prd_video
   cp 2
   jr z, prd_sram
+  cp 3
+  jr z, prd_slot
   ; SAVE / LOAD
   ld hl, str_go
   ld b, 2
   jp print_raw
+prd_slot:
+  ld a, (prj_slot)
+  inc a                      ; shown 1-based
+  jp print_hex_nib
 prd_tempo:
   ld a, (proj_bpm)
   jp print_dec3
@@ -3114,11 +3152,14 @@ prd_p4:
   ld b, 4
   jp print_raw
 prd_sram:
-  ld a, (sram_ok)
+  ld a, (sram_slots)
   or a
   ld hl, str_snone
   jr z, prd_p4
-  ld hl, str_sok
+  cp 1
+  ld hl, str_s8k
+  jr z, prd_p4
+  ld hl, str_s16k
   jr prd_p4
 
 dl_proj:
@@ -3150,6 +3191,7 @@ prj_lbls:
   .db "TPO ", 0
   .db "VID ", 0
   .db "SRAM", 0
+  .db "SLOT", 0
   .db "SAVE", 0
   .db "LOAD", 0
 prj_stats:
@@ -3162,7 +3204,8 @@ str_proj:   .db "PROJECT", 0
 str_go:     .db "GO"
 str_vpal:   .db "PAL "
 str_vntsc:  .db "NTSC"
-str_sok:    .db "OK  "
+str_s8k:    .db "8K  "
+str_s16k:   .db "16K "
 str_snone:  .db "NONE"
 
 ; -------------------------------------------------------------

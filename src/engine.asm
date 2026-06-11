@@ -76,6 +76,7 @@
   groove_sel   db            ; active groove
   hop_pending  db            ; H command: force phrase boundary
   sram_ok      db            ; cart SRAM detected at boot
+  sram_slots   db            ; save slots available (0/1/3)
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
@@ -725,10 +726,11 @@ st_min:
   jr c, st_ok
   ld a, 15
 st_ok:
+  ld b, a                    ; groove_base clobbers A
   call groove_base
-  ld (hl), a
+  ld (hl), b
   inc hl
-  ld (hl), a
+  ld (hl), b
   inc hl
   ld (hl), 0
   pop bc
@@ -1273,19 +1275,55 @@ sram_detect:
   cp $5A
   jr nz, sd_no
   ld (hl), b
+  ; size: does $A000 alias $8000 (8K mirror) or not (16K)?
+  ld de, $A000
+  ld a, (de)
+  ld c, a
+  ld a, $11
+  ld (hl), a
+  ld a, $33
+  ld (de), a
+  ld a, (hl)
+  cp $33
+  jr z, sd_8k
+  ld a, b
+  ld (hl), a
+  ld a, c
+  ld (de), a
+  ld a, 3                    ; 16K window: 3 slots
+  jr sd_slots
+sd_8k:
+  ld a, b
+  ld (hl), a
+  ld a, 1
+sd_slots:
+  ld (sram_slots), a
   ld a, 1
   jr sd_st
 sd_no:
   xor a
+  ld (sram_slots), a
 sd_st:
   ld (sram_ok), a
   xor a
   ld ($FFFC), a
   ret
 
-; 16-bit byte sum over the SRAM data area -> DE
+; HL = base of the selected save slot ($1500 stride)
+sram_slot_base:
+  ld a, (prj_slot)
+  ld hl, $8000
+  or a
+  ret z
+  ld de, $1500
+ssb_l:
+  add hl, de
+  dec a
+  jr nz, ssb_l
+  ret
+
+; 16-bit byte sum over SAVE_SIZE bytes at HL -> DE
 sram_sum:
-  ld hl, SRAM_DATA
   ld bc, SAVE_SIZE
   ld de, 0
 ss_l:
@@ -1314,12 +1352,27 @@ sv_go:
   call engine_stop
   ld a, $08
   ld ($FFFC), a
+  call sram_slot_base
+  push hl
+  ld de, 16
+  add hl, de
+  ex de, hl                  ; DE = slot data area
   ld hl, phrase_pool
-  ld de, SRAM_DATA
   ld bc, SAVE_SIZE
   ldir
+  pop hl
+  push hl
+  ld de, 16
+  add hl, de
   call sram_sum
-  ld hl, $8000
+  pop hl
+  push hl
+  ld bc, 5
+  add hl, bc
+  ld (hl), e                 ; checksum
+  inc hl
+  ld (hl), d
+  pop hl
   ld (hl), 'S'
   inc hl
   ld (hl), 'M'
@@ -1329,7 +1382,6 @@ sv_go:
   ld (hl), 'J'
   inc hl
   ld (hl), '1'
-  ld ($8005), de
   xor a
   ld ($FFFC), a
   ld a, 1
@@ -1348,7 +1400,7 @@ ld_go:
   call engine_stop
   ld a, $08
   ld ($FFFC), a
-  ld hl, $8000
+  call sram_slot_base
   ld a, (hl)
   cp 'S'
   jr nz, ld_bad
@@ -1368,14 +1420,29 @@ ld_go:
   ld a, (hl)
   cp '1'
   jr nz, ld_bad
+  call sram_slot_base
+  push hl
+  ld de, 16
+  add hl, de
   call sram_sum
-  ld hl, ($8005)
+  pop hl
+  push de
+  ld de, 5
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)
+  pop bc                     ; computed sum
+  ld h, d
+  ld l, e
   or a
-  sbc hl, de
+  sbc hl, bc
   ld a, h
   or l
   jr nz, ld_bad
-  ld hl, SRAM_DATA
+  call sram_slot_base
+  ld de, 16
+  add hl, de
   ld de, phrase_pool
   ld bc, SAVE_SIZE
   ldir
