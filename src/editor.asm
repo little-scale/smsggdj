@@ -436,9 +436,9 @@ ins_max_row:
   call ins_ptr
   ld a, (hl)
   or a
-  ld a, 7                    ; TONE: TYPE/VOL/ENV/SPD/LEN/SWP/PMD/AMD
+  ld a, 8                    ; TONE: TYPE/VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM
   ret z
-  ld a, 9                    ; NOISE: + MODE/RATE
+  ld a, 10                   ; NOISE: + MODE/RATE
   ret
 
 ; HL = current instrument record (preserves DE: callers hold
@@ -1025,9 +1025,9 @@ inp_edit:
   call ins_ptr
   ld a, (ins_row)
   or a
-  jr z, ine_type
+  jp z, ine_type
   cp 1
-  jr z, ine_vol
+  jp z, ine_vol
   cp 2
   jp z, ine_dir
   cp 3
@@ -1035,23 +1035,55 @@ inp_edit:
   cp 4
   jp z, ine_len
   cp 5
-  jp z, ine_swp
+  jp z, ine_tsp
   cp 6
-  jp z, ine_pmd
+  jp z, ine_swp
   cp 7
-  jp z, ine_amd
+  jp z, ine_vib
   cp 8
+  jp z, ine_trm
+  cp 9
   jp z, ine_mode
   jp ine_rate
 
-; SWP/PMD/AMD: plain hex byte, L/R +-1, U/D +-$10, wraps
+; TSP: signed semitones, L/R +-1, U/D +-12 (octave), wraps
+ine_tsp:
+  ld de, 8
+  add hl, de
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, int_l
+  inc d
+int_l:
+  bit 2, c
+  jr z, int_u
+  dec d
+int_u:
+  bit 0, c
+  jr z, int_d
+  ld a, d
+  add a, 12
+  ld d, a
+int_d:
+  bit 1, c
+  jr z, int_st
+  ld a, d
+  sub 12
+  ld d, a
+int_st:
+  ld (hl), d
+  jp ine_mark
+
+; SWP/VIB/TRM: plain hex byte, L/R +-1, U/D +-$10, wraps
 ine_swp:
   ld de, 5
   jr ine_bofs
-ine_pmd:
+ine_vib:
   ld de, 6
   jr ine_bofs
-ine_amd:
+ine_trm:
   ld de, 7
 ine_bofs:
   add hl, de
@@ -2202,23 +2234,28 @@ idr_addr:
   cp 4
   jp z, idr_len
   cp 5
-  jp z, idr_swp
+  jp z, idr_tsp
   cp 6
-  jp z, idr_pmd
+  jp z, idr_swp
   cp 7
-  jp z, idr_amd
+  jp z, idr_vib
   cp 8
+  jp z, idr_trm
+  cp 9
   jp z, idr_mode
   jp idr_rate
 idr_skip:
   ret
+idr_tsp:
+  ld de, 8
+  jr idr_bhex
 idr_swp:
   ld de, 5
   jr idr_bhex
-idr_pmd:
+idr_vib:
   ld de, 6
   jr idr_bhex
-idr_amd:
+idr_trm:
   ld de, 7
 idr_bhex:
   add hl, de
@@ -2299,9 +2336,10 @@ ins_lbls:
   .db "ENV ", 0
   .db "SPD ", 0
   .db "LEN ", 0
+  .db "TSP ", 0
   .db "SWP ", 0
-  .db "PMD ", 0
-  .db "AMD ", 0
+  .db "VIB ", 0
+  .db "TRM ", 0
   .db "MODE", 0
   .db "RATE", 0
 str_tone:   .db "TONE "

@@ -24,8 +24,8 @@
 ;
 ; Instrument record (16 bytes): +0 type (0=TONE 1=NOISE),
 ;   +1 init volume, +2 envelope, +3 length, +4 noise control,
-;   +5 sweep (signed, period/tick), +6 pitch mod (speed|depth),
-;   +7 amp mod (speed|depth).
+;   +5 sweep (signed, period/tick), +6 vib (speed|depth),
+;   +7 trem (speed|depth), +8 transpose (signed semitones).
 ; Commands: 0 = none, 1 = K (kill after param ticks).
 ; =============================================================
 
@@ -457,6 +457,21 @@ tn_len:
   inc hl
   ld a, (hl)                 ; +7 amp mod (speed|depth)
   ld (ix+19), a
+  inc hl
+  ld a, (hl)                 ; +8 transpose (signed semitones)
+  or a
+  jr z, tn_mods
+  add a, (ix+0)              ; stacks with the chain transpose
+  jp m, tn_tlo
+  cp NOTE_COUNT
+  jr c, tn_tst
+  ld a, NOTE_COUNT-1
+  jr tn_tst
+tn_tlo:
+  xor a
+tn_tst:
+  ld (ix+0), a
+tn_mods:
   ; reset modulation state
   xor a
   ld (ix+13), a              ; sweep accumulator
@@ -511,8 +526,7 @@ cpd_vib:
   ld a, (ix+18)
   and $F0
   rrca
-  rrca
-  rrca                       ; speed * 2
+  rrca                       ; speed * 4 (max ~12 Hz at 50 Hz)
   ld c, a
   ld a, (ix+15)
   add a, c
@@ -572,8 +586,7 @@ calc_trem:
   ld a, (ix+19)
   and $F0
   rrca
-  rrca
-  rrca                       ; speed * 2
+  rrca                       ; speed * 4 (max ~12 Hz at 50 Hz)
   ld c, a
   ld a, (ix+16)
   add a, c
@@ -607,6 +620,9 @@ channels_fx:
   ld c, 0
 cf_loop:
   ; --- envelope ---
+  ; speed 1 = 4 vol steps/tick, 2 = 2 steps/tick, 3 = 1/tick,
+  ; 4..F = one step every speed-2 ticks (ticks are the engine's
+  ; finest resolution: one per frame)
   ld a, (ix+5)
   and $0F
   jr z, cf_len               ; speed 0 = env off
@@ -614,22 +630,38 @@ cf_loop:
   ld a, (ix+5)
   and $F0
   jr z, cf_len               ; dir 0 = env off
+  ld a, b
+  cp 3
+  jr c, cf_envfast
+  sub 2
+  ld b, a
   dec (ix+3)
   jr nz, cf_len
-  ld (ix+3), b               ; reload counter
+  ld (ix+3), b               ; reload tick counter
+  ld b, 1
+  jr cf_envstep
+cf_envfast:
+  dec a                      ; 1 -> 4 steps, 2 -> 2 steps
+  ld b, 2
+  jr nz, cf_envstep
+  ld b, 4
+cf_envstep:
+  ld a, (ix+5)
+  and $F0
   cp $10
   jr z, cf_envdn
   ld a, (ix+2)               ; fade up
+  add a, b
   cp $0F
-  jr nc, cf_len
-  inc a
-  ld (ix+2), a
-  jr cf_len
+  jr c, cf_envst
+  ld a, $0F
+  jr cf_envst
 cf_envdn:
   ld a, (ix+2)               ; fade down
-  or a
-  jr z, cf_len
-  dec a
+  sub b
+  jr nc, cf_envst
+  xor a
+cf_envst:
   ld (ix+2), a
 
   ; --- length / kill countdown ---
@@ -792,12 +824,13 @@ demo_song:
 
 ; type, vol, env(dir|speed), len, noisectl, pad to 16
 demo_instruments:
-  .db 0,$0F,$12,0,$00, $00,$33,$00, 0,0,0,0,0,0,0,0   ; 0 lead (vib 3/3)
-  .db 0,$0A,$11,0,$00, 0,0,0,0,0,0,0,0,0,0,0   ; 1 pluck
-  .db 0,$0F,$13,0,$00, 0,0,0,0,0,0,0,0,0,0,0   ; 2 bass
-  .db 1,$0B,$11,2,$04, 0,0,0,0,0,0,0,0,0,0,0   ; 3 hat (white /512)
-  .db 1,$0F,$12,8,$05, 0,0,0,0,0,0,0,0,0,0,0   ; 4 snare (white /1024)
-  .db 1,$0F,$13,0,$03, 0,0,0,0,0,0,0,0,0,0,0   ; 5 periodic bass (pitched)
+; env speeds remapped for the new scale (3 = old 1, 4 = old 2 ...)
+  .db 0,$0F,$14,0,$00, $00,$33,$00,$00, 0,0,0,0,0,0,0   ; 0 lead (vib 3/3)
+  .db 0,$0A,$13,0,$00, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 1 pluck
+  .db 0,$0F,$15,0,$00, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 2 bass
+  .db 1,$0B,$12,2,$04, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 3 hat (white /512)
+  .db 1,$0F,$14,8,$05, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 4 snare (white /1024)
+  .db 1,$0F,$15,0,$03, $00,$00,$00,$00, 0,0,0,0,0,0,0   ; 5 periodic bass (pitched)
 
 demo_groove:
   .db 6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0
