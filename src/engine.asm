@@ -378,15 +378,22 @@ cnp_none:
 ; directions (0 = output), high nibble = levels; $FF = released.
 ; Levels only drive on export consoles - sync needs one.
 
-; read the master's counter: B = TH<<1 | TR
+; read the master's counter: B = TH<<1 | TR. Counter bit 0 is
+; TR AND TL: a Gear-to-Gear cable crosses the far side's TR onto
+; our TL (its serial TX/RX swap), while straight cables (3-wire
+; DE-9, Master Link chains) leave TL floating high - the AND
+; passes whichever line carries the signal, so every cable type
+; works with no setting. Clobbers C.
 sync_read:
-  in a, ($DD)                ; bit 3 = P2 TR, bit 7 = P2 TH
+  in a, ($DD)                ; bit 3 = TR, bit 2 = TL, bit 7 = TH
+  ld c, a
   ld b, 0
-  bit 3, a
-  jr z, sr_th
+  and $0C                    ; TR AND TL
+  cp $0C
+  jr nz, sr_th
   ld b, 1
 sr_th:
-  bit 7, a
+  bit 7, c
   ret z
   set 1, b
   ret

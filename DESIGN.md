@@ -338,10 +338,19 @@ other** over controller port 2, no adapter needed. PROJECT → `SYNC: OUT / PULS
 IN / OFF` (**OFF is the default** — the port is never driven unasked). The port only drives while the transport
 runs; stopping (or changing mode) releases the lines (`OUT ($3F), $FF`).
 
-Wiring: a straight cable on port 2 of both consoles — pin 9 (TR), pin 7 (TH),
-pin 8 (GND). TR/TH are software-direction pins: outputs via port `$3F` on the
-master, read back on port `$DD` (bits 3 and 7) on the slave. **Export consoles
-only** — Japanese SMS hardware ignores `$3F` level drive.
+Wiring — three cable scenarios, all accepted by the same firmware (the IN
+reader takes counter bit 0 as **TR AND TL**, so a crossed or straight cable
+works with no setting; pull-ups hold the unused line high):
+
+- **SMS ↔ SMS**: straight 3-wire DE-9 — pin 9 (TR), pin 7 (TH), pin 8 (GND).
+- **SMS ↔ Game Gear**: SMS port 2 → male-male DE-9 → **Master Link Cable** →
+  GG EXT (straight signal mapping; the GG runs in SMS mode, screen cropped).
+- **GG ↔ GG**: a stock **Gear-to-Gear cable** — it crosses TR↔TL (its serial
+  TX/RX swap) and passes TH straight; the AND read absorbs the crossover.
+
+TR/TH are software-direction pins: outputs via port `$3F` on the master, read
+back on port `$DD` on the slave (TR bit 3, TL bit 2, TH bit 7). **Export
+consoles only** — Japanese SMS hardware ignores `$3F` level drive.
 
 ### 11.1 OUT — 2-bit tick counter on TR+TH
 

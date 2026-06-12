@@ -418,9 +418,23 @@ ds_print:
   ld b, 2
   ld c, 26
   call print_at
+  ; sync mode symbol, one tile after the state (col 31): right
+  ; triangle = OUT, pulse = PULSE, left triangle = IN, blank = OFF
   xor a
   ld (text_attr), a
-  ret
+  ld a, (sync_mode)
+  ld e, a
+  ld d, 0
+  ld hl, str_syncsym
+  add hl, de
+  ld a, (hl)
+  push af
+  ld b, 2
+  ld c, 31
+  call nt_addr_hl
+  call vdp_set_addr
+  pop af
+  jp print_char
 
 ; =============================================================
 ; strings
@@ -431,6 +445,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
+str_syncsym:     .db $3E, $5C, $40, $20  ; > pulse < space
 str_rest:        .db "---"
 
 .ENDS
