@@ -2017,6 +2017,64 @@ song_init:
   ldir
   ret
 
+; fresh blank song: the 8 preset waves, audible default
+; instruments, groove 6,6 - everything else empty
+song_new:
+  ld hl, demo_song_block     ; waves lead the block: the presets
+  ld de, wave_ram
+  ld bc, 8*32
+  ldir
+  ld hl, phrase_pool         ; steps: note 0, instr $FF, cmd 0,
+  ld bc, NUM_PHRASES*16      ; param 0
+sn_phl:
+  ld (hl), 0
+  inc hl
+  ld (hl), $FF
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld (hl), 0
+  inc hl
+  dec bc
+  ld a, b
+  or c
+  jr nz, sn_phl
+  ld hl, chains              ; chains + song are contiguous: $FF
+  ld de, chains+1
+  ld bc, NUM_CHAINS*32 + SONG_ROWS*4 - 1
+  ld (hl), $FF
+  ldir
+  ld de, instruments         ; 16 x the default record
+  ld b, 16
+sn_inl:
+  push bc
+  ld hl, instr_default
+  ld bc, 16
+  ldir
+  pop bc
+  djnz sn_inl
+  ld hl, tables              ; vol $FF (no change), rest 0
+  ld b, 0                    ; 256 rows
+sn_tbl:
+  ld (hl), $FF
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld (hl), 0
+  inc hl
+  djnz sn_tbl
+  ld hl, grooves
+  ld de, grooves+1
+  ld bc, NUM_GROOVES*16-1
+  ld (hl), 0
+  ldir
+  ld a, 6                    ; groove 0 = 6,6
+  ld (grooves), a
+  ld (grooves+1), a
+  ret
+
 .ENDS
 
 ; -------------------------------------------------------------

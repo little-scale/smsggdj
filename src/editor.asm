@@ -65,6 +65,7 @@
   last_phrase  db
   dt1_timer    db            ; double-tap countdown
   dt1_fresh    db            ; first tap filled an empty cell
+  new_arm      db            ; PROJECT NEW: first press arms
   clip_scr     db            ; clipboard: screen ($FF = empty)
   clip_col     db            ;   column
   clip_a       db            ;   primary byte
@@ -2108,10 +2109,12 @@ str_sp1:    .db " ", 0
 ; -------------------------------------------------------------
 ; PROJECT screen: fields 0 TEMPO, 1 VIDEO, 2 SRAM, 3 SAVE, 4 LOAD
 cm_proj:
+  xor a
+  ld (new_arm), a            ; moving away disarms NEW
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 9
+  cp 10
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2146,11 +2149,36 @@ prj_mark_field:              ; A = field (preserved)
 prp_press:
   ld a, (prj_row)
   cp 5
-  jr z, prp_save
+  jr z, prp_new
   cp 6
+  jr z, prp_save
+  cp 7
   ret nz
   call song_load
   call mark_all_dirty        ; song data replaced
+  ld a, 1
+  ld (state_dirty), a
+  ld (label_dirty), a
+  ret
+prp_new:                     ; armed two-press wipe
+  ld a, (new_arm)
+  or a
+  jr nz, prn_go
+  ld a, 1                    ; first press: arm + ask
+  ld (new_arm), a
+  ld a, 5                    ; "SURE?"
+  ld (prj_stat), a
+  ld a, 1
+  ld (label_dirty), a
+  ret
+prn_go:
+  xor a
+  ld (new_arm), a
+  call engine_stop
+  call song_new
+  call mark_all_dirty
+  ld a, 6                    ; "NEW"
+  ld (prj_stat), a
   ld a, 1
   ld (state_dirty), a
   ld (label_dirty), a
@@ -2166,13 +2194,13 @@ prp_edit:
   ld a, (prj_row)
   cp 4
   jr z, prp_slot
-  cp 7
-  jp z, prp_sync
   cp 8
+  jp z, prp_sync
+  cp 9
   jp z, prp_play
   cp 1
   jp z, prp_tsp
-  cp 9
+  cp 10
   jp z, prp_colr
   or a
   ret nz
@@ -2300,7 +2328,7 @@ pc_hi:
 pc_st:
   ld (pal_sel), a
   call load_palette          ; applies immediately
-  ld a, 9
+  ld a, 10
   jp prj_mark_field
 prp_sync:                    ; 1 + L/R cycles the sync mode
   ld a, (ed_rep)
@@ -2326,7 +2354,7 @@ psy_cl:
   ld (sync_mode), a
   ld a, 1
   ld (state_dirty), a
-  ld a, 7
+  ld a, 8
   jp prj_mark_field
 prp_play:                    ; 1 + L/R toggles SONG/LIVE
   ld a, (ed_rep)
@@ -2342,13 +2370,13 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE
   ld (play_mode), a
   ld a, 1
   ld (state_dirty), a
-  ld a, 8
+  ld a, 9
   jp prj_mark_field
 
 prj_f2r:
-  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 13
+  .db 0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 14
 prj_r2f:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, $FF, 9, $FF, $FF
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, 7, $FF, 8, 9, $FF, 10, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -4599,11 +4627,11 @@ prd_addr:
   jp z, prd_sram
   cp 4
   jp z, prd_slot
-  cp 7
-  jp z, prd_sync
   cp 8
-  jp z, prd_play
+  jp z, prd_sync
   cp 9
+  jp z, prd_play
+  cp 10
   jr z, prd_colr
   ; SAVE / LOAD
   ld hl, str_go
@@ -4713,6 +4741,7 @@ prj_lbls:
   .db "VID ", 0
   .db "SRAM", 0
   .db "SLOT", 0
+  .db "NEW ", 0
   .db "SAVE", 0
   .db "LOAD", 0
   .db "SYNC", 0
@@ -4739,6 +4768,8 @@ prj_stats:
   .db "LOADED "
   .db "NO SRAM"
   .db "NO DATA"
+  .db "SURE?  "
+  .db "NEW    "
 str_proj:   .db "PROJECT", 0
 str_go:     .db "GO"
 str_vpal:   .db "PAL "

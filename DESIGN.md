@@ -123,7 +123,7 @@ Screen map (navigated with 2+D-pad):
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
-| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
+| **PROJECT** | Song name, default groove, **NEW** (two-press arm/confirm blank song), save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 
