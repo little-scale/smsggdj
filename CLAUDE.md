@@ -11,10 +11,17 @@ SMSDJ — an LSDJ-inspired music tracker ROM for the Sega Master System, written
 ## Build and run
 
 ```sh
-make          # assemble + link -> build/smsdj.sms
-make run      # launch the ROM in Emulicious (bundled in tools/emulicious/)
+make          # both flavors: build/smsdj.sms + build/smsdj.gg
+make run      # launch the SMS ROM in Emulicious (bundled in tools/emulicious/)
 make clean
 ```
+
+Two ROM flavors from one tree: `TARGET_GG` (assembled as `main-gg.o`) is the
+native Game Gear build — 20×18-tile window layout via a UI origin in
+`nt_addr_hl` plus per-flavor defines (`GRID_ROW`, `NAME_ROW`, `STATE_*`),
+START instead of PAUSE, 12-bit CRAM, NTSC-only, paged WAVE screen. Layout
+literals must respect the GG window: columns ≥20 and grid rows beyond 15
+don't exist there (DESIGN.md §15).
 
 - Toolchain: `wla-z80` + `wlalink` (Homebrew). `make run` needs `/opt/homebrew/opt/openjdk/bin/java`.
 - Emulicious must have `AudioSync=true` in `tools/emulicious/Emulicious.ini`, or it free-runs at turbo speed.
@@ -34,7 +41,7 @@ Single translation unit: the Makefile assembles only `src/main.asm`, which `.INC
 - `src/sample.asm` — PCM and wavetable feed through the T3 DAC: line IRQ during active display, cycle-counted feeder across VBlank.
 - `src/editor.asm` — all screens and UI (the largest file). Screen map is 2D: PROJECT above SONG, WAVE above INSTR; navigated with 2-held + d-pad.
 
-Song data lives as one contiguous RAM block (wave_ram, phrase_pool, chains, song, instruments, tables, grooves — offsets in SAVEFORMAT.md) so save/load is a straight copy to cart SRAM slots.
+Song data lives as one contiguous RAM block (wave_ram ×8 waves, phrase_pool, chains, song, instruments, tables, grooves — offsets in SAVEFORMAT.md, format SMDJ3) so save/load is a straight copy to cart SRAM slots.
 
 ## Hard invariants
 

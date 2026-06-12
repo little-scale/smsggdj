@@ -326,7 +326,7 @@ sn_wsel:
 snw_dn:
   dec a
 snw_st:
-  and $03
+  and $07
   ld (cur_wave), a
   ld a, 1
   ld (label_dirty), a
@@ -1414,7 +1414,7 @@ ini_st:
   ld (label_dirty), a
   jp mark_all_dirty
 
-ine_f11:                     ; NOISE: mode toggle; WAV: wave 0-3
+ine_f11:                     ; NOISE: mode toggle; WAV: wave 0-7
   push hl
   call ins_ptr
   ld a, (hl)
@@ -1428,7 +1428,7 @@ ine_f11:                     ; NOISE: mode toggle; WAV: wave 0-3
   add hl, de
   ld a, (hl)
   inc a
-  and $03
+  and $07
   ld (hl), a
   jp ine_mark
 
@@ -1778,19 +1778,61 @@ wv_step_ptr:                 ; HL = &wave_ram[cur_wave][wav_col]
   ret
 
 cm_wave:                     ; L/R move the step cursor
+  ld a, (wav_col)
+  ld e, a                    ; old position
   bit 3, c
   jr z, cw_l
-  ld a, (wav_col)
   inc a
   and $1F
-  ld (wav_col), a
 cw_l:
   bit 2, c
-  ret z
-  ld a, (wav_col)
+  jr z, cw_st
   dec a
   and $1F
+cw_st:
   ld (wav_col), a
+  ; fall through
+
+; redraw what a cursor move touches: the old and new steps' dot
+; rows - and on GG the whole canvas when the view pages
+wv_cursor_dirty:
+  ld a, (wav_col)
+  cp e
+  ret z
+.IFDEF TARGET_GG
+  xor e
+  and $10                    ; crossed the half-way page?
+  jr z, wvc_rows
+  ld a, 1
+  ld (label_dirty), a        ; the hex readout pages too
+  jp mark_all_dirty
+wvc_rows:
+.ENDIF
+  ld a, e
+  call wv_mark_step
+  ld a, (wav_col)
+  ; fall through
+wv_mark_step:                ; A = step: mark its dot's grid row
+  push hl
+  push de
+  ld e, a
+  ld a, (cur_wave)
+  rrca
+  rrca
+  rrca
+  and $E0
+  ld hl, wave_ram
+  or e
+  ld l, a
+  ld a, (hl)
+  cpl
+  and $0F                    ; drawn value
+  ld e, a
+  ld a, 15
+  sub e                      ; its grid row
+  call mark_dirty_a
+  pop de
+  pop hl
   ret
 
 ; cut gesture (1 held + 2): stamp the next ROM preset into the
@@ -1826,9 +1868,22 @@ wvp_cut:
   ld (label_dirty), a
   jp mark_all_dirty
 
-wvp_edit:                    ; 1+U/D = value, 1+L/R = move (draw)
-  ld a, (ed_rep)
+wvp_edit:                    ; 1+U/D = value; 1+L/R: SMS = move
+  ld a, (ed_rep)             ; (drag-draw), GG = jump page
   ld c, a
+.IFDEF TARGET_GG
+  ld a, c
+  and PAD_LEFT|PAD_RIGHT
+  jr z, wve_u
+  ld a, (wav_col)
+  ld e, a
+  xor $10                    ; other half, same step offset
+  ld (wav_col), a
+  ld a, 1
+  ld (label_dirty), a        ; readout + page digit
+  call mark_all_dirty
+  jr wve_u
+.ELSE
   bit 3, c
   jr z, wve_l
   ld a, (wav_col)
@@ -1842,6 +1897,7 @@ wve_l:
   dec a
   and $1F
   ld (wav_col), a
+.ENDIF
 wve_u:
   call wv_step_ptr
   ld a, (hl)
@@ -1878,7 +1934,7 @@ wve_st:
 ; repaint the next screen over it
 wv_cleanup:
   push af
-  ld b, 3
+  ld b, GRID_ROW-1
 wvc_row:
   push bc
   ld c, 0
@@ -1895,27 +1951,46 @@ wvc_col:
   pop bc
   inc b
   ld a, b
-  cp 21
+  cp GRID_ROW+17
   jr c, wvc_row
   pop af
   ret
 
 dl_wave:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_wave
   call print_at
-  ld b, 1
+  ld b, NAME_ROW
   ld c, 6
   call nt_addr_hl
   call vdp_set_addr
   ld a, (cur_wave)
   call print_hex_nib
-  ; per-step hex readout across row 3 (LSDJ-style)
+  ; per-step hex readout above the canvas (LSDJ-style)
   xor a
   ld (text_attr), a
-  ld b, 3
+.IFDEF TARGET_GG
+  ld b, GRID_ROW-1           ; page number at the left edge
   ld c, 0
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, (wav_col)
+  and $10
+  rrca
+  rrca
+  rrca
+  rrca
+  inc a                      ; '1' / '2'
+  add a, '0'-$20+$20         ; ASCII digit
+  call print_char
+.ENDIF
+  ld b, GRID_ROW-1
+.IFDEF TARGET_GG
+  ld c, 2
+.ELSE
+  ld c, 0
+.ENDIF
   call nt_addr_hl
   call vdp_set_addr
   ld a, (cur_wave)
@@ -1925,7 +2000,19 @@ dl_wave:
   and $E0
   ld hl, wave_ram
   ld l, a
+.IFDEF TARGET_GG
+  ld a, (wav_col)
+  and $10
+  ld c, a
+  or l
+  ld l, a
+  ld a, c
+  add a, 16
+  ld b, a
+.ELSE
   ld c, 0
+  ld b, 32
+.ENDIF
 dlw_hex:
   ld a, (hl)
   cpl
@@ -1934,7 +2021,7 @@ dlw_hex:
   inc hl
   inc c
   ld a, c
-  cp 32
+  cp b
   jr c, dlw_hex
   ret
 
@@ -1945,7 +2032,11 @@ wv_draw_row:
   ld a, e
   add a, GRID_ROW
   ld b, a
+.IFDEF TARGET_GG
+  ld c, 2                    ; 16 steps at columns 2-17
+.ELSE
   ld c, 0
+.ENDIF
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -1960,7 +2051,19 @@ wv_draw_row:
   and $E0
   ld hl, wave_ram
   ld l, a
+.IFDEF TARGET_GG
+  ld a, (wav_col)
+  and $10                    ; the cursor's half of the wave
+  ld c, a
+  or l
+  ld l, a
+  ld a, c
+  add a, 16
+  ld b, a                    ; loop bound
+.ELSE
   ld c, 0                    ; step
+  ld b, 32
+.ENDIF
 wvd_step:
   ld a, (hl)
   cpl
@@ -1993,7 +2096,7 @@ wvd_next:
   inc hl
   inc c
   ld a, c
-  cp 32
+  cp b
   jr c, wvd_step
   ret
 
@@ -2008,7 +2111,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 10
+  cp 9
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2070,8 +2173,6 @@ prp_edit:
   cp 1
   jp z, prp_tsp
   cp 9
-  jp z, prp_gg
-  cp 10
   jp z, prp_colr
   or a
   ret nz
@@ -2199,15 +2300,6 @@ pc_hi:
 pc_st:
   ld (pal_sel), a
   call load_palette          ; applies immediately
-  ld a, 10
-  jp prj_mark_field
-prp_gg:                      ; 1 + L/R: GG stereo port writes
-  ld a, (ed_rep)
-  and PAD_LEFT|PAD_RIGHT
-  ret z
-  ld a, (gg_mode)
-  xor 1
-  ld (gg_mode), a
   ld a, 9
   jp prj_mark_field
 prp_sync:                    ; 1 + L/R cycles the sync mode
@@ -2254,9 +2346,9 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE
   jp prj_mark_field
 
 prj_f2r:
-  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 12, 14
+  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 13
 prj_r2f:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, 9, $FF, 10, $FF
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, $FF, 9, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -3788,14 +3880,24 @@ draw_labels:
   ld (label_dirty), a
   ld (text_attr), a
   ; wipe both lines
-  ld b, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
+  ld hl, str_blank
+  call print_at
+  ld b, GRID_ROW-1           ; the track-header row
   ld c, 1
   ld hl, str_blank
   call print_at
-  ld b, 3
-  ld c, 1
-  ld hl, str_blank
+.IFDEF TARGET_GG
+  ; the name-row wipe took the centre title and the transport
+  ; text with it: restore both
+  ld b, 0
+  ld c, 9
+  ld hl, str_title
   call print_at
+  ld a, 1
+  ld (state_dirty), a
+.ENDIF
   call draw_scrmap
 
   ld a, (scr_mode)
@@ -3815,8 +3917,8 @@ draw_labels:
   jp z, dl_wave
 
   ; ---- SONG ----
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_song
   call print_at
   ; track headers with mute state, cursor when in header
@@ -3857,7 +3959,7 @@ dl_so_pr:
   ld a, c
   call so_track_col
   ld c, a
-  ld b, 3
+  ld b, GRID_ROW-1           ; the row above the grid
   call nt_addr_hl
   call vdp_set_addr
   pop hl
@@ -3873,11 +3975,11 @@ dl_so_pr:
   ret
 
 dl_chain:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_chain
   call print_at
-  ld b, 1
+  ld b, NAME_ROW
   ld c, 7
   call nt_addr_hl
   call vdp_set_addr
@@ -3895,8 +3997,8 @@ dl_chain:
   ret
 
 dl_phrase:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_phrase
   call print_at
   ld b, 1
@@ -3921,8 +4023,8 @@ dl_phrase:
   ret
 
 dl_groove:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_grv
   call print_at
   ld b, 1
@@ -3938,11 +4040,11 @@ dl_groove:
   ret
 
 dl_table:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_tabl
   call print_at
-  ld b, 1
+  ld b, NAME_ROW
   ld c, 7
   call nt_addr_hl
   call vdp_set_addr
@@ -3963,11 +4065,11 @@ dl_table:
   ret
 
 dl_instr:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_instr
   call print_at
-  ld b, 1
+  ld b, NAME_ROW
   ld c, 7
   call nt_addr_hl
   call vdp_set_addr
@@ -3994,6 +4096,9 @@ dl_track_tag:
 ; screen map indicator, top right: current screen inverted.
 ; grows to S C P I T (+ project/groove) as screens are added.
 draw_scrmap:
+.IFDEF TARGET_GG
+  ret                        ; no side column in the LCD window
+.ENDIF
   ld a, (scr_mode)           ; the wave editor uses the full
   cp SCR_WAVE                ; width: no map there
   ret z
@@ -4084,7 +4189,11 @@ so_track_col:
   ld a, (hl)
   ret
 so_cols:
+.IFDEF TARGET_GG
+  .db 4, 0, 8, 0, 12, 0, 16, 0  ; 20-column window
+.ELSE
   .db 5, 0, 10, 0, 15, 0, 20, 0
+.ENDIF
 
 ; -------------------------------------------------------------
 ; SONG screen row (E = visible row 0-15)
@@ -4495,8 +4604,6 @@ prd_addr:
   cp 8
   jp z, prd_play
   cp 9
-  jp z, prd_gg
-  cp 10
   jr z, prd_colr
   ; SAVE / LOAD
   ld hl, str_go
@@ -4517,15 +4624,6 @@ ptd_pr:
   call print_char
   pop af
   jp print_hex_a
-prd_gg:
-  ld a, (gg_mode)
-  or a
-  ld hl, str_goff
-  jr z, prd_gg4
-  ld hl, str_gon
-prd_gg4:
-  ld b, 4
-  jp print_raw
 prd_colr:
   ld a, (pal_sel)
   add a, a
@@ -4585,8 +4683,8 @@ prd_sram:
   jr prd_p4
 
 dl_proj:
-  ld b, 1
-  ld c, 1
+  ld b, NAME_ROW
+  ld c, NAME_COL
   ld hl, str_proj
   call print_at
   ; status
@@ -4619,10 +4717,7 @@ prj_lbls:
   .db "LOAD", 0
   .db "SYNC", 0
   .db "MODE", 0
-  .db "GG  ", 0
   .db "COLR", 0
-str_gon:    .db "ON  "
-str_goff:   .db "OFF "
 str_palnm:
   .db "WHT "
   .db "GRN "

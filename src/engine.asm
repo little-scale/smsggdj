@@ -92,7 +92,6 @@
   sync_wait    db            ; slave: armed, waiting for a clock
   sync_ticks   db            ; (scratch)
   play_mode    db            ; 0 = SONG, 1 = LIVE
-  gg_mode      db            ; 1 = write the GG stereo port
   trk_rep      dsb 4         ; chain repeat count per track
   proj_tsp     db            ; global transpose, signed semitones
   live_q       dsb 4         ; queued song row per track ($FF -)
@@ -104,7 +103,7 @@
 ; 256-aligned so the wavetable feed can index waves by low byte;
 ; wave_ram leads the block so saves stay one contiguous copy
 .RAMSECTION "songdata" SLOT 3 ALIGN 256
-  wave_ram     dsb 4*32            ; 4 waves x 32 pre-OR'd bytes
+  wave_ram     dsb 8*32            ; 8 waves x 32 pre-OR'd bytes
   phrase_pool  dsb NUM_PHRASES*64
   chains       dsb NUM_CHAINS*32   ; 16 x (phrase #, transpose)
   song         dsb SONG_ROWS*4     ; chain # per track, $FF empty
@@ -1319,7 +1318,7 @@ tn_squiet:
   ret
 tn_wav:
   ld a, c                    ; +4 byte = wave number
-  and $03
+  and $07
   ld c, a
   ld a, (cur_trig_ch)
   ld (wav_owner), a
@@ -1804,10 +1803,10 @@ cf_adv:
 
 ; =============================================================
 ; persistence: cart SRAM at $8000 via mapper reg $FFFC bit 3
-; layout: slot base: magic "SMDJ2", +5 checksum16, +16 song data
+; layout: slot base: magic "SMDJ3", +5 checksum16, +16 song data
 ; =============================================================
 .DEFINE SRAM_DATA $8010
-.DEFINE SAVE_SIZE 5248       ; wave_ram..grooves, contiguous
+.DEFINE SAVE_SIZE 5376       ; wave_ram..grooves, contiguous
 
 sram_detect:
   ld a, $08
@@ -1863,7 +1862,7 @@ sram_slot_base:
   ld hl, $8000
   or a
   ret z
-  ld de, $1500
+  ld de, $1520
 ssb_l:
   add hl, de
   dec a
@@ -1930,7 +1929,7 @@ sv_go:
   inc hl
   ld (hl), 'J'
   inc hl
-  ld (hl), '2'
+  ld (hl), '3'
   xor a
   ld ($FFFC), a
   ld a, 1
@@ -1968,7 +1967,7 @@ ld_go:
   jr nz, ld_bad
   inc hl
   ld a, (hl)
-  cp '2'
+  cp '3'
   jr nz, ld_bad
   call sram_slot_base
   push hl

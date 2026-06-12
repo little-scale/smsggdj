@@ -138,10 +138,9 @@ pf_vskip:
   or $E0
   out (PSG_PORT), a
 pf_pan:
-  ; GG stereo (guarded: port $06 is memory control on an SMS)
-  ld a, (gg_mode)
-  or a
-  ret z
+.IFNDEF TARGET_GG
+  ret                        ; port $06 is memory control on SMS
+.ENDIF
   ld a, (psg_pan_sent)
   ld b, a
   ld a, (psg_pan)

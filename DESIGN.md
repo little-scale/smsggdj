@@ -12,10 +12,12 @@ Changes in v0.2:
 - Confirmed decisions: double-tap-1 deep-edit jump; CH3-steal policy for pitched noise.
 
 Post-v0.2 addenda (implemented):
-- **Wavetable mode**: WAV instrument type + WAVE editor screen — 4 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ2).
+- **Wavetable mode**: WAV instrument type + WAVE editor screen — 8 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ3).
 - **Block select/copy/cut/paste** on the grid screens (§3).
 - **LIVE mode** (§5.4): per-track looping chains with quantized swaps, queued from the SONG screen.
 - **128 KB mapper move**: 8 banks, sample pool in banks 2-7 with a self-describing directory (§10.3) — the contract for **tools/patcher.html**, a single-file browser patcher: drop a built ROM + sounds (any decodable format), trim/gain/tanh/normalize/gate/fade per sample, audition the bit-exact DAC render, and download a patched ROM — no toolchain needed.
+- **GGDJ**, the native Game Gear build (§15): same tree, `make` emits `smsdj.sms` + `smsdj.gg`.
+- **8 user waves** (up from 4), booting as the 8 stamp presets; save format SMDJ3.
 - **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSDJ↔SMSDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
 
 ---
@@ -37,7 +39,7 @@ Post-v0.2 addenda (implemented):
 | Video timing | 50/60 Hz is fixed by the console's hardware (crystal + VDP); software cannot switch it. | "PAL/NTSC support" = the *timing engine* adapts (tick rate, BPM math, sample cadence), not the video output. Auto-detect + override, §5.1. |
 | ROM | Standard Sega mapper, header at 0x7FF0 ("TMR SEGA") required by export BIOS. | 128 KB ROM: 3 fixed/banked code+table pages, rest = sample pool banks. |
 
-Explicitly **out of scope**: FM (YM2413) and any other expansion audio, stereo (Game Gear only), MIDI *output* (parked for v2).
+Explicitly **out of scope**: FM (YM2413) and any other expansion audio, MIDI *output* (parked for v2). *(Game Gear stereo and a native GG build joined the scope post-v0.2 — §15.)*
 
 ---
 
@@ -121,7 +123,7 @@ Screen map (navigated with 2+D-pad):
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
-| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **GG: ON/OFF** (stereo port writes, §8 `O`), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
+| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 
@@ -255,7 +257,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `N xy` | Noise | x=mode, y=rate | override noise mode/rate; on T3: release from STEAL for this note |
 | `P xx` | Pitch bend | signed | continuous bend, period units per tick |
 | `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks, stepping volume by x |
-| `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. Writes the GG stereo port only with PROJECT `GG: ON` — port $06 is memory control on an SMS |
+| `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. The `.gg` build writes the stereo port; the `.sms` build only tracks state (port $06 is memory control on an SMS) — one song pans wherever panning exists |
 | `I xy` | Iteration | cycle x, phase y | play this row's note only when (chain repeat count mod x) == y: `I00` never, `I20`/`I21` odd/even repeats, `I40` every 4th… — phrase variation without cloning. Repeats count per track: reset on a different chain, +1 each restart of the same one |
 | `T xx` | Tempo | BPM (hex) | set global tempo — converts BPM→groove using the **active tick rate** (region-true) |
 | `V xy` | Vibrato | speed x, depth y | one-shot vibrato override |
@@ -325,7 +327,7 @@ Pipeline: mix to mono → resample to target rate → normalize/compress → map
 
 Wavetable synthesis through the same T3 DC-DAC as PCM samples, sharing the entire §10.4 feed machinery (line IRQ + vblank feeder; `smp_mode` selects PCM vs wave per feed tick).
 
-- **4 user waves**, 32 steps × 16 levels each, drawn on the **WAVE screen** (above INSTR on the screen map; 2+left/right selects the wave; the cut gesture stamps ROM presets: sine, triangle, saw, square, 25%, 12.5%, organ, random). `wave_ram` (128 B) leads the song block and saves with the song (format SMDJ2).
+- **8 user waves**, 32 steps × 16 levels each (booting as the 8 stamp presets — a ready-made timbre selector), drawn on the **WAVE screen** (above INSTR on the screen map; 2+left/right selects the wave; the cut gesture stamps ROM presets: sine, triangle, saw, square, 25%, 12.5%, organ, random). `wave_ram` (256 B) leads the song block and saves with the song (format SMDJ3).
 - **Pitch** = 8.8 fixed-point phase accumulator over the 32 steps. Per-region increment tables (`winc_table_pal/ntsc`, generated by maketables.py): `inc = f × 8192 / feed_rate`, so output frequency = feed × inc / (256 × 32). Same note range as the tone channels.
 - **Log-DAC correction:** the DAC's 16 levels are logarithmic (2 dB/step) but drawn levels are linear. At note trigger — and live on every WAVE-screen edit — the drawn wave is copied through the `wav_lin2log` map (nearest attenuation to v/15) into `wav_buf`, a 32-byte-aligned play buffer in internal RAM. `wave_ram` always holds the *drawn* shape (what the editor shows and the save stores); only the play buffer is corrected. Quantization is coarse near full scale (the 2 dB grid spans levels 11–15 with two steps) — inherent to the hardware.
 - **Arbitration:** one wave at a time (it owns the T3 DAC, like samples — last trigger wins). The owning track's volume/envelope gate the wave: volume 0 stops it. The noise channel is silenced for exactly as long as a wave plays (shadow, sent state and chip — wavetables are melodic; samples leave noise audible).
@@ -438,5 +440,28 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 9. **Sample subsystem:** conversion tool first, then line-IRQ/VBlank hybrid player, SMP instruments, ring streaming. Hardware-verify early — emulator PSG-DAC accuracy varies.
 10. **MIDI sync:** adapter firmware + port protocol, SLAVE tick source, transport semantics. Hardware loopback test rig.
 11. Polish: meters, key hints, demo song, dual-region hardware regression pass.
+
+## 15. GGDJ — the native Game Gear build *(post-v0.2)*
+
+One tree, two ROMs: `TARGET_GG` selects the flavor; everything musical
+(engine, sampler, waves, save format, pool contract, patcher) is shared.
+
+- **Window layout:** the GG LCD shows a 20×18-tile window of the 256×192 frame
+  (origin tile 6,3). The whole UI shifts there via a single origin in
+  `nt_addr_hl`; the chrome compresses to two header rows — screen name left,
+  **GGDJ** centre, transport + sync symbol right; track headers/status on row
+  1 — and the grid keeps all 16 rows. SONG's track columns tighten; the side
+  map column is dropped (the screen name orients).
+- **WAVE screen:** paged — 16 steps at full height, the view (and hex readout,
+  with a page digit) follows the cursor across the halves; **1+left/right
+  jumps pages** (on SMS it remains drag-draw). Presets stamp as on SMS.
+- **Platform:** START (GG port `$00`) replaces PAUSE as the transport alias;
+  CRAM writes are 12-bit pairs (COLR schemes upscale ×5 per channel); region
+  is fixed NTSC (no region line); `O` pan writes the stereo register natively
+  (the SMS build only tracks state).
+- **Sync (decided, not yet built):** the GG flavor will use the EXT port's
+  **serial mode** (hardware UART, 4800 8N1, NMI-on-receive) speaking MIDI
+  real-time bytes — not parallel mode. GG↔GG via a stock Gear-to-Gear cable;
+  the SMS counter protocol stays for SMS rigs.
 
 **v2 parking lot:** `Z` random command, pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.

@@ -42,8 +42,33 @@ BANKS 8
 .DEFINE DAS_DELAY   14
 .DEFINE DAS_SPEED   3
 
-; phrase grid layout
-.DEFINE GRID_ROW    4            ; first screen row of the grid
+; =============================================================
+; build flavor. TARGET_GG = native Game Gear ROM: the LCD shows a
+; 20x18-tile window of the 256x192 frame starting at tile (6,3),
+; so the whole UI shifts there (nt_addr_hl applies UI_X/UI_Y) and
+; the chrome compresses into two header rows. The WAVE screen is
+; not reachable on GG yet (32-step canvas needs its own layout).
+.IFDEF TARGET_GG
+.DEFINE UI_X        6
+.DEFINE UI_Y        3
+.DEFINE GRID_ROW    2            ; first window row of the grid
+.DEFINE STATE_ROW   0            ; PLAY/STOP/WAIT
+.DEFINE STATE_COL   14
+.DEFINE SYNC_COL    19           ; sync symbol
+.DEFINE NAME_ROW    0            ; screen name row
+.DEFINE NAME_COL    0
+.ELSE
+.DEFINE UI_X        0
+.DEFINE UI_Y        0
+.DEFINE GRID_ROW    4
+.DEFINE STATE_ROW   2
+.DEFINE STATE_COL   26
+.DEFINE SYNC_COL    31
+.DEFINE NAME_ROW    1
+.DEFINE NAME_COL    1
+.DEFINE REGION_ROW  2
+.DEFINE REGION_COL  1
+.ENDIF
 
 ; =============================================================
 .RAMSECTION "vars" SLOT 3
@@ -58,6 +83,7 @@ BANKS 8
   pad_rep        db
   das_timer      db
   pal_sel        db           ; colour scheme (pal_presets index)
+  start_prev     db           ; GG START level last frame
   region_timer   db           ; frames left on the boot region line
   ints_on        db           ; init done: helpers may EI
   text_attr      db            ; $00 normal, $08 inverted (palette bit)
@@ -144,11 +170,18 @@ init:
   ld (hl), 0
   ldir
 
+.IFDEF TARGET_GG
+  xor a                      ; GG hardware is NTSC-clocked
+  ld (region_pal), a
+.ELSE
   call detect_region
+.ENDIF
   call psg_init
   call vdp_init
   call vdp_clear_vram
   call load_font
+  ld a, 6                    ; KIDD is the house palette
+  ld (pal_sel), a
   call load_palette
   call song_init
   call editor_init
@@ -207,22 +240,29 @@ init_vbc:
   ; ---- static screen ----
   xor a
   ld (text_attr), a
+.IFDEF TARGET_GG
+  ld b, 0
+  ld c, 9
+.ELSE
   ld b, 0
   ld c, 1
+.ENDIF
   ld hl, str_title
   call print_at
 
+.IFNDEF TARGET_GG
   ld hl, str_region_ntsc
   ld a, (region_pal)
   or a
   jr z, init_region_pr
   ld hl, str_region_pal
 init_region_pr:
-  ld b, 2
-  ld c, 1
+  ld b, REGION_ROW
+  ld c, REGION_COL
   call print_at
   ld a, 90                   ; reclaim the row from the main loop
   ld (region_timer), a
+.ENDIF
 
   ld a, 1
   ld (state_dirty), a
@@ -314,6 +354,25 @@ dr_store:
 ; transport
 ; =============================================================
 handle_pause:                  ; PAUSE: plain transport toggle.
+.IFDEF TARGET_GG
+  ; the GG has START instead of PAUSE: port $00 bit 7, active
+  ; low - a press edge sets the same transport flag
+  in a, ($00)
+  and $80
+  ld b, a
+  ld a, (start_prev)
+  ld c, a
+  ld a, b
+  ld (start_prev), a
+  or a
+  jr nz, hp_nostart          ; not held now
+  ld a, c
+  or a
+  jr z, hp_nostart           ; was already held
+  ld a, 1
+  ld (nmi_event), a
+hp_nostart:
+.ENDIF
   ld a, (nmi_event)            ; Never queues - in LIVE mode it
   or a                         ; is the global stop.
   ret z
@@ -369,6 +428,9 @@ tp_dirty:
 ; drawing
 ; =============================================================
 draw_frame_counter:
+.IFDEF TARGET_GG
+  ret                        ; no room in the 20-column window
+.ENDIF
   ld b, 0
   ld c, 27
   call nt_addr_hl
@@ -382,14 +444,19 @@ draw_frame_counter:
 ; the boot region line stays up ~1.8 s, then yields its row -
 ; without ever blocking the main loop
 draw_region_boot:
+.IFDEF TARGET_GG
+  ret                        ; no region line on the GG
+.ENDIF
   ld a, (region_timer)
   or a
   ret z
   dec a
   ld (region_timer), a
   ret nz
-  ld b, 2
-  ld c, 1
+.IFNDEF TARGET_GG
+  ld b, REGION_ROW
+  ld c, REGION_COL
+.ENDIF
   ld hl, str_blank
   jp print_at
 
@@ -415,8 +482,8 @@ ds_play:
   jr z, ds_print
   ld hl, str_wait
 ds_print:
-  ld b, 2
-  ld c, 26
+  ld b, STATE_ROW
+  ld c, STATE_COL
   call print_at
   ; sync mode symbol, one tile after the state (col 31): right
   ; triangle = OUT, pulse = PULSE, left triangle = IN, blank = OFF
@@ -429,8 +496,8 @@ ds_print:
   add hl, de
   ld a, (hl)
   push af
-  ld b, 2
-  ld c, 31
+  ld b, STATE_ROW
+  ld c, SYNC_COL
   call nt_addr_hl
   call vdp_set_addr
   pop af
@@ -439,7 +506,11 @@ ds_print:
 ; =============================================================
 ; strings
 ; =============================================================
-str_title:       .db "SMSDJ V0.1", 0
+.IFDEF TARGET_GG
+str_title:       .db "GGDJ", 0
+.ELSE
+str_title:       .db "SMSDJ", 0
+.ENDIF
 str_region_pal:  .db "REGION: PAL 50HZ ", 0
 str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0

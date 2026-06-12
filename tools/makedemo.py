@@ -183,6 +183,7 @@ SONG = [
 # emit the block
 # =====================================================================
 def waves():
+    """8 boot waves = the 8 stamp presets, one per slot."""
     def pack(vals):
         return bytes(0xD0 | (15 - v) for v in vals)
     def tri(i):
@@ -195,14 +196,26 @@ def waves():
     trit = [round(tri((i + 8) % 32) * 7.5 + 7.5) for i in range(32)]
     saw = [round(i * 15 / 31.0) for i in range(32)]
     sqr = [15] * 16 + [0] * 16
-    return b"".join(pack(w) for w in (sine, trit, saw, sqr))
+    p25 = [15] * 8 + [0] * 24
+    p12 = [15] * 4 + [0] * 28
+    org = []
+    for i in range(32):
+        th = 2 * math.pi * i / 32
+        v = math.sin(th) + math.sin(3 * th) / 3 + math.sin(5 * th) / 5
+        org.append(max(0, min(15, round((v / 1.4 * .5 + .5) * 15))))
+    rseed, rnd = 0xACE1, []
+    for i in range(32):
+        rseed = (rseed * 0x6255 + 0x3217) & 0xFFFF
+        rnd.append(rseed >> 12)
+    return b"".join(pack(w) for w in
+                    (sine, trit, saw, sqr, p25, p12, org, rnd))
 
 
 def main():
     if len(sys.argv) != 2:
         sys.exit("usage: makedemo.py OUT.BIN")
     blk = bytearray()
-    blk += waves()                                       # 128
+    blk += waves()                                       # 256
 
     for p in PHRASES:                                    # 2048
         for note, ins, cmd, par in p:
@@ -234,7 +247,7 @@ def main():
     blk += bytes([6, 6] + [0] * 14)                      # 256
     blk += bytes(16) * (N_GRV - 1)
 
-    assert len(blk) == 5248, len(blk)
+    assert len(blk) == 5376, len(blk)
     with open(sys.argv[1], "wb") as f:
         f.write(blk)
     print("demo song: %d phrases, %d chains, %d rows -> %s (%d bytes)"

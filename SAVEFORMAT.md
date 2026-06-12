@@ -20,29 +20,30 @@ fully exportable/importable — `tools/savetool.py` works directly on it.
 ## Layout
 
 The 16 KB SRAM window holds up to **3 song slots** at a stride of
-`$1500` (5,376 bytes). 8 KB carts mirror the upper half and hold 1 slot.
+`$1520` (5,408 bytes). 8 KB carts mirror the upper half and hold 1 slot.
 
 ```
-slot n base = n * $1500          (n = 0..2)
+slot n base = n * $1520          (n = 0..2)
 
 offset  size  contents
-+$00    5     magic "SMDJ2"
-+$05    2     checksum: 16-bit little-endian sum of the 5,248 data bytes
++$00    5     magic "SMDJ3"
++$05    2     checksum: 16-bit little-endian sum of the 5,376 data bytes
 +$07    9     reserved
-+$10    5248  song data, the contiguous RAM block:
-              +$0000  wave_ram      4 waves x 32 B ($D0 | 15-minus-level per
++$10    5376  song data, the contiguous RAM block:
+              +$0000  wave_ram      8 waves x 32 B ($D0 | 15-minus-level per
                                     step; the drawn shape — playback maps levels
                                     through the log-DAC correction separately)
-              +$0080  phrase_pool   32 phrases x 64 B (16 steps x note,instr,cmd,param)
-              +$0880  chains        32 chains x 32 B (16 x phrase#,transpose)
-              +$0C80  song          128 rows x 4 chain numbers ($FF empty)
-              +$0E80  instruments   16 x 16 B records
-              +$0F80  tables        16 x 64 B (16 rows x vol,pitch,cmd,param)
-              +$1380  grooves       16 x 16 tick bytes
+              +$0100  phrase_pool   32 phrases x 64 B (16 steps x note,instr,cmd,param)
+              +$0900  chains        32 chains x 32 B (16 x phrase#,transpose)
+              +$0D00  song          128 rows x 4 chain numbers ($FF empty)
+              +$0F00  instruments   16 x 16 B records
+              +$1000  tables        16 x 64 B (16 rows x vol,pitch,cmd,param)
+              +$1400  grooves       16 x 16 tick bytes
 ```
 
-Format history: `SMDJ1` lacked wave_ram (5,120 data bytes); v1
-saves are not loaded by v2 builds.
+Format history: `SMDJ1` lacked wave_ram (5,120 data bytes); `SMDJ2`
+had 4 waves (5,248 data bytes, stride `$1500`). Older saves are not
+loaded by newer builds.
 
 A slot is valid when the magic matches **and** the checksum verifies;
 SMSDJ refuses to load anything else (`NO DATA`). Slot 1 (offset 0)
@@ -56,7 +57,7 @@ python3 tools/savetool.py build/smsdj.sav export 1 mysong.smdj
 python3 tools/savetool.py build/smsdj.sav import 2 mysong.smdj
 ```
 
-`.smdj` files are a single slot (header + data, 5,264 bytes) — share
+`.smdj` files are a single slot (header + data, 5,392 bytes) — share
 them, back them up, or move songs between slots/carts. `import`
 revalidates the checksum and creates the `.sav` (32 KB, `$FF`-filled)
 if it doesn't exist yet, so you can prepare a cart image entirely

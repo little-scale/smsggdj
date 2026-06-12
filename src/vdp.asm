@@ -97,6 +97,77 @@ load_palette:
   ld b, (hl)                 ; fg
   ld hl, $C000
   call vdp_set_addr
+.IFDEF TARGET_GG
+  ; GG CRAM: 32 x 12-bit entries (2 bytes each); the 2-bit SMS
+  ; channels scale x5 onto 4 bits
+  ld a, c                    ; bg pal: 0 = bg, 1 = fg, rest bg
+  call gg_entry
+  ld a, b
+  call gg_entry
+  ld d, 14
+lpg_bg:
+  ld a, c
+  call gg_entry
+  dec d
+  jr nz, lpg_bg
+  ld a, b                    ; sprite pal: 0 = fg, 1 = bg, rest bg
+  call gg_entry
+  ld a, c
+  call gg_entry
+  ld d, 14
+lpg_sp:
+  ld a, c
+  call gg_entry
+  dec d
+  jr nz, lpg_sp
+  ret
+
+; A = SMS 6-bit colour -> one GG CRAM entry (GGGGRRRR, 0000BBBB)
+gg_entry:
+  push bc
+  push de
+  push hl
+  ld e, a
+  and $03                    ; red
+  call gg_scale4
+  ld d, a
+  ld a, e
+  rrca
+  rrca
+  and $03                    ; green
+  call gg_scale4
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  or d
+  out (VDP_DATA), a
+  ld a, e
+  rrca
+  rrca
+  rrca
+  rrca
+  and $03                    ; blue (spacing while we compute)
+  call gg_scale4
+  out (VDP_DATA), a
+  pop hl
+  pop de
+  pop bc
+  ret
+gg_scale4:                   ; 0-3 -> 0,5,10,15
+  push hl
+  push de
+  ld hl, gg_scale
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  pop de
+  pop hl
+  ret
+gg_scale:
+  .db 0, 5, 10, 15
+.ELSE
   ld a, c                    ; idx 0 = bg
   out (VDP_DATA), a
   nop
@@ -125,6 +196,7 @@ lp_fill:
   dec d
   jr nz, lp_fill
   ret
+.ENDIF
 
 pal_presets:                 ; bg, fg (BGR 2:2:2)
   .db $00, $3F               ; WHT: white on black
@@ -135,10 +207,13 @@ pal_presets:                 ; bg, fg (BGR 2:2:2)
   .db $39, $23               ; NEON: neon pink on light blue
   .db $34, $0F               ; KIDD: star yellow on sky blue
 
-; B = row, C = col -> HL = name table write address
+; B = row, C = col -> HL = name table write address. The UI
+; origin shifts the whole interface into the GG's LCD window.
 nt_addr_hl:
+  ld a, b
+  add a, UI_Y
+  ld l, a
   ld h, 0
-  ld l, b
   add hl, hl
   add hl, hl
   add hl, hl
@@ -146,6 +221,7 @@ nt_addr_hl:
   add hl, hl
   add hl, hl                   ; row * 64
   ld a, c
+  add a, UI_X
   add a, a
   ld e, a
   ld d, 0
