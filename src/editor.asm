@@ -3917,12 +3917,16 @@ draw_labels:
   ld hl, str_blank
   call print_at
 .IFDEF TARGET_GG
-  ; the name-row wipe took the centre title and the transport
-  ; text with it: restore both
+  ; the name-row wipe took the transport text with it; the GGDJ
+  ; title only lives on PROJECT (room is precious elsewhere)
+  ld a, (scr_mode)
+  cp SCR_PROJ
+  jr nz, dlg_notitle
   ld b, 0
   ld c, 9
   ld hl, str_title
   call print_at
+dlg_notitle:
   ld a, 1
   ld (state_dirty), a
 .ENDIF
