@@ -46,7 +46,10 @@ EMU  := tools/emulicious/Emulicious.jar
 run: $(ROM)
 	$(JAVA) -jar $(EMU) $(abspath $(ROM))
 
+run-gg: $(GGROM)
+	$(JAVA) -jar $(EMU) $(abspath $(GGROM))
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean run
+.PHONY: all clean run run-gg
