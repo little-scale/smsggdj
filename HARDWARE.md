@@ -87,11 +87,62 @@ No modern reproduction Gear-to-Gear cables found. Leads:
 Strategy: one genuine/NOS cable as reference + validation; the paddle PCB as
 the reproducible part (and the basis of any future sync dongle product).
 
-## SMS-side recap
+## Master System controller port 2 (the SMS sync port)
 
-Console-to-console SMS sync: straight 3-wire DE-9 — pins 9 (TR), 7 (TH),
-8 (GND). SMS↔GG: male-male DE-9 + Master Link Cable (straight mapping).
-Export consoles only for the SMS master (port $3F level drive). The known
-hardware-verification items for the flashcart pass live in the project
-memory: `print_at`'s ~24-cycle VRAM write spacing, real-DAC sample/wave
-quality, and the sync electrical checks above.
+A standard DE-9. Only **TR and TH are bidirectional** — everything else is
+input-only, which is why the sync protocol is a 2-bit counter.
+
+| pin | signal | controller meaning      | sync use                          |
+|-----|--------|-------------------------|-----------------------------------|
+| 1   | Up     | d-pad (input only)      | —                                 |
+| 2   | Down   | d-pad (input only)      | —                                 |
+| 3   | Left   | d-pad (input only)      | —                                 |
+| 4   | Right  | d-pad (input only)      | —                                 |
+| 5   | +5V    | power                   | — (both ends self-powered)        |
+| 6   | TL     | button 1 (input only)   | read for GG-cable tolerance only  |
+| **7** | **TH** | light-gun latch pin   | **counter bit 1**                 |
+| 8   | GND    | ground                  | shared ground                     |
+| **9** | **TR** | button 2              | **counter bit 0**; PULSE output   |
+
+### Register map
+
+- **Port `$3F`** (write-only, I/O control) — the master side. Low nibble =
+  pin directions (0 = output), high nibble = driven levels:
+  bit 2/3 = port-2 TR/TH direction, bit 6/7 = port-2 TR/TH level.
+  SYNC OUT writes `$33 | (count << 6)`; PULSE drives TR only (`$BB`/`$FB`);
+  stop/idle releases everything with `$FF`.
+- **Port `$DD`** (read-only) — the slave side: **bit 2 = TL, bit 3 = TR,
+  bit 7 = TH** (port 2). bit 4 = Reset button, bit 6 = port-1 TH.
+- **Port `$DC`** — port 1's lines + port 2 Up/Down; sync never touches it.
+
+All lines are pulled up: unplugged reads high (idle counter = 3), which is
+why SYNC IN latches the line state when armed and counts only *changes*.
+SMSDJ reads counter bit 0 as **TR AND TL** so the Gear-to-Gear cable's
+TR↔TL crossover works unconfigured (the unused line floats high).
+
+### Sync wiring scenarios
+
+- **SMS ↔ SMS**: straight 3-wire DE-9 — pins 9 (TR), 7 (TH), 8 (GND).
+- **SMS ↔ GG**: SMS port 2 → male-male DE-9 → Master Link Cable → GG EXT
+  (straight mapping; GG runs the SMS-mode counter reader).
+- **GG ↔ GG**: stock Gear-to-Gear cable (TR↔TL crossover absorbed).
+- **PULSE out** (Volca / Pocket Operator): tip = pin 9 (TR), sleeve = pin 8
+  (GND); 5 V pulse, one tick high every 12 ticks (2 PPQN at groove 6).
+
+### Caveats
+
+- **Export consoles only as master**: Japanese SMS hardware ignores `$3F`
+  level drive (the basis of the region-detect trick).
+- **Pin contention**: a master drives TR/TH only while playing, but a pad
+  plugged into port 2 with a held button can still fight a driven-high
+  line — prefer the sync cable to a pad in port 2 on the master.
+- On export consoles a driven pin reads back on `$DD` — a single console
+  can loop itself for a future self-test mode.
+
+## Flashcart-pass verification list
+
+- `print_at`'s tile→attr VRAM write gap is ~24 cycles (under the ~29-cycle
+  active-display rule) — fine in Emulicious, verify on real hardware.
+- Real-DAC sample and wavetable quality (emulator PSG-DAC accuracy varies).
+- The sync electrical checks above, both directions, all three cables.
+- TMR SEGA header acceptance by the export BIOS (logo → SMSDJ).
