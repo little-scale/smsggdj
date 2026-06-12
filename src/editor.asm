@@ -2008,7 +2008,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 9
+  cp 10
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2070,6 +2070,8 @@ prp_edit:
   cp 1
   jp z, prp_tsp
   cp 9
+  jp z, prp_gg
+  cp 10
   jp z, prp_colr
   or a
   ret nz
@@ -2197,6 +2199,15 @@ pc_hi:
 pc_st:
   ld (pal_sel), a
   call load_palette          ; applies immediately
+  ld a, 10
+  jp prj_mark_field
+prp_gg:                      ; 1 + L/R: GG stereo port writes
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (gg_mode)
+  xor 1
+  ld (gg_mode), a
   ld a, 9
   jp prj_mark_field
 prp_sync:                    ; 1 + L/R cycles the sync mode
@@ -2243,9 +2254,9 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE
   jp prj_mark_field
 
 prj_f2r:
-  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 13
+  .db 0, 1, 3, 4, 5, 7, 8, 10, 11, 12, 14
 prj_r2f:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, $FF, 9, $FF, $FF
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, $FF, 7, 8, 9, $FF, 10, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -4484,6 +4495,8 @@ prd_addr:
   cp 8
   jp z, prd_play
   cp 9
+  jp z, prd_gg
+  cp 10
   jr z, prd_colr
   ; SAVE / LOAD
   ld hl, str_go
@@ -4504,6 +4517,15 @@ ptd_pr:
   call print_char
   pop af
   jp print_hex_a
+prd_gg:
+  ld a, (gg_mode)
+  or a
+  ld hl, str_goff
+  jr z, prd_gg4
+  ld hl, str_gon
+prd_gg4:
+  ld b, 4
+  jp print_raw
 prd_colr:
   ld a, (pal_sel)
   add a, a
@@ -4597,7 +4619,10 @@ prj_lbls:
   .db "LOAD", 0
   .db "SYNC", 0
   .db "MODE", 0
+  .db "GG  ", 0
   .db "COLR", 0
+str_gon:    .db "ON  "
+str_goff:   .db "OFF "
 str_palnm:
   .db "WHT "
   .db "GRN "
@@ -5176,7 +5201,7 @@ cch_ok:
   pop hl
   ret
 cmd_chars:
-  .db "-KHACEFGNPTVWMDLR"
+  .db "-KHACEFGNPTVWMDLROI"
 
 str_song:        .db "SONG", 0
 str_chain:       .db "CHAIN", 0

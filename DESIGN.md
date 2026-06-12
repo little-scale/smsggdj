@@ -121,7 +121,7 @@ Screen map (navigated with 2+D-pad):
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
-| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
+| **PROJECT** | Song name, default groove, save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **GG: ON/OFF** (stereo port writes, §8 `O`), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 
@@ -255,11 +255,13 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `N xy` | Noise | x=mode, y=rate | override noise mode/rate; on T3: release from STEAL for this note |
 | `P xx` | Pitch bend | signed | continuous bend, period units per tick |
 | `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks, stepping volume by x |
+| `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. Writes the GG stereo port only with PROJECT `GG: ON` — port $06 is memory control on an SMS |
+| `I xy` | Iteration | cycle x, phase y | play this row's note only when (chain repeat count mod x) == y: `I00` never, `I20`/`I21` odd/even repeats, `I40` every 4th… — phrase variation without cloning. Repeats count per track: reset on a different chain, +1 each restart of the same one |
 | `T xx` | Tempo | BPM (hex) | set global tempo — converts BPM→groove using the **active tick rate** (region-true) |
 | `V xy` | Vibrato | speed x, depth y | one-shot vibrato override |
 | `W xx` | Wait-skip | ticks | shorten this row to xx ticks (shuffle fills) |
 
-Omitted vs LSDJ: `O` (no panning), `S` (covered by `P`), wave/duty (no hardware). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2.
+Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2.
 
 ---
 

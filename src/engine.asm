@@ -52,7 +52,9 @@
 .DEFINE CMD_DELAY   14         ; D: delay the note by param ticks
 .DEFINE CMD_SLIDE   15         ; L: slide to the note, param = speed
 .DEFINE CMD_RETRIG  16         ; R: retrigger every param ticks
-.DEFINE CMD_COUNT   17
+.DEFINE CMD_PAN     17         ; O: GG stereo - x = left, y = right
+.DEFINE CMD_ITER    18         ; I: play when (repeats mod x) == y
+.DEFINE CMD_COUNT   19
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -90,6 +92,8 @@
   sync_wait    db            ; slave: armed, waiting for a clock
   sync_ticks   db            ; (scratch)
   play_mode    db            ; 0 = SONG, 1 = LIVE
+  gg_mode      db            ; 1 = write the GG stereo port
+  trk_rep      dsb 4         ; chain repeat count per track
   proj_tsp     db            ; global transpose, signed semitones
   live_q       dsb 4         ; queued song row per track ($FF -)
   sram_ok      db            ; cart SRAM detected at boot
@@ -224,6 +228,12 @@ ep_next:
   cp 4
   jp c, ep_chl
 
+  ; fresh repeat counts
+  xor a
+  ld (trk_rep), a
+  ld (trk_rep+1), a
+  ld (trk_rep+2), a
+  ld (trk_rep+3), a
   ; live queue starts empty
   ld a, $FF
   ld (live_q), a
@@ -522,7 +532,7 @@ ap_next:
 advance_track:
   ld a, (eng_mode)
   cp MODE_PHRASE
-  ret z                      ; phrase loops in place
+  jp z, rep_bump             ; phrase loops in place: count it
   cp MODE_CHAIN
   jr nz, at_song
 
@@ -531,6 +541,7 @@ advance_track:
   inc a                      ; $FF -> 0 on first boundary
   cp 16
   jr c, at_cread
+  call rep_bump              ; the chain wrapped: a repeat
   xor a
 at_cread:
   ld (ix+8), a
@@ -538,6 +549,7 @@ at_cread:
   ld a, (hl)
   cp $FF
   jr nz, at_cset
+  call rep_bump              ; the chain wrapped: a repeat
   ld (ix+8), 0               ; wrap to chain start
   call chain_entry
   ld a, (hl)
@@ -610,6 +622,19 @@ at_load:
   ld a, (hl)
   cp $FF
   jr z, at_wrap              ; empty cell: column loops
+  cp (ix+11)                 ; same chain again = one more repeat
+  jr z, atl_rep
+  push hl
+  ld hl, trk_rep
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld (hl), 0                 ; different chain: fresh count
+  pop hl
+  jr atl_st
+atl_rep:
+  call rep_bump
+atl_st:
   ld (ix+11), a
   ld (ix+8), 0
   call chain_entry
@@ -721,6 +746,20 @@ lts_ch:
   ld (hl), $0F               ; silence the channel now
   ret
 
+; one more repeat of the current chain/phrase on track C
+; (preserves A/HL/DE)
+rep_bump:
+  push hl
+  push de
+  ld hl, trk_rep
+  ld e, c
+  ld d, 0
+  add hl, de
+  inc (hl)
+  pop de
+  pop hl
+  ret
+
 ; HL = &chains[(ix+11)][(ix+8)]
 chain_entry:
   ld l, (ix+11)
@@ -806,6 +845,8 @@ pr_nok:
   jr z, prn_delay
   cp CMD_SLIDE
   jr z, prn_slide
+  cp CMD_ITER
+  jr z, prn_iter
 prn_norm:
   ld (ix+0), b
   push hl
@@ -861,6 +902,42 @@ prn_slide:
   ld a, d
   ld (ix+30), a              ; porta speed
   pop hl
+  jp pr_cmd
+prn_iter:
+  ; I xy: trigger this row's note only on the matching repeat:
+  ; (chain repeats mod x) == y. x = 0 never plays; x = 1 always.
+  ld a, d
+  and $F0
+  jp z, pr_cmd               ; never
+  rrca
+  rrca
+  rrca
+  rrca
+  ld e, a                    ; E = cycle x
+  push hl
+  push de
+  ld hl, trk_rep
+  ld a, c
+  add a, l
+  ld l, a
+  adc a, h
+  sub l
+  ld h, a
+  ld a, (hl)                 ; this track's repeat count
+  pop de
+  pop hl
+prn_imod:
+  cp e                       ; mod x by subtraction (x <= 15)
+  jr c, prn_icmp
+  sub e
+  jr prn_imod
+prn_icmp:
+  ld e, a
+  ld a, d
+  and $0F
+  cp e
+  jp nz, pr_cmd              ; not this repeat: rest
+  jp prn_norm
 pr_cmd:
   inc hl
   inc hl
@@ -915,11 +992,11 @@ pr_next:
 ; Shared by phrase rows and table rows.
 exec_command:
   cp CMD_KILL
-  jr z, xc_kill
+  jp z, xc_kill
   cp CMD_TBL
-  jr z, xc_tbl
+  jp z, xc_tbl
   cp CMD_ARP
-  jr z, xc_arp
+  jp z, xc_arp
   cp CMD_ENV
   jp z, xc_env
   cp CMD_FINE
@@ -934,6 +1011,8 @@ exec_command:
   jp z, xc_trem
   cp CMD_RETRIG
   jp z, xc_retrig
+  cp CMD_PAN
+  jp z, xc_pan
   ret
 xc_trem:
   ld a, d
@@ -951,6 +1030,54 @@ xc_retrig:
   or d
   ld (ix+31), a
   ret
+xc_pan:
+  ; O xy on channel C: x = left enable, y = right enable. The GG
+  ; stereo byte is right enables in bits 0-3, left in bits 4-7.
+  push bc
+  ld a, c
+  ld b, a
+  ld a, 1
+  inc b
+xcp_sh:
+  dec b
+  jr z, xcp_have
+  add a, a
+  jr xcp_sh
+xcp_have:
+  ld e, a                    ; E = right bit for this channel
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  or e                       ; both bits
+  cpl
+  ld b, a
+  ld a, (psg_pan)
+  and b                      ; clear this channel's bits
+  ld b, a
+  ld a, d
+  and $F0
+  jr z, xcp_right
+  ld a, e
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  or b                       ; left on
+  ld b, a
+xcp_right:
+  ld a, d
+  and $0F
+  jr z, xcp_store
+  ld a, e
+  or b                       ; right on
+  ld b, a
+xcp_store:
+  ld a, b
+  ld (psg_pan), a
+  pop bc
+  ret
+
 xc_kill:
   ld a, d
   or a

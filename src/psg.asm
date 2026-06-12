@@ -22,6 +22,8 @@
   psg_vols_sent  dsb 4
   psg_noisectl   db
   psg_noise_sent db
+  psg_pan        db          ; GG stereo: R enables 0-3, L 4-7
+  psg_pan_sent   db
 .ENDS
 
 .SECTION "PSG" FREE
@@ -36,6 +38,9 @@ psg_init:
   out (PSG_PORT), a
   ld a, $FF
   out (PSG_PORT), a
+  ld a, $FF                  ; pan: all channels both sides
+  ld (psg_pan), a
+  ld (psg_pan_sent), a
   ld hl, 1
   ld (psg_tone0), hl
   ld (psg_tone1), hl
@@ -127,11 +132,23 @@ pf_vskip:
   ld b, a
   ld a, (psg_noisectl)
   cp b
-  ret z
+  jr z, pf_pan
   ld (psg_noise_sent), a
   and $07
   or $E0
   out (PSG_PORT), a
+pf_pan:
+  ; GG stereo (guarded: port $06 is memory control on an SMS)
+  ld a, (gg_mode)
+  or a
+  ret z
+  ld a, (psg_pan_sent)
+  ld b, a
+  ld a, (psg_pan)
+  cp b
+  ret z
+  ld (psg_pan_sent), a
+  out ($06), a
   ret
 
 .ENDS
