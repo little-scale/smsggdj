@@ -83,7 +83,7 @@ Only D-pad + 1 + 2; PAUSE is auxiliary. Button 1 ≈ LSDJ's A (edit), button 2 �
 | D-pad | Move cursor (with key-repeat) |
 | **1** tap | On empty step: insert note/value (repeats last entered). On PROJECT/menu: activate |
 | **1** hold + D-pad | Edit value under cursor — left/right = small step (±1 semitone / ±1), up/down = big step (±octave / ±0x10) |
-| **1** double-tap | Paste when a clipboard is armed for this screen; otherwise, if the first tap filled an empty SONG/CHAIN cell, upgrade it to the next **free** chain/phrase (LSDJ's fresh-slot gesture) |
+| **1** double-tap | Paste when a clipboard is armed for this screen. Otherwise on an **empty** SONG/CHAIN/PHRASE cell = mint the next **free** (blank) chain/phrase/instrument; on a **populated** SONG cell = **clone** that chain, on a populated CHAIN phrase cell = clone that phrase, into the next free slot (no free slot → cursor flashes, no-op) |
 | **2** tap | Back: PHRASE → CHAIN → SONG (pops the navigation stack) |
 | **2** hold + D-pad | Navigate the screen map (LSDJ SELECT+dpad equivalent) |
 | **2** held + **1** tap | **Play/stop** (transport — primary control; 2 is the "project" modifier: navigation and transport). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
@@ -125,7 +125,7 @@ Screen map (navigated with 2+D-pad):
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
-| **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** schemes |
+| **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** schemes, **CLONE: SLIM/DEEP** (§12) |
 | **PROJECT** | Song name, default groove, **NEW** (two-press arm/confirm blank song), save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
@@ -401,7 +401,7 @@ parked for v2 along with MIDI out and Song Position Pointer.
 
 - **With cart SRAM:** song data lives directly in SRAM (slot 2 via mapper reg 0xFFFC) → every edit instantly persistent, LSDJ-style. 32 KB = 2 song slots (load/save/erase/copy on PROJECT). Save format: magic + version + structure counts + checksum; failure → offer "init new song". Config block (VIDEO, SYNC, SMP CH, key repeat) saved alongside.
 - **Without SRAM** (boot write-test): song in internal 8 KB at baseline limits, visible "NO SAVE RAM — song is volatile" warning. Emulator save-states still work.
-- **Clone modes** (PROJECT): SLIM = reference shared chains/phrases; DEEP = duplicate on edit ("\*" marks shared items).
+- **Clone** (double-tap-1 on a populated cell, §3): duplicates the chain (SONG) or phrase (CHAIN) into the next free slot. **OPTIONS → CLONE: SLIM/DEEP** (default SLIM) governs *chain* cloning — SLIM = new chain, phrases shared (same numbers); DEEP = new chain plus fresh copies of every phrase it references (checked up front against the free-phrase budget). Phrase cloning is always an independent copy. No free slot → the cursor flashes and nothing changes (no partial clone).
 
 ---
 

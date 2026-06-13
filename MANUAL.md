@@ -43,7 +43,7 @@ Think of it as:
 | **D-pad** | Move the cursor (hold to repeat) |
 | **1** tap | Insert a note/value into the empty cell (repeats the last one you entered) |
 | **1** hold + D-pad | **Edit** the value under the cursor. Left/Right = small step (±1). Up/Down = big step (±octave, or ±16) |
-| **1** double-tap | **Paste** the clipboard here. (On an empty SONG/CHAIN/PHRASE/INSTR cell with nothing copied, it instead grabs the next **free** chain/phrase/instrument — a fresh blank one) |
+| **1** double-tap | **Paste** the clipboard here. With nothing copied: on an *empty* cell it grabs the next **free** (blank) chain/phrase/instrument; on a *populated* SONG or CHAIN cell it **clones** that chain/phrase into a fresh slot (see *Cloning*) |
 | **2** tap | **Back** — step out: PHRASE → CHAIN → SONG |
 | **2** hold + D-pad | **Move between screens** (the screen map, below) |
 | **2** hold + **1** tap | **Play / Stop** |
@@ -124,6 +124,25 @@ create polyrhythms.
 insert, then quickly tap **1** again to get the next *free* (blank) chain or
 phrase to fill in. Same trick gives a fresh instrument on the PHRASE
 instrument column.
+
+### Cloning
+
+Want a copy of a chain or phrase you can edit separately? **Double-tap 1 on a
+populated cell:**
+- on a **SONG** cell → clones that chain into the next free chain;
+- on a **CHAIN** phrase cell → clones that phrase into the next free phrase.
+
+The cell repoints to the new copy, so editing it leaves the original alone.
+
+**OPTIONS → CLONE** sets how chains clone:
+- **SLIM** (default) — the new chain reuses the *same phrases* (sharing them).
+  Cheap; good for the same melody re-arranged or transposed. Editing a shared
+  phrase changes every chain that uses it.
+- **DEEP** — also makes fresh copies of every phrase the chain uses, so the
+  clone is completely independent. Uses more phrase slots.
+
+Phrase cloning is always an independent copy. If there's no free slot (or DEEP
+won't fit), the cursor flashes and nothing is cloned.
 
 ---
 
@@ -257,6 +276,7 @@ Settings that belong to the *machine*, not the song:
 - **SYNC** — clock sync mode (see below).
 - **COLR** — colour scheme: KIDD (default), WHT, GRN, AMBR, CYAN, PINK, NEON.
   Changes apply instantly.
+- **CLONE** — SLIM or DEEP, how chain cloning works (see *Cloning*).
 
 ---
 

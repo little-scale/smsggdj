@@ -40,7 +40,7 @@ Single translation unit: the Makefile assembles only `src/main.asm`, which `.INC
 - `src/psg.asm` — shadow registers in RAM; `psg_flush` writes only what changed. Volumes are stored as *attenuation* (0 = loud, $F = silent).
 - `src/engine.asm` — per-tick sequencer pipeline (groove → row advance → trigger/commands → envelope → kill → PSG shadows → mute gate). Channel state = 4 × 32-byte structs walked with IX; layout documented in the file header. Full command set K/H/A/C/E/F/G/N/P/T/V/W/M/D/L/R runs through one executor shared by phrase and table columns.
 - `src/sample.asm` — PCM and wavetable feed through the T3 DAC: line IRQ during active display, cycle-counted feeder across VBlank.
-- `src/editor.asm` — all screens and UI (the largest file). Screen map is 2D: PROJECT above SONG, WAVE above INSTR; navigated with 2-held + d-pad.
+- `src/editor.asm` — all screens and UI (the largest file). Screen map is 2D: OPTIONS/PROJECT above SONG/CHAIN, WAVE above INSTR; navigated with 2-held + d-pad. Bank 0 (slot 0) is full, so the clone routines live in a `"Clone"` section forced into bank 1 (slot 1, always mapped) — new editor code that overflows bank 0 goes there too.
 
 Song data lives as one contiguous RAM block (wave_ram ×8 waves, phrase_pool, chains, song, instruments, tables, grooves — offsets in SAVEFORMAT.md, format SMDJ3) so save/load is a straight copy to cart SRAM slots.
 

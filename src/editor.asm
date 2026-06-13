@@ -68,6 +68,8 @@
   dt1_timer    db            ; double-tap countdown
   dt1_fresh    db            ; first tap filled an empty cell
   new_arm      db            ; PROJECT NEW: first press arms
+  clone_deep   db            ; 0 = SLIM clone, 1 = DEEP
+  cur_flash    db            ; cursor blink frames (clone-fail)
   clip_scr     db            ; clipboard: screen ($FF = empty)
   clip_col     db            ;   column
   clip_a       db            ;   primary byte
@@ -2427,7 +2429,7 @@ cm_set:
   bit 1, c                   ; down
   jr z, cs_up
   ld a, (stg_row)
-  cp 3
+  cp 4
   jr nc, cs_up
   call stg_mark_field
   inc a
@@ -2465,7 +2467,18 @@ stp_edit:
   jp z, stp_sync
   cp 3
   jp z, stp_colr
+  cp 4
+  jp z, stp_clone
   ret
+stp_clone:                   ; 1 + L/R toggles SLIM/DEEP
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (clone_deep)
+  xor 1
+  ld (clone_deep), a
+  ld a, 4
+  jp stg_mark_field
 
 dl_set:
   ld b, NAME_ROW
@@ -2532,12 +2545,22 @@ std_addr:
   jp z, prd_sram
   cp 2
   jp z, prd_sync
-  jp prd_colr
+  cp 3
+  jp z, prd_colr
+  ; field 4 = CLONE
+  ld a, (clone_deep)
+  or a
+  ld hl, str_slim
+  jr z, prd_cl4
+  ld hl, str_deep
+prd_cl4:
+  ld b, 4
+  jp print_raw
 
 stg_f2r:
-  .db 0, 1, 3, 5
+  .db 0, 1, 3, 5, 7
 stg_r2f:
-  .db 0, 1, $FF, 2, $FF, 3, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .db 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 prj_f2r:
   .db 0, 1, 2, 4, 6, 8, 10, 11
@@ -2854,7 +2877,7 @@ dt_second:
   jp z, do_paste
   ld a, (dt1_fresh)
   or a
-  ret z
+  jp z, dt_clone             ; populated cell, no clipboard: clone
   xor a
   ld (dt1_fresh), a
   ld a, (scr_mode)
@@ -3024,6 +3047,265 @@ ffp_next:
   jr c, ffp_phr
   ld a, $FF
   ret
+
+.ENDS
+
+; cloning lives in bank 1 (slot 1, always mapped): bank 0 is full.
+.BANK 1 SLOT 1
+.SECTION "Clone" FREE
+
+; ===========================================================
+; cloning (double-tap-1 on a populated cell, no clipboard):
+; duplicate the chain/phrase into the next free slot. SONG clones
+; the chain (SLIM = share phrases, DEEP = clone them too); CHAIN's
+; phrase column clones the phrase. No free slot -> flash, no-op.
+; ===========================================================
+dt_clone:
+  ld a, (scr_mode)
+  or a
+  jr z, clone_chain
+  cp SCR_CHAIN
+  jr z, clone_phrase
+  ret
+
+; A = chain number -> HL = &chains[A]
+chain_base:
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, chains
+  add hl, de
+  ret
+
+; A = phrase number -> HL = &phrase_pool[A]
+phrase_base:
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, phrase_pool
+  add hl, de
+  ret
+
+; copy 64 bytes phrase tmp_note -> phrase tmp_instr
+copy_phrase_blk:
+  ld a, (tmp_note)
+  call phrase_base
+  push hl
+  ld a, (tmp_instr)
+  call phrase_base
+  ex de, hl
+  pop hl
+  ld bc, 64
+  ldir
+  ret
+
+clone_phrase:
+  ld a, (chn_col)
+  or a
+  ret nz                     ; the phrase column only
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (hl)
+  cp $FF
+  ret z                      ; empty cell: nothing to clone
+  ld (tmp_note), a           ; source phrase
+  call find_free_phrase
+  cp $FF
+  jp z, clone_fail
+  ld (tmp_instr), a          ; dest phrase
+  call copy_phrase_blk
+  ld a, (chn_row)
+  ld e, a
+  call ch_entry_ptr
+  ld a, (tmp_instr)
+  ld (hl), a
+  ld (last_phrase), a
+  ld a, (chn_row)
+  jp mark_dirty_a
+
+clone_chain:
+  ld a, (hdr_cur)
+  or a
+  ret nz                     ; not on the track header
+  call so_cell_ptr
+  ld a, (hl)
+  cp $FF
+  ret z                      ; empty cell
+  ld (tmp_note), a           ; source chain
+  ld a, (clone_deep)         ; DEEP needs a phrase per non-empty step
+  or a
+  jr z, ccl_alloc
+  call chain_phrase_count
+  ld b, a
+  call count_free_phrases
+  cp b
+  jp c, clone_fail           ; not enough free phrases
+ccl_alloc:
+  call find_free_chain
+  cp $FF
+  jp z, clone_fail
+  ld (tmp_instr), a          ; dest chain
+  ld a, (tmp_note)
+  call chain_base
+  push hl
+  ld a, (tmp_instr)
+  call chain_base
+  ex de, hl
+  pop hl
+  ld bc, 32
+  ldir
+  ld a, (clone_deep)
+  or a
+  call nz, deep_clone_chain
+  call so_cell_ptr
+  ld a, (tmp_instr)
+  ld (hl), a
+  ld (last_chain), a
+  jp so_mark_cur
+
+; non-empty steps (phrase != $FF) in chain tmp_note -> A
+chain_phrase_count:
+  ld a, (tmp_note)
+  call chain_base
+  ld b, 16
+  ld c, 0
+cpc_loop:
+  ld a, (hl)
+  cp $FF
+  jr z, cpc_next
+  inc c
+cpc_next:
+  inc hl
+  inc hl
+  djnz cpc_loop
+  ld a, c
+  ret
+
+; count of free phrase slots -> A
+count_free_phrases:
+  push bc
+  ld c, 0
+  ld b, 0
+cfp_loop:
+  push bc
+  call phrase_is_free
+  pop bc
+  jr nz, cfp_next
+  inc b
+cfp_next:
+  inc c
+  ld a, c
+  cp NUM_PHRASES
+  jr c, cfp_loop
+  ld a, b
+  pop bc
+  ret
+
+; C = phrase number -> Z if that phrase is free/empty
+phrase_is_free:
+  ld a, c
+  call phrase_base
+  ld b, 16
+pif_step:
+  ld a, (hl)
+  or a
+  jr nz, pif_used
+  inc hl
+  ld a, (hl)
+  cp $FF
+  jr nz, pif_used
+  inc hl
+  ld a, (hl)
+  or a
+  jr nz, pif_used
+  inc hl
+  inc hl
+  djnz pif_step
+  xor a
+  ret
+pif_used:
+  or 1
+  ret
+
+; DEEP: clone every phrase the new chain (tmp_instr) references to
+; a fresh slot and repoint the step. The precheck guarantees a
+; free phrase is always available.
+deep_clone_chain:
+  ld a, (tmp_instr)
+  call chain_base
+  ld b, 16
+dcc_loop:
+  ld a, (hl)
+  cp $FF
+  jr z, dcc_next
+  ld (tmp_note), a           ; source phrase
+  push bc
+  push hl
+  call find_free_phrase
+  ld (tmp_cmd), a            ; dest phrase
+  ld a, (tmp_note)
+  call phrase_base
+  push hl
+  ld a, (tmp_cmd)
+  call phrase_base
+  ex de, hl
+  pop hl
+  ld bc, 64
+  ldir
+  pop hl
+  ld a, (tmp_cmd)
+  ld (hl), a                 ; repoint the step to the clone
+  pop bc
+dcc_next:
+  inc hl
+  inc hl
+  djnz dcc_loop
+  ret
+
+clone_fail:
+  ld a, 18                   ; flash the cursor ~2 blinks
+  ld (cur_flash), a
+  ret
+
+; cursor cell attribute: $08 (inverted) normally; blinks while a
+; clone-fail flash is counting down
+cursor_attr:
+  ld a, (cur_flash)
+  or a
+  jr nz, cra_flash
+  ld a, $08
+  ret
+cra_flash:
+  and $04
+  jr z, cra_off
+  ld a, $08
+  ret
+cra_off:
+  xor a
+  ret
+
+; mark the cursor row dirty (SONG / CHAIN - the clone screens)
+mark_cursor_dirty:
+  ld a, (scr_mode)
+  or a
+  jp z, so_mark_cur
+  ld a, (chn_row)
+  jp mark_dirty_a
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "Editor2" FREE
 
 ; double-tap 1: paste the clipboard at the cursor when the
 ; screen and column context matches the cut. A block clipboard
@@ -3815,6 +4097,13 @@ mad_l:
 ; drawing
 ; =============================================================
 editor_draw:
+  ld a, (cur_flash)          ; clone-fail cursor blink
+  or a
+  jr z, edf_nofl
+  dec a
+  ld (cur_flash), a
+  call mark_cursor_dirty
+edf_nofl:
   ; label frames are expensive: drop the row budget to 1 so the
   ; VRAM burst stays inside VBlank (writes that spill into the
   ; active display get dropped -> white garbage blocks)
@@ -4427,7 +4716,7 @@ sdr_cell:
   ld a, (tmp_note)
   cp b
   jr nz, sdr_sel
-  ld a, $08
+  call cursor_attr
   ld (text_attr), a
   jr sdr_val
 sdr_sel:
@@ -4918,6 +5207,9 @@ stg_lbls:
   .db "SRAM", 0
   .db "SYNC", 0
   .db "COLR", 0
+  .db "CLON", 0
+str_slim:   .db "SLIM"
+str_deep:   .db "DEEP"
 str_palnm:
   .db "WHT "
   .db "GRN "
@@ -5033,7 +5325,7 @@ ch_field_attr:
   ld a, (chn_col)
   cp d
   jr nz, cfa_norm
-  ld a, $08
+  call cursor_attr
   jr cfa_set
 cfa_norm:
   call sel_cell_attr
