@@ -327,7 +327,8 @@ function render() {
         <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
         <div class="row" style="margin-top:6px">
           <label><input type="checkbox" ${it.keep ? "checked" : ""} data-k="keep"> keep</label>
-          <button data-k="play">audition</button></div>`;
+          <button data-k="play">audition</button>
+          <button data-k="del">remove</button></div>`;
     } else {
       card.innerHTML = `<input type="text" maxlength="5" value="${it.name}" data-k="name">
         <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
