@@ -1000,6 +1000,8 @@ chp_press:
   ret nz
   ld a, (last_phrase)
   ld (hl), a
+  inc hl
+  ld (hl), 0                 ; clear transpose (init fill is $FF = -1)
   ld a, 1
   ld (dt1_fresh), a          ; a second tap mints a free phrase
   ld a, (chn_row)
@@ -4590,6 +4592,17 @@ cdr_tsp:
   call nt_addr_hl
   call vdp_set_addr
   pop de
+  ld a, (tmp_note)           ; empty row: dash the transpose too
+  cp $FF
+  jr nz, cdr_tshex
+  ld a, '-'
+  push de
+  call print_char
+  ld a, '-'
+  call print_char
+  pop de
+  ret
+cdr_tshex:
   ld a, (tmp_instr)
   push de
   call print_hex_a
