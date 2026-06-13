@@ -23,8 +23,16 @@ $(BUILD)/logo.inc: tools/makelogo.py art/smsggdj-logo.png | $(BUILD)
 
 
 
+# A pre-built pool (samples/pool.bin, e.g. exported from
+# tools/patcher.html) is baked straight in; otherwise samples/*.wav
+# are converted. Remove samples/pool.bin to go back to the WAVs.
+ifneq ($(wildcard samples/pool.bin),)
+$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py samples/pool.bin | $(BUILD)
+	python3 tools/smsdj_sample.py --pool-in samples/pool.bin -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
+else
 $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py $(wildcard samples/*.wav) | $(BUILD)
 	python3 tools/smsdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
+endif
 
 $(BUILD)/main.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm

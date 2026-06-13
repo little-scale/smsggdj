@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<!-- SMSDJ sample patcher: drop a built smsdj.sms and some sound
+<!--  sample patcher: drop a built .sms and some sound
      files, trim/process/audition them, and download a ROM with
      the new sample pool. Everything runs locally in the browser.
-     Pool contract: DESIGN.md 10.3 / tools/smsdj_sample.py. -->
+     Pool contract: DESIGN.md 10.3 / tools/_sample.py. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>SMSDJ sample patcher</title>
+<title> sample patcher</title>
 <style>
   :root { color-scheme: dark; }
   body { font: 14px/1.45 ui-monospace, Menlo, monospace; background: #101418;
@@ -45,12 +45,12 @@
 </style>
 </head>
 <body>
-<h1><span>SMSDJ</span> sample patcher</h1>
-<p class="dim">1: load your <b>smsdj.sms</b> (128 KB). 2: drop sounds —
+<h1><span></span> sample patcher</h1>
+<p class="dim">1: load your <b>.sms</b> (128 KB). 2: drop sounds —
 any format the browser can decode. 3: trim, drive, audition.
 4: download the patched ROM. Nothing leaves this page.</p>
 
-<div class="zone" id="romzone">drop smsdj.sms here (or click)</div>
+<div class="zone" id="romzone">drop .sms here (or click)</div>
 <input type="file" id="romfile" accept=".sms" hidden>
 <div id="rominfo"></div>
 
@@ -60,15 +60,24 @@ any format the browser can decode. 3: trim, drive, audition.
 <div id="samples"></div>
 
 <div id="capacity" style="display:none">
+  <div class="row" style="margin-bottom:8px">
+    <label>global gain
+      <input type="range" id="ggain" min="0.1" max="10" step="0.1" value="1">
+      <span data-v="ggain">1.0×</span></label>
+    <span class="dim">applies on top of each sample's gain</span>
+  </div>
   <div class="bar"><div id="capfill" style="width:0%"></div></div>
   <span class="dim" id="captext"></span>
-  <button class="primary" id="download" style="float:right">download patched ROM</button>
+  <span style="float:right">
+    <button id="exportpool">export pool .bin</button>
+    <button class="primary" id="download">download patched ROM</button>
+  </span>
   <div style="clear:both"></div>
 </div>
 
 <script>
 "use strict";
-// ---- the pool contract (must match tools/smsdj_sample.py) ----
+// ---- the pool contract (must match tools/_sample.py) ----
 const POOL_OFF = 0x8000, BANK = 16384, POOL_BANKS = 6, MAX_SAMPLES = 32;
 const DIR_END = 8 + MAX_SAMPLES * 10, RATE = 7813;
 const MAX_SAMPLE = BANK - DIR_END;
@@ -76,7 +85,8 @@ const MAX_SAMPLE = BANK - DIR_END;
 const LEVELS = []; for (let n = 0; n < 15; n++) LEVELS.push(10 ** (-n / 10));
 LEVELS.push(0);
 
-let rom = null, romName = "smsdj.sms";
+let rom = null, romName = ".sms";
+let globalGain = 1;             // multiplies into every new sample
 const items = [];           // {name, kind:'rom'|'new', ...}
 let ac = null;
 const ctx = () => ac || (ac = new (window.AudioContext || window.webkitAudioContext)());
@@ -87,7 +97,7 @@ function loadRom(buf, name) {
   const txt = String.fromCharCode(...d.slice(0x7ff0, 0x7ff8));
   if (txt !== "TMR SEGA") return alert("not an SMS ROM (no TMR SEGA header)");
   const magic = String.fromCharCode(...d.slice(POOL_OFF, POOL_OFF + 4));
-  if (magic !== "SMPL") return alert("this ROM has no SMSDJ sample pool " +
+  if (magic !== "SMPL") return alert("this ROM has no  sample pool " +
     "(needs a build with the banked pool)");
   rom = d; romName = name;
   // absorb the existing pool as keepable items
@@ -144,7 +154,8 @@ function process(it) {
     for (const v of s) peak = Math.max(peak, Math.abs(v));
     s = s.map(v => v / peak);
   }
-  if (it.gain !== 1) s = s.map(v => v * it.gain);
+  const g = it.gain * globalGain;
+  if (g !== 1) s = s.map(v => v * g);
   if (it.tanh > 0) {
     const k = Math.tanh(it.tanh);
     s = s.map(v => Math.tanh(v * it.tanh) / k);
@@ -164,7 +175,7 @@ function process(it) {
 }
 
 function quantize(s, dither, gate) {
-  // mirror of smsdj_sample.py convert(): error-diffused mapping
+  // mirror of _sample.py convert(): error-diffused mapping
   // onto the logarithmic DAC levels, then the silence gate
   const out = new Uint8Array(s.length);
   let err = 0;
@@ -239,27 +250,48 @@ function placement() {
   return { place, used: free.reduce((a, v) => a + v, 0) - DIR_END };
 }
 
-function buildRom() {
+// build the 96 KB pool image (banks 2-7): SMPL header, 32-entry
+// directory (zero-padded), then first-fit sample data. Byte-for-
+// byte the pool region the ROM carries and smsdj_sample.py emits.
+function buildPool() {
   const p = placement();
-  if (!p) return;
-  const out = new Uint8Array(rom);   // copy
-  out.fill(0xff, POOL_OFF, POOL_OFF + POOL_BANKS * BANK);
-  const h = [0x53, 0x4d, 0x50, 0x4c, 1, p.place.length, RATE & 255, RATE >> 8];
-  out.set(h, POOL_OFF);
+  if (!p) return null;
+  const pool = new Uint8Array(POOL_BANKS * BANK).fill(0xff);
+  pool.fill(0, 8, DIR_END);          // directory zero-padded
+  pool.set([0x53, 0x4d, 0x50, 0x4c, 1, p.place.length,
+            RATE & 255, RATE >> 8], 0);
   p.place.forEach((pl, i) => {
-    const e = POOL_OFF + 8 + i * 10;
-    out[e] = pl.bank;
-    out[e + 1] = pl.off & 255; out[e + 2] = pl.off >> 8;
-    out[e + 3] = pl.it.packed.length & 255; out[e + 4] = pl.it.packed.length >> 8;
+    const e = 8 + i * 10;
+    pool[e] = pl.bank;
+    pool[e + 1] = pl.off & 255; pool[e + 2] = pl.off >> 8;
+    pool[e + 3] = pl.it.packed.length & 255; pool[e + 4] = pl.it.packed.length >> 8;
     const nm = (pl.it.name || "SMPL").toUpperCase().padEnd(5).slice(0, 5);
-    for (let c = 0; c < 5; c++) out[e + 5 + c] = nm.charCodeAt(c);
-    out.set(pl.it.packed, POOL_OFF + (pl.bank - 2) * BANK + (pl.off - 0x8000));
+    for (let c = 0; c < 5; c++) pool[e + 5 + c] = nm.charCodeAt(c);
+    pool.set(pl.it.packed, (pl.bank - 2) * BANK + (pl.off - 0x8000));
   });
-  checksum(out);
+  return pool;
+}
+
+function dl(bytes, name) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([out], { type: "application/octet-stream" }));
-  a.download = romName.replace(/\.sms$/i, "") + "-patched.sms";
+  a.href = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  a.download = name;
   a.click();
+}
+
+function buildRom() {
+  const pool = buildPool();
+  if (!pool) return;
+  const ext = romName.match(/\.gg$/i) ? ".gg" : ".sms";
+  const out = new Uint8Array(rom);   // copy
+  out.set(pool, POOL_OFF);
+  checksum(out);
+  dl(out, romName.replace(/\.(sms|gg)$/i, "") + "-patched" + ext);
+}
+
+function exportPool() {
+  const pool = buildPool();
+  if (pool) dl(pool, "pool.bin");
 }
 
 function drawWave(cv, it) {
@@ -398,6 +430,13 @@ zone("romzone", "romfile", async f => {
 });
 zone("sndzone", "sndfile", addSounds);
 document.getElementById("download").onclick = buildRom;
+document.getElementById("exportpool").onclick = exportPool;
+document.getElementById("ggain").oninput = e => {
+  globalGain = parseFloat(e.target.value) || 1;
+  document.querySelector('[data-v="ggain"]').textContent = globalGain.toFixed(1) + "×";
+  items.forEach(rebuild);          // only 'new' items rebuild
+  render();
+};
 </script>
 </body>
 </html>
