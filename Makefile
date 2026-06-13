@@ -34,11 +34,27 @@ $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py $(wildcard samples/*.
 	python3 tools/smsdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 endif
 
-$(BUILD)/main.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc | $(BUILD)
+SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm
+GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc
+
+# demo ROMs (DEMO_MODE): load the demo song and auto-play it from
+# row 0 at boot - a self-running "attract" build. The normal ROMs
+# boot to a blank song and wait. Separate outputs so the two don't
+# clash (and make rebuilds each correctly).
+DEMOROM   := $(BUILD)/smsdj-demo.sms
+DEMOGGROM := $(BUILD)/smsdj-demo.gg
+
+$(BUILD)/main.o: $(SRCS) $(GEN) | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm
 
-$(BUILD)/main-gg.o: src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc | $(BUILD)
+$(BUILD)/main-gg.o: $(SRCS) $(GEN) | $(BUILD)
 	$(ASM) -D TARGET_GG=1 -I $(BUILD) -o $@ src/main.asm
+
+$(BUILD)/main-demo.o: $(SRCS) $(GEN) | $(BUILD)
+	$(ASM) -D DEMO_MODE=1 -I $(BUILD) -o $@ src/main.asm
+
+$(BUILD)/main-demo-gg.o: $(SRCS) $(GEN) | $(BUILD)
+	$(ASM) -D TARGET_GG=1 -D DEMO_MODE=1 -I $(BUILD) -o $@ src/main.asm
 
 $(BUILD)/linkfile: Makefile | $(BUILD)
 	printf '[objects]\n$(BUILD)/main.o\n' > $@
@@ -46,11 +62,25 @@ $(BUILD)/linkfile: Makefile | $(BUILD)
 $(BUILD)/linkfile-gg: Makefile | $(BUILD)
 	printf '[objects]\n$(BUILD)/main-gg.o\n' > $@
 
+$(BUILD)/linkfile-demo: Makefile | $(BUILD)
+	printf '[objects]\n$(BUILD)/main-demo.o\n' > $@
+
+$(BUILD)/linkfile-demo-gg: Makefile | $(BUILD)
+	printf '[objects]\n$(BUILD)/main-demo-gg.o\n' > $@
+
 $(ROM): $(BUILD)/main.o $(BUILD)/linkfile
 	$(LINK) -v $(BUILD)/linkfile $@
 
 $(GGROM): $(BUILD)/main-gg.o $(BUILD)/linkfile-gg
 	$(LINK) -v $(BUILD)/linkfile-gg $@
+
+$(DEMOROM): $(BUILD)/main-demo.o $(BUILD)/linkfile-demo
+	$(LINK) -v $(BUILD)/linkfile-demo $@
+
+$(DEMOGGROM): $(BUILD)/main-demo-gg.o $(BUILD)/linkfile-demo-gg
+	$(LINK) -v $(BUILD)/linkfile-demo-gg $@
+
+demo: $(DEMOROM) $(DEMOGGROM)
 
 JAVA := /opt/homebrew/opt/openjdk/bin/java
 EMU  := tools/emulicious/Emulicious.jar
@@ -61,7 +91,13 @@ run: all                       ; always rebuild both flavors
 run-gg: all
 	$(JAVA) -jar $(EMU) $(abspath $(GGROM))
 
+run-demo: $(DEMOROM)
+	$(JAVA) -jar $(EMU) $(abspath $(DEMOROM))
+
+run-demo-gg: $(DEMOGGROM)
+	$(JAVA) -jar $(EMU) $(abspath $(DEMOGGROM))
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean run run-gg
+.PHONY: all clean run run-gg demo run-demo run-demo-gg

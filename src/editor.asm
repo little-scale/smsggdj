@@ -38,9 +38,13 @@
 .IFDEF TARGET_GG
 .DEFINE MAP_COL     15
 .DEFINE MAP_ROW     2
+.DEFINE INS_LBL     2        ; INSTR form shifted left to clear the map
+.DEFINE INS_VAL     8
 .ELSE
 .DEFINE MAP_COL     25
 .DEFINE MAP_ROW     4
+.DEFINE INS_LBL     4
+.DEFINE INS_VAL     10
 .ENDIF
 
 .RAMSECTION "edvars" SLOT 3
@@ -5592,7 +5596,7 @@ idr_lblgo:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 4
+  ld c, INS_LBL
   pop hl
   push de
   call print_at
@@ -5611,7 +5615,7 @@ idr_addr:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 10
+  ld c, INS_VAL
   push de
   call nt_addr_hl
   call vdp_set_addr

@@ -25,8 +25,13 @@ Python 3. `make run` launches the bundled Emulicious (needs Java).
 make          # build both: build/smsdj.sms and build/smsdj.gg
 make run      # build both, launch the SMS ROM
 make run-gg   # build both, launch the Game Gear ROM
+make demo     # build the self-playing demo ROMs (-demo.sms / -demo.gg)
+make run-demo / run-demo-gg   # build + launch a demo ROM
 make clean
 ```
+
+The normal ROMs boot to a blank song, ready to edit. The **demo** ROMs load
+the demo song and auto-play it from boot — a self-running "attract" build.
 
 Drop a ROM on a flashcart (Master Everdrive etc.) or open it in an emulator.
 On boot it loads a demo song — press play and you're off.

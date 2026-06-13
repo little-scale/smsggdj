@@ -182,7 +182,11 @@ init:
   call load_palette          ; the splash renders in it too
   call load_font
   call splash                ; logo + version; SMS region detect inside
-  call song_init
+.IFDEF DEMO_MODE
+  call song_init             ; demo build: the demo song
+.ELSE
+  call song_new              ; normal build: a blank song
+.ENDIF
   call editor_init
   ; sample pool directory (bank 2 sits in slot 2 from boot)
   xor a
@@ -278,6 +282,12 @@ init_paint:
   ld a, 1
   ld (ints_on), a
   ei
+.IFDEF DEMO_MODE
+  ld a, MODE_SONG            ; demo build: auto-play from row 0
+  call engine_play
+  ld a, 1
+  ld (state_dirty), a
+.ENDIF
 
 ; =============================================================
 ; main loop
@@ -317,6 +327,13 @@ main_loop:
   ld (frame), hl
   jr main_loop
 
+.ENDS
+
+; the splash lives in bank 1 (slot 1, always mapped): bank 0 is
+; full. It is boot-only, so the cross-bank calls cost nothing.
+.BANK 1 SLOT 1
+.SECTION "Splash" FREE
+
 ; =============================================================
 ; boot splash: the SMSGGDJ logo (tools/makelogo.py), centred, in
 ; the house palette - index 0 is the scheme's background (border
@@ -341,7 +358,7 @@ spl_t:
   ld a, b
   or c
   jr nz, spl_t
-  ; logo map at row 8, column 6 (absolute: the GG window centre is
+  ; logo map at row 10, column 6 (absolute: the GG window centre is
   ; the frame centre, so one placement fits both flavours); each
   ; map byte is offset by the tile-64 base
   ld hl, logo_map
@@ -350,7 +367,7 @@ spl_row:
   push hl
   push de
   ld a, d
-  add a, 8
+  add a, 10
   ld l, a
   ld h, 0
   add hl, hl
@@ -377,10 +394,38 @@ spl_col:
   ld a, d
   cp LOGO_H
   jr c, spl_row
+  ; "LITTLE-SCALE'S" inverted band at row 6 (row 7 stays blank as
+  ; the gap before the logo at row 8) - mirrors the version bar
+  ld hl, NT_WADDR + 8*64
+  call vdp_set_addr
+  ld b, 32
+spl_cbar:
+  xor a
+  out (VDP_DATA), a
+  ld a, $08
+  out (VDP_DATA), a
+  djnz spl_cbar
+  ld hl, NT_WADDR + 8*64 + 9*2     ; 14 chars, centred
+  call vdp_set_addr
+  ld a, $08
+  ld (text_attr), a
+  ld hl, str_credit
+spl_cred:
+  ld a, (hl)
+  or a
+  jr z, spl_creddone
+  push hl
+  call print_char
+  pop hl
+  inc hl
+  jr spl_cred
+spl_creddone:
+  xor a
+  ld (text_attr), a
   ; fill the whole version row with an inverted bar (display is
   ; off here, so no write-spacing needed), then the version text
   ; on it (absolute coords, like the logo)
-  ld hl, NT_WADDR + 13*64    ; row 13, column 0
+  ld hl, NT_WADDR + 15*64    ; row 15, column 0
   call vdp_set_addr
   ld b, 32
 spl_bar:
@@ -389,7 +434,7 @@ spl_bar:
   ld a, $08                  ; inverted attribute
   out (VDP_DATA), a
   djnz spl_bar
-  ld hl, NT_WADDR + 13*64 + 14*2   ; version at column 14
+  ld hl, NT_WADDR + 15*64 + 14*2   ; version at column 14
   call vdp_set_addr
   ld a, $08
   ld (text_attr), a
@@ -434,6 +479,11 @@ spl_clear:
   or c
   jr nz, spl_clear
   ret
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "Main2" FREE
 
 ; =============================================================
 ; region detection: max VCounter over ~15 frames
@@ -633,6 +683,7 @@ str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
 str_version:     .db "V0.2", 0
+str_credit:      .db "LITTLE-SCALE'S", 0
 str_syncsym:     .db $3E, $5C, $40, $20  ; > pulse < space
 str_rest:        .db "---"
 
