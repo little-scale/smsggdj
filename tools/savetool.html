@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<!-- SMSGGDJ song/save manager: drop a .sav to extract songs, drop
+     .smdj songs (or bare 5,376-byte song blocks) to build a .sav.
+     Everything runs locally in the browser. See SAVEFORMAT.md. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SMSGGDJ songs &amp; saves</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.45 ui-monospace, Menlo, monospace; background: #101418;
+         color: #d8e0e8; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 20px; } h1 span { color: #58a6ff; }
+  .zone { border: 2px dashed #2d3742; border-radius: 10px; padding: 18px;
+          margin: 12px 0; text-align: center; color: #8b98a5; cursor: pointer; }
+  .zone.armed { border-color: #58a6ff; color: #d8e0e8; }
+  .slot { background: #161c22; border: 1px solid #2d3742; border-radius: 10px;
+          padding: 12px 14px; margin: 10px 0; display: flex; gap: 12px;
+          align-items: center; }
+  .slot.empty { opacity: .55; }
+  .slot .num { font-size: 22px; color: #58a6ff; width: 28px; }
+  .slot .info { flex: 1; }
+  .dim { color: #8b98a5; font-size: 12px; }
+  .bad { color: #e0707b; }
+  button { background: #1c2730; color: #d8e0e8; border: 1px solid #3a4754;
+           border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+  button:hover { background: #24323e; }
+  button:disabled { opacity: .35; cursor: default; }
+  button.primary { background: #1f4e2e; border-color: #2f7a46; font-weight: 700;
+                   padding: 10px 22px; font-size: 15px; }
+</style>
+</head>
+<body>
+<h1><span>SMSGGDJ</span> songs &amp; saves</h1>
+<p class="dim">Drop a <b>.sav</b> (Emulicious / Everdrive cart image) to
+unpack its songs, or drop <b>.smdj</b> songs — bare 5,376-byte song
+blocks are wrapped automatically. Then download songs per slot, or the
+assembled cart image. Nothing leaves this page.</p>
+
+<div class="zone" id="zone">drop .sav / .smdj files here (or click)</div>
+<input type="file" id="file" multiple hidden>
+
+<div id="slots"></div>
+
+<div style="margin-top:14px">
+  <button class="primary" id="dlsav" disabled>download .sav</button>
+  <button id="dlall" disabled>download all songs</button>
+  <span class="dim" id="note"></span>
+</div>
+
+<script>
+"use strict";
+// ---- the save contract (must match SAVEFORMAT.md / savetool.py) ----
+const MAGIC = "SMDJ3", STRIDE = 0x1520, HDR = 16, DATA = 5376;
+const BLOB = HDR + DATA, SLOTS = 3, SAV_SIZE = 32768;
+
+const slots = [null, null, null];   // each: Uint8Array(BLOB) or null
+let savName = "smsggdj.sav";
+
+function checksum(d) {
+  let s = 0;
+  for (let i = 0; i < d.length; i++) s = (s + d[i]) & 0xffff;
+  return s;
+}
+
+function magicOf(d) { return String.fromCharCode(...d.slice(0, 5)); }
+
+function validBlob(b) {
+  return b.length === BLOB && magicOf(b) === MAGIC &&
+         (b[5] | (b[6] << 8)) === checksum(b.slice(HDR));
+}
+
+function wrapBlock(data) {
+  const b = new Uint8Array(BLOB);
+  for (let i = 0; i < 5; i++) b[i] = MAGIC.charCodeAt(i);
+  const c = checksum(data);
+  b[5] = c & 0xff; b[6] = c >> 8;
+  b.set(data, HDR);
+  return b;
+}
+
+function loadSav(d, name) {
+  savName = name;
+  let found = 0;
+  for (let n = 0; n < SLOTS; n++) {
+    const blob = d.slice(n * STRIDE, n * STRIDE + BLOB);
+    slots[n] = validBlob(blob) ? blob : null;
+    if (slots[n]) found++;
+  }
+  note(`${name}: ${found} song(s) found`);
+}
+
+function addSong(blob, name) {
+  for (let n = 0; n < SLOTS; n++) {
+    if (!slots[n]) {
+      slots[n] = blob;
+      note(`${name} -> slot ${n + 1}`);
+      return;
+    }
+  }
+  note(`${name}: all ${SLOTS} slots full - clear one first`, true);
+}
+
+function buildSav() {
+  const img = new Uint8Array(SAV_SIZE).fill(0xff);
+  slots.forEach((b, n) => { if (b) img.set(b, n * STRIDE); });
+  return img;
+}
+
+// ------------------------------------------------------- UI
+function download(bytes, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes],
+    { type: "application/octet-stream" }));
+  a.download = name;
+  a.click();
+}
+
+function note(msg, bad) {
+  const el = document.getElementById("note");
+  el.textContent = msg;
+  el.className = bad ? "bad" : "dim";
+}
+
+function render() {
+  const box = document.getElementById("slots");
+  box.innerHTML = "";
+  slots.forEach((b, n) => {
+    const div = document.createElement("div");
+    div.className = "slot" + (b ? "" : " empty");
+    div.innerHTML = `<div class="num">${n + 1}</div>
+      <div class="info">${b
+        ? `song — checksum ok <span class="dim">(${BLOB} bytes)</span>`
+        : "empty"}</div>
+      <button data-k="dl" ${b ? "" : "disabled"}>download .smdj</button>
+      <button data-k="clear" ${b ? "" : "disabled"}>clear</button>`;
+    div.addEventListener("click", e => {
+      const k = e.target.dataset.k;
+      if (k === "dl") download(slots[n],
+        savName.replace(/\.sav$/i, "") + `-slot${n + 1}.smdj`);
+      if (k === "clear") { slots[n] = null; render(); }
+    });
+    box.appendChild(div);
+  });
+  const any = slots.some(b => b);
+  document.getElementById("dlsav").disabled = !any;
+  document.getElementById("dlall").disabled = !any;
+}
+
+async function addFiles(files) {
+  for (const f of files) {
+    const d = new Uint8Array(await f.arrayBuffer());
+    if (d.length === BLOB && validBlob(d)) addSong(d, f.name);
+    else if (d.length === DATA) addSong(wrapBlock(d), f.name + " (wrapped)");
+    else if (d.length >= STRIDE && d.length <= 4 * SAV_SIZE) loadSav(d, f.name);
+    else note(`${f.name}: not a .sav, .smdj or song block`, true);
+  }
+  render();
+}
+
+const zone = document.getElementById("zone"),
+      inp = document.getElementById("file");
+zone.onclick = () => inp.click();
+inp.onchange = () => { addFiles([...inp.files]); inp.value = ""; };
+zone.ondragover = e => { e.preventDefault(); zone.classList.add("armed"); };
+zone.ondragleave = () => zone.classList.remove("armed");
+zone.ondrop = e => { e.preventDefault(); zone.classList.remove("armed");
+                     addFiles([...e.dataTransfer.files]); };
+document.getElementById("dlsav").onclick = () =>
+  download(buildSav(), savName);
+document.getElementById("dlall").onclick = () =>
+  slots.forEach((b, n) => { if (b) download(b,
+    savName.replace(/\.sav$/i, "") + `-slot${n + 1}.smdj`); });
+render();
+</script>
+</body>
+</html>

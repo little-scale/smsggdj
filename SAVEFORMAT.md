@@ -60,6 +60,11 @@ python3 tools/savetool.py build setlist.sav a.smdj b.smdj c.smdj
 python3 tools/savetool.py wrap demo.smdj build/demo.bin
 ```
 
+**Browser version: `tools/savetool.html`** — drop a `.sav` to unpack
+its songs, drop `.smdj` files (bare song blocks wrap automatically)
+and download the assembled cart image; fully client-side, validated
+byte-identical against this tool.
+
 `export-all` extracts every checksum-valid slot; `build` assembles a
 fresh cart image from up to three songs (a "setlist" .sav for the
 Everdrive); `wrap` turns a bare 5,376-byte song block (e.g. the ROM
