@@ -31,6 +31,7 @@
 .DEFINE SCR_GROOVE  5
 .DEFINE SCR_PROJ    6
 .DEFINE SCR_WAVE    7
+.DEFINE SCR_SET     8         ; SETTINGS, above SONG
 
 .RAMSECTION "edvars" SLOT 3
   scr_mode     db
@@ -48,6 +49,7 @@
   wav_col      db
   wv_preset    db
   prj_row      db
+  stg_row      db            ; SETTINGS cursor field
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
   prj_slot     db            ; save slot 0..sram_slots-1
@@ -249,20 +251,48 @@ screen_nav:
   ; map: PROJECT above CHAIN, GROOVE below CHAIN, WAVE above
   ; INSTR; horizontal row is SONG CHAIN PHRASE INSTR TABLE
   ld a, (scr_mode)
+  or a
+  jr z, sn_song
+  cp SCR_SET
+  jr z, sn_set
   cp SCR_PROJ
   jr z, sn_proj
   cp SCR_CHAIN
   jr z, sn_chain
   cp SCR_GROOVE
-  jr z, sn_groove
+  jp z, sn_groove
   cp SCR_WAVE
-  jr z, sn_wave
+  jp z, sn_wave
   cp SCR_INSTR
-  jr z, sn_instr_up
+  jp z, sn_instr_up
   cp SCR_TABLE
   jp z, sn_selt
   jp sn_lr
+sn_song:                     ; SETTINGS sits above SONG
+  ld a, (pad_edge)
+  and PAD_UP
+  jp z, sn_lr
+  ld a, SCR_SET
+  jp sn_switch
+sn_set:                      ; down to SONG, right to PROJECT
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jr z, sn_set_r
+  ld a, 0                    ; SCR_SONG
+  jp sn_switch
+sn_set_r:
+  ld a, (pad_edge)
+  and PAD_RIGHT
+  ret z
+  ld a, SCR_PROJ
+  jp sn_switch
 sn_proj:
+  ld a, (pad_edge)
+  and PAD_LEFT
+  jr z, sn_proj_d
+  ld a, SCR_SET              ; left to SETTINGS
+  jp sn_switch
+sn_proj_d:
   ld a, (pad_edge)
   and PAD_DOWN
   ret z
@@ -463,6 +493,8 @@ cursor_move:
   jp z, cm_groove
   cp SCR_PROJ
   jp z, cm_proj
+  cp SCR_SET
+  jp z, cm_set
   cp SCR_WAVE
   jp z, cm_wave
 
@@ -802,6 +834,8 @@ do_press:
   jp z, grp_press
   cp SCR_PROJ
   jp z, prp_press
+  cp SCR_SET
+  ret z                      ; nothing pressable on SETTINGS
   cp SCR_WAVE
   ret z
   ; ---- SONG ----
@@ -834,6 +868,8 @@ do_cut:
   cp SCR_INSTR
   ret z
   cp SCR_PROJ
+  ret z
+  cp SCR_SET
   ret z
   cp SCR_WAVE
   jp z, wvp_cut
@@ -895,6 +931,8 @@ do_edit:
   jp z, grp_edit
   cp SCR_PROJ
   jp z, prp_edit
+  cp SCR_SET
+  jp z, stp_edit
   cp SCR_WAVE
   jp z, wvp_edit
   ; ---- SONG: edit chain number ----
@@ -2114,7 +2152,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 11
+  cp 7
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2148,13 +2186,13 @@ prj_mark_field:              ; A = field (preserved)
 
 prp_press:
   ld a, (prj_row)
-  cp 5
+  cp 3
   jr z, prp_new
-  cp 6
+  cp 4
   jr z, prp_demo
-  cp 7
+  cp 6
   jr z, prp_save
-  cp 8
+  cp 7
   ret nz
   call song_load
   call mark_all_dirty        ; song data replaced
@@ -2164,9 +2202,9 @@ prp_press:
   ret
 prp_new:                     ; armed two-press wipe
   ld a, (new_arm)
-  cp 5
+  cp 3
   jr z, prn_go
-  ld a, 5                    ; first press: arm + ask
+  ld a, 3                    ; first press: arm + ask
   jr prn_ask
 prn_go:
   call prn_clear
@@ -2175,9 +2213,9 @@ prn_go:
   jr prn_done
 prp_demo:                    ; armed two-press demo load
   ld a, (new_arm)
-  cp 6
+  cp 4
   jr z, prd_go
-  ld a, 6
+  ld a, 4
 prn_ask:
   ld (new_arm), a
   ld a, 5                    ; "SURE?"
@@ -2209,16 +2247,12 @@ prp_save:
 
 prp_edit:
   ld a, (prj_row)
-  cp 4
+  cp 5
   jr z, prp_slot
-  cp 9
-  jp z, prp_sync
-  cp 10
+  cp 2
   jp z, prp_play
   cp 1
   jp z, prp_tsp
-  cp 11
-  jp z, prp_colr
   or a
   ret nz
   ld d, 0
@@ -2286,7 +2320,7 @@ psl_zero:
   xor a
 psl_st:
   ld (prj_slot), a
-  ld a, 4
+  ld a, 5
   jp prj_mark_field
 prp_tsp:                     ; global transpose: L/R = semitone,
   ld a, (ed_rep)             ; U/D = octave, +-24
@@ -2320,7 +2354,7 @@ pt_st:
   ld (proj_tsp), a
   ld a, 1
   jp prj_mark_field
-prp_colr:                    ; 1 + L/R cycles the colour scheme
+stp_colr:                    ; 1 + L/R cycles the colour scheme
   ld a, (ed_rep)
   and PAD_LEFT|PAD_RIGHT
   ret z
@@ -2345,9 +2379,9 @@ pc_hi:
 pc_st:
   ld (pal_sel), a
   call load_palette          ; applies immediately
-  ld a, 11
-  jp prj_mark_field
-prp_sync:                    ; 1 + L/R cycles the sync mode
+  ld a, 3
+  jp stg_mark_field
+stp_sync:                    ; 1 + L/R cycles the sync mode
   ld a, (ed_rep)
   ld c, a
   ld a, (sync_mode)
@@ -2371,9 +2405,9 @@ psy_cl:
   ld (sync_mode), a
   ld a, 1
   ld (state_dirty), a
-  ld a, 9
-  jp prj_mark_field
-prp_play:                    ; 1 + L/R toggles SONG/LIVE
+  ld a, 2
+  jp stg_mark_field
+prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE)
   ld a, (ed_rep)
   and PAD_LEFT|PAD_RIGHT
   ret z
@@ -2387,13 +2421,133 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE
   ld (play_mode), a
   ld a, 1
   ld (state_dirty), a
-  ld a, 10
+  ld a, 2
   jp prj_mark_field
 
+; -------------------------------------------------------------
+; SETTINGS screen: the machine/rig page (the future persisted
+; config block). Fields: 0 VID, 1 SRAM (read-only), 2 SYNC,
+; 3 COLR.
+cm_set:
+  bit 1, c                   ; down
+  jr z, cs_up
+  ld a, (stg_row)
+  cp 3
+  jr nc, cs_up
+  call stg_mark_field
+  inc a
+  ld (stg_row), a
+  call stg_mark_field
+cs_up:
+  bit 0, c                   ; up
+  ret z
+  ld a, (stg_row)
+  or a
+  ret z
+  call stg_mark_field
+  dec a
+  ld (stg_row), a
+  jp stg_mark_field
+
+stg_mark_field:              ; A = field (preserved)
+  push hl
+  push de
+  push af
+  ld e, a
+  ld d, 0
+  ld hl, stg_f2r
+  add hl, de
+  ld a, (hl)
+  call mark_dirty_a
+  pop af
+  pop de
+  pop hl
+  ret
+
+stp_edit:
+  ld a, (stg_row)
+  cp 2
+  jp z, stp_sync
+  cp 3
+  jp z, stp_colr
+  ret
+
+dl_set:
+  ld b, NAME_ROW
+  ld c, NAME_COL
+  ld hl, str_set
+  jp print_at
+
+st_draw_row:
+  push de
+  ld d, 0
+  ld hl, stg_r2f
+  add hl, de
+  ld a, (hl)
+  pop de
+  cp $FF
+  ret z
+  ld (ed_field), a
+  ; label (col 4)
+  xor a
+  ld (text_attr), a
+  ld a, (ed_field)
+  ld d, a
+  add a, a
+  add a, a
+  add a, d                   ; * 5
+  push de
+  ld e, a
+  ld d, 0
+  ld hl, stg_lbls
+  add hl, de
+  pop de
+  push hl
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  pop hl
+  push de
+  call print_at
+  pop de
+  ; value attr
+  xor a
+  ld (text_attr), a
+  ld a, (stg_row)
+  ld d, a
+  ld a, (ed_field)
+  cp d
+  jr nz, std_addr
+  ld a, $08
+  ld (text_attr), a
+std_addr:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 10
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, (ed_field)
+  or a
+  jp z, prd_video
+  cp 1
+  jp z, prd_sram
+  cp 2
+  jp z, prd_sync
+  jp prd_colr
+
+stg_f2r:
+  .db 0, 1, 3, 5
+stg_r2f:
+  .db 0, 1, $FF, 2, $FF, 3, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
 prj_f2r:
-  .db 0, 1, 3, 4, 5, 7, 8, 9, 10, 12, 13, 15
+  .db 0, 1, 2, 4, 6, 8, 10, 11
 prj_r2f:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, 7, 8, $FF, 9, 10, $FF, 11
+  .db 0, 1, 2, $FF, 3, $FF, 4, $FF, 5, $FF, 6, 7, $FF, $FF, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -3749,6 +3903,8 @@ draw_row:
   jp z, gr_draw_row
   cp SCR_PROJ
   jp z, pr_draw_row
+  cp SCR_SET
+  jp z, st_draw_row
   cp SCR_WAVE
   jp z, wv_draw_row
   jp so_draw_row
@@ -3761,6 +3917,8 @@ playhead_update:
   cp SCR_INSTR
   ret z                      ; no playhead on form screens
   cp SCR_PROJ
+  ret z
+  cp SCR_SET
   ret z
   cp SCR_WAVE
   ret z
@@ -3953,6 +4111,8 @@ draw_labels:
   jp z, dl_groove
   cp SCR_PROJ
   jp z, dl_proj
+  cp SCR_SET
+  jp z, dl_set
   cp SCR_WAVE
   jp z, dl_wave
 
@@ -4171,7 +4331,21 @@ dsm_attr:
   ld a, d
   cp 5
   jr c, dsm_l
-  ; PROJECT indicator above the map's S
+  ; SETTINGS indicator above the map's S
+  ld a, (scr_mode)
+  cp SCR_SET
+  ld a, $00
+  jr nz, dsm_sattr
+  ld a, $08
+dsm_sattr:
+  ld (text_attr), a
+  ld b, 4
+  ld c, 25
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, '='
+  call print_char
+  ; PROJECT indicator above the map's C
   ld a, (scr_mode)
   cp SCR_PROJ
   ld a, $00
@@ -4634,17 +4808,9 @@ prd_addr:
   cp 1
   jr z, prd_tsp
   cp 2
-  jp z, prd_video
-  cp 3
-  jp z, prd_sram
-  cp 4
-  jp z, prd_slot
-  cp 9
-  jp z, prd_sync
-  cp 10
   jp z, prd_play
-  cp 11
-  jr z, prd_colr
+  cp 5
+  jp z, prd_slot
   ; SAVE / LOAD
   ld hl, str_go
   ld b, 2
@@ -4750,15 +4916,16 @@ dl_proj:
 prj_lbls:
   .db "TMPO", 0
   .db "TSP ", 0
-  .db "VID ", 0
-  .db "SRAM", 0
-  .db "SLOT", 0
+  .db "MODE", 0
   .db "NEW ", 0
   .db "DEMO", 0
+  .db "SLOT", 0
   .db "SAVE", 0
   .db "LOAD", 0
+stg_lbls:
+  .db "VID ", 0
+  .db "SRAM", 0
   .db "SYNC", 0
-  .db "MODE", 0
   .db "COLR", 0
 str_palnm:
   .db "WHT "
@@ -4784,6 +4951,7 @@ prj_stats:
   .db "SURE?  "
   .db "NEW    "
 str_proj:   .db "PROJECT", 0
+str_set:    .db "SETTINGS", 0
 str_go:     .db "GO"
 str_vpal:   .db "PAL "
 str_vntsc:  .db "NTSC"

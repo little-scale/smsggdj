@@ -243,8 +243,10 @@ pa_loop:
   ret z
   sub $20                      ; font starts at space
   out (VDP_DATA), a
-  ld a, (text_attr)
-  out (VDP_DATA), a
+  nop                          ; >=29 cycles between strobes -
+  nop                          ; under that, active-display
+  ld a, (text_attr)            ; writes get dropped (the missing
+  out (VDP_DATA), a            ; label letters while playing)
   inc hl
   jr pa_loop
 
