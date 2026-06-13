@@ -115,7 +115,15 @@ function loadRom(buf, name) {
   document.getElementById("rominfo").innerHTML =
     `<div class="card rom"><b>${name}</b> — ${d.length} bytes, pool ` +
     `${count} sample(s)<span class="tag">checksum range: ` +
-    `${["8K","16K","32K","48K","64K","128K"][ (d[0x7fff] & 15) - 10 ] || "ext"}</span></div>`;
+    `${["8K","16K","32K","48K","64K","128K"][ (d[0x7fff] & 15) - 10 ] || "ext"}</span>` +
+    (count ? ` <button id="clearrom">remove all in-ROM</button>` : "") +
+    `</div>`;
+  const cr = document.getElementById("clearrom");
+  if (cr) cr.onclick = () => {
+    for (let i = items.length - 1; i >= 0; i--)
+      if (items[i].kind === "rom") items.splice(i, 1);
+    render();
+  };
   document.getElementById("sndzone").style.display = "";
   document.getElementById("capacity").style.display = "";
   render();
