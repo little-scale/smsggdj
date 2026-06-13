@@ -55,7 +55,15 @@ autoloads at boot.
 python3 tools/savetool.py build/smsdj.sav list
 python3 tools/savetool.py build/smsdj.sav export 1 mysong.smdj
 python3 tools/savetool.py build/smsdj.sav import 2 mysong.smdj
+python3 tools/savetool.py build/smsdj.sav export-all backups/mysav
+python3 tools/savetool.py build setlist.sav a.smdj b.smdj c.smdj
+python3 tools/savetool.py wrap demo.smdj build/demo.bin
 ```
+
+`export-all` extracts every checksum-valid slot; `build` assembles a
+fresh cart image from up to three songs (a "setlist" .sav for the
+Everdrive); `wrap` turns a bare 5,376-byte song block (e.g. the ROM
+demo, or makedemo.py output) into a shareable `.smdj`.
 
 `.smdj` files are a single slot (header + data, 5,392 bytes) — share
 them, back them up, or move songs between slots/carts. `import`
