@@ -341,7 +341,7 @@ spl_t:
   ld a, b
   or c
   jr nz, spl_t
-  ; logo map at row 9, column 6 (absolute: the GG window centre is
+  ; logo map at row 8, column 6 (absolute: the GG window centre is
   ; the frame centre, so one placement fits both flavours); each
   ; map byte is offset by the tile-64 base
   ld hl, logo_map
@@ -350,7 +350,7 @@ spl_row:
   push hl
   push de
   ld a, d
-  add a, 9
+  add a, 8
   ld l, a
   ld h, 0
   add hl, hl
@@ -380,7 +380,7 @@ spl_col:
   ; fill the whole version row with an inverted bar (display is
   ; off here, so no write-spacing needed), then the version text
   ; on it (absolute coords, like the logo)
-  ld hl, NT_WADDR + 14*64    ; row 14, column 0
+  ld hl, NT_WADDR + 13*64    ; row 13, column 0
   call vdp_set_addr
   ld b, 32
 spl_bar:
@@ -389,7 +389,7 @@ spl_bar:
   ld a, $08                  ; inverted attribute
   out (VDP_DATA), a
   djnz spl_bar
-  ld hl, NT_WADDR + 14*64 + 14*2   ; version at column 14
+  ld hl, NT_WADDR + 13*64 + 14*2   ; version at column 14
   call vdp_set_addr
   ld a, $08
   ld (text_attr), a
