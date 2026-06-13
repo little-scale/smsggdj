@@ -19,6 +19,7 @@ $(BUILD)/demo.bin: tools/makedemo.py | $(BUILD)
 	python3 tools/makedemo.py $@
 
 
+
 $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py $(wildcard samples/*.wav) | $(BUILD)
 	python3 tools/smsdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 

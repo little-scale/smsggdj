@@ -3,10 +3,14 @@
 (the wave_ram..grooves layout from SAVEFORMAT.md). song_init copies
 it wholesale, so this file IS the demo song - edit and rebuild.
 
-The tune: C major, 125 BPM at PAL (groove 6,6). Ten song rows of
-two-phrase chains (~38 s loop): intro -> groove (the original
-demo's lead motif) -> C/F/G progression -> square-wave breakdown
--> recap. Kept deliberately bright.
+The tune: C major, 125 BPM at PAL (groove 6,6), fourteen song
+rows (~54 s loop) touring the engine: the original lead motif
+with vibrato, sampled drums, table arps, a swing section (G +
+W shuffle), slides and falls (L, P, D delays), pitched periodic
+noise bass with N overrides, an echo-table melody (C chord, E
+override, M tremolo), a wavetable organ pad alternating notes
+across repeats (I), GG pan ping-pong on the hats (O), and retrig
+fills (R) - with K cuts throughout.
 
 Encodings (engine.asm):
   note byte   = note-table index + 1, 0 = rest; index 0 = A-2
@@ -22,7 +26,7 @@ import sys
 N_PHR, N_CHN, N_ROWS, N_INS, N_TBL, N_GRV = 32, 32, 128, 16, 16, 16
 
 # ---- commands ----
-K, H, A_, C_, E_, F_, G_, N_, P_, T_, V_, W_, M_, D_, L_, R_ = range(1, 17)
+K, H, A_, C_, E_, F_, G_, N_, P_, T_, V_, W_, M_, D_, L_, R_, O_, I_ = range(1, 19)
 
 NAMES = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5,
          "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
@@ -63,7 +67,8 @@ def ph(*steps):
 # =====================================================================
 # instruments
 # =====================================================================
-LEAD, PLUCK, BASS, HAT, SNARE, KICK, WBASS, STAB, OHAT = range(9)
+LEAD, PLUCK, BASS, HAT, SNARE, KICK, WBASS, STAB, OHAT, \
+    PBASS, WPAD, ECHO = range(12)
 
 INSTRUMENTS = [
     # type vol  env   len noise  swp vib  trm tsp  tbl   tbs
@@ -76,6 +81,9 @@ INSTRUMENTS = [
     (3, 0x0F, 0x00, 0,  0x03,  0, 0,    0,  0,  0xFF, 1),   # WBASS (square)
     (0, 0x0C, 0x14, 0,  0x00,  0, 0,    0,  0,  0xFF, 1),   # STAB
     (1, 0x09, 0x13, 6,  0x04,  0, 0,    0,  0,  0xFF, 1),   # OHAT
+    (1, 0x0F, 0x15, 0,  0x03,  0, 0,    0,  0,  0xFF, 1),   # PBASS: pitched
+    (3, 0x0F, 0x00, 0,  0x06,  0, 0,    0,  0,  0xFF, 1),   # WPAD (organ)
+    (0, 0x0D, 0x00, 0,  0x00,  0, 0,    0,  0,  0x01, 3),   # ECHO: tbl 1
 ]
 
 # =====================================================================
@@ -137,6 +145,44 @@ PHRASES = [
     # 16 pluckHi: sparkling top line over the breakdown
     ph(("C5", STAB), "E5", "G5", "C6", "G5", "E5", "C5", "E5",
        "G5", "C6", "G5", "E5", "C5", None, None, None),
+    # 17 slides: L portamento lines
+    ph(("C5", LEAD), None, None, None, ("G5", LEAD, L_, 0x20), None,
+       None, None, ("E5", LEAD, L_, 0x18), None, ("C5", LEAD, L_, 0x18),
+       None, ("D5", LEAD), None, ("G4", LEAD, L_, 0x28), None),
+    # 18 falls: D delays, an E envelope override, P pitch falls
+    ph(("E5", LEAD, D_, 3), None, ("C5", LEAD, D_, 3), None,
+       ("G4", LEAD, P_, 0x06), None, None, None,
+       ("A4", LEAD, E_, 0xF2), None, ("E5", LEAD, D_, 2), None,
+       ("G5", LEAD, P_, 0x10), None, None, ("", LEAD, K, 2)),
+    # 19 swing: G flips to groove 1, W clips a row, G back at exit
+    ph(("C4", STAB, G_, 0x01), ("E4", STAB), ("G4", STAB), ("C5", STAB),
+       ("E5", STAB, W_, 3), None, ("C5", STAB), ("G4", STAB),
+       ("E4", STAB), ("G4", STAB), ("C5", STAB), ("E5", STAB),
+       ("G5", STAB), None, ("C5", STAB), ("", STAB, G_, 0x00)),
+    # 20 noise bass: pitched periodic, N overrides mid-line
+    ph(("A2", PBASS), None, ("A2", PBASS), None, ("C3", PBASS), None,
+       ("A2", PBASS), None, ("E3", PBASS), None,
+       ("D3", PBASS, N_, 0x04), None, ("A2", PBASS, N_, 0x03), None,
+       ("E3", PBASS), None),
+    # 21 echo melody: table-1 echoes, one C chord, M tremolo
+    ph(("C5", ECHO), None, None, None, ("G4", ECHO), None, None, None,
+       ("A4", ECHO, C_, 0x37), None, None, None,
+       ("E5", ECHO, M_, 0x46), None, None, None),
+    # 22 organ pad: I alternates the chord tone across repeats
+    ph(("C3", WPAD, I_, 0x20), None, ("E3", WPAD, I_, 0x21), None,
+       None, None, None, None, ("G3", WPAD), None, None, None,
+       ("C3", WPAD, I_, 0x21), ("C4", WPAD, I_, 0x20), None, None),
+    # 23 fill: extra snares only on even repeats (I), retrig tail
+    ph(("A4", HAT), None, ("A4", HAT), None, ("A4", SNARE), None,
+       ("A4", HAT), None, ("A4", HAT), ("A4", SNARE, I_, 0x21),
+       ("A4", HAT), ("A4", SNARE, I_, 0x21), ("A4", SNARE),
+       ("A4", SNARE, I_, 0x21), ("A4", SNARE, R_, 0x02),
+       ("A4", SNARE, I_, 0x21)),
+    # 24 pan hats: O ping-pong (audible on GG, harmless on SMS)
+    ph(("A4", HAT, O_, 0x10), None, ("A4", HAT, O_, 0x01), None,
+       ("A4", HAT, O_, 0x10), None, ("A4", HAT, O_, 0x01), None,
+       ("A4", HAT, O_, 0x10), None, ("A4", HAT, O_, 0x01), None,
+       ("A4", OHAT, O_, 0x11), None, ("A4", HAT), None),
 ]
 
 # =====================================================================
@@ -159,22 +205,33 @@ CHAINS = [
     [(10, 0), (10, 0)],        # 13 hats sparse
     [(16, 0), (16, 5)],        # 14 pluck high
     [(31, 0), (31, 0)],        # 15 rest (phrase 31 stays empty)
+    [(17, 0), (18, 0)],        # 16 slides + falls
+    [(19, 0), (19, 0)],        # 17 swing
+    [(20, 0), (20, 0)],        # 18 pitched-noise bass
+    [(21, 0), (21, 0)],        # 19 echo melody
+    [(22, 0), (22, 0)],        # 20 organ pad (repeat for I)
+    [(5, 0), (5, 0)],          # 21 pluck main
+    [(24, 0), (24, 0)],        # 22 pan hats
 ]
 
 # =====================================================================
 # song rows: (T1, T2, T3, NO) chain numbers, None = empty
 # =====================================================================
-# every column spans rows 0-9 (15 = rest chain) so the four
+# every column spans rows 0-13 (15 = rest chain) so the four
 # loops stay aligned; an empty cell would loop its column early
 SONG = [
-    (15,   0,    15,   8),     # intro: bass + hats
+    (15,   0,    15,   22),    # intro: bass + pan-ping hats (O)
     (15,   0,    11,   9),     # kick and snare join
-    (3,    0,    11,   9),     # lead enters
-    (3,    0,    11,   10),    # ... fill into the progression
-    (4,    1,    6,    9),     # C F (stabs answer)
+    (3,    0,    11,   9),     # the lead motif (vibrato)
+    (3,    0,    11,   10),    # ... I-gated fill on the repeat
+    (4,    1,    6,    9),     # C F (table-arp stabs answer)
     (5,    2,    7,    10),    # G C, build
-    (15,   15,   12,   13),    # breakdown: square wave bass
-    (14,   15,   12,   9),     # sparkle plucks over the wave
+    (16,   0,    11,   9),     # slides, delays and falls (L D P)
+    (17,   0,    11,   9),     # swing section (G + W shuffle)
+    (19,   18,   15,   13),    # echoes over pitched-noise bass
+    (19,   18,   15,   9),     # ... drums join (T3 stays free)
+    (21,   0,    20,   13),    # organ pad, I alternating tones
+    (21,   0,    20,   9),     # ... pad repeat flips the I gate
     (3,    0,    11,   9),     # recap
     (4,    1,    6,    10),    # final turn, loops to the top
 ]
@@ -238,11 +295,16 @@ def main():
     blk += bytes([0, 0x0F, 0, 0, 0, 0, 0, 0, 0, 0xFF, 1] + [0] * 5) \
         * (N_INS - len(INSTRUMENTS))
 
-    arp = [(0xFF, 0, 0, 0), (0xFF, 4, 0, 0), (0xFF, 7, H, 0)]   # 1024
+    TABLES = {                                           # 1024
+        0: [(0xFF, 0, 0, 0), (0xFF, 4, 0, 0), (0xFF, 7, H, 0)],
+        1: [(0x0F, 0, 0, 0), (0x09, 0, 0, 0),            # echo
+            (0x05, 0, 0, 0), (0x02, 0, H, 3)],
+    }
     empty_row = (0xFF, 0, 0, 0)
-    for r in range(16):
-        blk += bytes(arp[r] if r < len(arp) else empty_row)
-    blk += bytes(empty_row) * 16 * (N_TBL - 1)
+    for ti in range(N_TBL):
+        rows = TABLES.get(ti, [])
+        for r in range(16):
+            blk += bytes(rows[r] if r < len(rows) else empty_row)
 
     blk += bytes([6, 6] + [0] * 14)                      # 256
     blk += bytes(16) * (N_GRV - 1)

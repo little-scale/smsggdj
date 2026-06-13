@@ -2114,7 +2114,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 10
+  cp 11
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2151,8 +2151,10 @@ prp_press:
   cp 5
   jr z, prp_new
   cp 6
-  jr z, prp_save
+  jr z, prp_demo
   cp 7
+  jr z, prp_save
+  cp 8
   ret nz
   call song_load
   call mark_all_dirty        ; song data replaced
@@ -2162,27 +2164,42 @@ prp_press:
   ret
 prp_new:                     ; armed two-press wipe
   ld a, (new_arm)
-  or a
-  jr nz, prn_go
-  ld a, 1                    ; first press: arm + ask
+  cp 5
+  jr z, prn_go
+  ld a, 5                    ; first press: arm + ask
+  jr prn_ask
+prn_go:
+  call prn_clear
+  call song_new
+  ld a, 6                    ; "NEW"
+  jr prn_done
+prp_demo:                    ; armed two-press demo load
+  ld a, (new_arm)
+  cp 6
+  jr z, prd_go
+  ld a, 6
+prn_ask:
   ld (new_arm), a
   ld a, 5                    ; "SURE?"
   ld (prj_stat), a
   ld a, 1
   ld (label_dirty), a
   ret
-prn_go:
-  xor a
-  ld (new_arm), a
-  call engine_stop
-  call song_new
-  call mark_all_dirty
-  ld a, 6                    ; "NEW"
+prd_go:
+  call prn_clear
+  call song_init             ; the ROM demo block
+  ld a, 2                    ; "LOADED"
+prn_done:
   ld (prj_stat), a
+  call mark_all_dirty
   ld a, 1
   ld (state_dirty), a
   ld (label_dirty), a
   ret
+prn_clear:
+  xor a
+  ld (new_arm), a
+  jp engine_stop
 prp_save:
   call song_save
   ld a, 1
@@ -2194,13 +2211,13 @@ prp_edit:
   ld a, (prj_row)
   cp 4
   jr z, prp_slot
-  cp 8
-  jp z, prp_sync
   cp 9
+  jp z, prp_sync
+  cp 10
   jp z, prp_play
   cp 1
   jp z, prp_tsp
-  cp 10
+  cp 11
   jp z, prp_colr
   or a
   ret nz
@@ -2328,7 +2345,7 @@ pc_hi:
 pc_st:
   ld (pal_sel), a
   call load_palette          ; applies immediately
-  ld a, 10
+  ld a, 11
   jp prj_mark_field
 prp_sync:                    ; 1 + L/R cycles the sync mode
   ld a, (ed_rep)
@@ -2354,7 +2371,7 @@ psy_cl:
   ld (sync_mode), a
   ld a, 1
   ld (state_dirty), a
-  ld a, 8
+  ld a, 9
   jp prj_mark_field
 prp_play:                    ; 1 + L/R toggles SONG/LIVE
   ld a, (ed_rep)
@@ -2370,13 +2387,13 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE
   ld (play_mode), a
   ld a, 1
   ld (state_dirty), a
-  ld a, 9
+  ld a, 10
   jp prj_mark_field
 
 prj_f2r:
-  .db 0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 14
+  .db 0, 1, 3, 4, 5, 7, 8, 9, 10, 12, 13, 15
 prj_r2f:
-  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, 7, $FF, 8, 9, $FF, 10, $FF
+  .db 0, 1, $FF, 2, 3, 4, $FF, 5, 6, 7, 8, $FF, 9, 10, $FF, 11
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -3917,16 +3934,7 @@ draw_labels:
   ld hl, str_blank
   call print_at
 .IFDEF TARGET_GG
-  ; the name-row wipe took the transport text with it; the GGDJ
-  ; title only lives on PROJECT (room is precious elsewhere)
-  ld a, (scr_mode)
-  cp SCR_PROJ
-  jr nz, dlg_notitle
-  ld b, 0
-  ld c, 9
-  ld hl, str_title
-  call print_at
-dlg_notitle:
+  ; the name-row wipe takes the transport text with it
   ld a, 1
   ld (state_dirty), a
 .ENDIF
@@ -4631,11 +4639,11 @@ prd_addr:
   jp z, prd_sram
   cp 4
   jp z, prd_slot
-  cp 8
-  jp z, prd_sync
   cp 9
-  jp z, prd_play
+  jp z, prd_sync
   cp 10
+  jp z, prd_play
+  cp 11
   jr z, prd_colr
   ; SAVE / LOAD
   ld hl, str_go
@@ -4746,6 +4754,7 @@ prj_lbls:
   .db "SRAM", 0
   .db "SLOT", 0
   .db "NEW ", 0
+  .db "DEMO", 0
   .db "SAVE", 0
   .db "LOAD", 0
   .db "SYNC", 0

@@ -173,16 +173,15 @@ init:
 .IFDEF TARGET_GG
   xor a                      ; GG hardware is NTSC-clocked
   ld (region_pal), a
-.ELSE
-  call detect_region
 .ENDIF
   call psg_init
   call vdp_init
   call vdp_clear_vram
-  call load_font
   ld a, 6                    ; KIDD is the house palette
   ld (pal_sel), a
-  call load_palette
+  call load_palette          ; the splash renders in it too
+  call load_font
+  call splash                ; title card; SMS region detect inside
   call song_init
   call editor_init
   ; sample pool directory (bank 2 sits in slot 2 from boot)
@@ -195,9 +194,8 @@ init:
   ld (smp_count), a
 init_nopool:
   call sram_detect
-  ld a, (sram_ok)
-  or a
-  call nz, song_load         ; autoload a saved song
+  ; boot lands on the ROM demo (no slot-1 autoload for now: a
+  ; first power-on should make sound - saves load via PROJECT)
   xor a
   ld (prj_stat), a
 
@@ -318,6 +316,60 @@ main_loop:
   inc hl
   ld (frame), hl
   jr main_loop
+
+; =============================================================
+; boot splash: the project title card, centred, in the house
+; palette. The SMS region-detect busy-wait runs inside the
+; display window so it costs less boot time than it shows for.
+.IFDEF TARGET_GG
+.DEFINE SPLASH_R1   7            ; window rows/cols
+.DEFINE SPLASH_C1   4
+.DEFINE SPLASH_R2   9
+.DEFINE SPLASH_C2   2
+.ELSE
+.DEFINE SPLASH_R1   10
+.DEFINE SPLASH_C1   10
+.DEFINE SPLASH_R2   12
+.DEFINE SPLASH_C2   8
+.ENDIF
+
+splash:
+  ld b, SPLASH_R1
+  ld c, SPLASH_C1
+  ld hl, str_splash1
+  call print_at
+  ld b, SPLASH_R2
+  ld c, SPLASH_C2
+  ld hl, str_splash2
+  call print_at
+  call display_on
+  ei
+.IFNDEF TARGET_GG
+  call detect_region         ; ~0.5 s of the splash, not extra
+.ENDIF
+  ld b, 100
+spl_wait:
+  halt
+  djnz spl_wait
+  di
+  ld a, $A0                  ; display off for the UI build-up
+  out (VDP_CTRL), a
+  ld a, $81
+  nop
+  nop
+  nop
+  out (VDP_CTRL), a
+  ld hl, NT_WADDR            ; wipe the splash
+  call vdp_set_addr
+  ld bc, 32*24*2
+spl_clear:
+  xor a
+  out (VDP_DATA), a
+  dec bc
+  ld a, b
+  or c
+  jr nz, spl_clear
+  ret
 
 ; =============================================================
 ; region detection: max VCounter over ~15 frames
@@ -516,6 +568,8 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
+str_splash1:     .db "SMSGGDJ V0.2", 0
+str_splash2:     .db "BY LITTLE-SCALE", 0
 str_syncsym:     .db $3E, $5C, $40, $20  ; > pulse < space
 str_rest:        .db "---"
 

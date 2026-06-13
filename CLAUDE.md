@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-SMSDJ — an LSDJ-inspired music tracker ROM for the Sega Master System, written in pure Z80 assembly (WLA-DX). Sound is the SN76489 PSG only, including 4-bit PCM and wavetable synthesis via the tone-period-1 DC-DAC trick on channel T3.
+SMSGGDJ — an LSDJ-inspired music tracker for the Sega Master System and Game Gear (one tree, two ROM flavors: SMSDJ and GGDJ), written in pure Z80 assembly (WLA-DX). Sound is the SN76489 PSG only, including 4-bit PCM and wavetable synthesis via the tone-period-1 DC-DAC trick on channel T3.
 
 **DESIGN.md is the contract.** It records hardware constraints, the data model, and decisions that were already debated (PAL default, CH3-steal policy, control scheme, 24 PPQN sync default). Read the relevant section before making design decisions; don't re-litigate settled ones. SAVEFORMAT.md documents the save/SRAM format and must be kept in sync with any RAM-layout change.
 

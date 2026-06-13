@@ -1,4 +1,4 @@
-# SMSDJ — an LSDJ-inspired tracker for the Sega Master System
+# SMSGGDJ — an LSDJ-inspired tracker for the Sega Master System & Game Gear
 **Design document v0.2 — 2026-06-11**
 
 Target: a single ROM that runs on real SMS hardware (via flashcart) and in emulators.

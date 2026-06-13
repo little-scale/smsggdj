@@ -1,4 +1,4 @@
-# SMSDJ / GGDJ hardware notes
+# SMSGGDJ hardware notes
 
 Companion to DESIGN.md §11 (sync wiring) and §15 (GGDJ). Working notes for
 the physical bits — connectors, cables, and the EXT paddle PCB.
