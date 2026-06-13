@@ -26,7 +26,8 @@ don't exist there (DESIGN.md §15).
 - Toolchain: `wla-z80` + `wlalink` (Homebrew). `make run` needs `/opt/homebrew/opt/openjdk/bin/java`.
 - Emulicious must have `AudioSync=true` in `tools/emulicious/Emulicious.ini`, or it free-runs at turbo speed.
 - There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent but sample/wave behavior ultimately needs hardware verification.
-- Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/pool.bin`/`pool.inc` (smsdj_sample.py from `samples/*.wav`).
+- Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/demo.bin` (makedemo.py), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
+- **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
 - `tools/savetool.py build/smsdj.sav list|export|import` manipulates emulator/Everdrive save images (see SAVEFORMAT.md).
 
 ## Architecture

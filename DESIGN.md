@@ -427,7 +427,7 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 1. `smsdj.sms` — the ROM (128 KB, standard Sega mapper, valid TMR SEGA header + checksum).
 2. `tools/smsdj-sample` — sample conversion tool (§10.5); `tools/patcher.html` — browser sample patcher (done).
 3. `adapter/` — MIDI sync adapter firmware (RP2040 primary target) + protocol doc + schematic.
-4. Demo song + default sample pool + manual.
+4. Demo song + production sample pool (`samples/pool.bin`, baked into builds) + manual (`MANUAL.md`).
 
 **Toolchain:** WLA-DX (z80) or sjasmplus, pure assembly; Makefile drives ROM + sample-pool build. **Test targets:** Emulicious (primary — debugger + accurate PSG, PAL and NTSC modes), MEKA/Genesis Plus GX (sanity), real PAL SMS via Master Everdrive (timing + SRAM + sample/MIDI truth), real NTSC pass before release.
 
