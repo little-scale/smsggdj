@@ -1450,11 +1450,19 @@ ine_f11:                     ; NOISE: mode toggle; WAV: wave 0-7
   ld a, (pad_edge)
   and $0F
   ret z
+  ld c, a                    ; direction bits
   ld de, 4
   add hl, de
+  ld a, c
+  and PAD_RIGHT|PAD_UP
   ld a, (hl)
+  jr z, if11_dn              ; left/down: decrement
   inc a
-  and $07
+  jr if11_st
+if11_dn:
+  dec a
+if11_st:
+  and $07                    ; wrap 0-7 both ways
   ld (hl), a
   jp ine_mark
 
