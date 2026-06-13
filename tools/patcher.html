@@ -46,12 +46,12 @@
 </head>
 <body>
 <h1><span></span> sample patcher</h1>
-<p class="dim">1: load your <b>.sms</b> (128 KB). 2: drop sounds —
+<p class="dim">1: load your <b>.sms</b> or <b>.gg</b> (128 KB). 2: drop sounds —
 any format the browser can decode. 3: trim, drive, audition.
 4: download the patched ROM. Nothing leaves this page.</p>
 
-<div class="zone" id="romzone">drop .sms here (or click)</div>
-<input type="file" id="romfile" accept=".sms" hidden>
+<div class="zone" id="romzone">drop .sms / .gg here (or click)</div>
+<input type="file" id="romfile" accept=".sms,.gg" hidden>
 <div id="rominfo"></div>
 
 <div class="zone" id="sndzone" style="display:none">drop sound files here (or click)</div>
@@ -95,7 +95,7 @@ const ctx = () => ac || (ac = new (window.AudioContext || window.webkitAudioCont
 function loadRom(buf, name) {
   const d = new Uint8Array(buf);
   const txt = String.fromCharCode(...d.slice(0x7ff0, 0x7ff8));
-  if (txt !== "TMR SEGA") return alert("not an SMS ROM (no TMR SEGA header)");
+  if (txt !== "TMR SEGA") return alert("not a Master System / Game Gear ROM (no TMR SEGA header)");
   const magic = String.fromCharCode(...d.slice(POOL_OFF, POOL_OFF + 4));
   if (magic !== "SMPL") return alert("this ROM has no  sample pool " +
     "(needs a build with the banked pool)");
