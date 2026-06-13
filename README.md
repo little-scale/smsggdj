@@ -4,8 +4,8 @@ An LSDJ-inspired music tracker for the **Sega Master System** and **Game
 Gear**, written in pure Z80 assembly. Make music on real hardware (via
 flashcart) or in an emulator, using just the D-pad and two buttons. Sound is
 the SN76489 PSG only — three square channels and noise — plus 4-bit PCM
-samples and drawn wavetables via the volume-register DAC trick, and Game
-Gear stereo.
+samples and drawn wavetables via the volume-register DAC trick, a built-in
+tempo-synced echo, and Game Gear stereo.
 
 One source tree builds two ROMs:
 
@@ -30,11 +30,13 @@ make run-demo / run-demo-gg   # build + launch a demo ROM
 make clean
 ```
 
-The normal ROMs boot to a blank song, ready to edit. The **demo** ROMs load
-the demo song and auto-play it from boot — a self-running "attract" build.
+Both ROMs boot with the bundled demo song loaded. The **normal** ROMs wait
+for you to press play (ready to play or edit; a blank song is available via
+PROJECT → NEW). The **demo** ROMs auto-play it from boot — a self-running
+"attract" build.
 
-Drop a ROM on a flashcart (Master Everdrive etc.) or open it in an emulator.
-On boot it loads a demo song — press play and you're off.
+Drop a ROM on a flashcart (Master Everdrive etc.) or open it in an emulator,
+and press play.
 
 ## For musicians
 

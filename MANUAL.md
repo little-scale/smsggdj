@@ -84,7 +84,7 @@ Hold **2** and press the D-pad to move around this map:
 ```
    [OPTIONS] [PROJECT]                    [WAVE]
    [ SONG  ][ CHAIN ][ PHRASE ][ INSTR ][ TABLE ]
-                     [ GROOVE ]
+                     [ GROOVE ]            [ ECHO ]
 ```
 
 - **SONG** — the arrangement: which chains play on each of the 4 tracks.
@@ -94,6 +94,7 @@ Hold **2** and press the D-pad to move around this map:
 - **TABLE** — a little automation sequencer an instrument can run.
 - **GROOVE** — swing and timing.
 - **WAVE** — draw the 8 wavetable shapes (above INSTR).
+- **ECHO** — a tempo-synced delay that echoes T1 onto T2/T3 (below INSTR).
 - **PROJECT** — this song: tempo, transpose, mode, save/load.
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).
@@ -177,6 +178,23 @@ two halves — **1** + Left/Right jumps between them.)
 
 ---
 
+### Echo (ECHO screen)
+
+A tempo-synced delay built into the engine. Reach it with **2 + Down** from
+INSTR. It copies whatever **T1** is playing and replays it, quieter, on T2
+(and optionally T3), delayed:
+
+- **MODE** — off / `T2` / `T2T3` (one or both echo channels).
+- **TAP1 / TAP2** — the delay of each tap **in rows**, so it tracks tempo and
+  swing (2 rows = an 8th note, 4 = a quarter…).
+- **RD1 / RD2** — how much quieter each tap is (attenuation added).
+- **STER** — on Game Gear, pans tap 1 left and tap 2 right (ping-pong).
+- **TSP1 / TSP2** — transpose each tap in semitones (octave-up shimmer, fifths…).
+
+Echo only sounds on T2/T3 when your song isn't using them — the moment a note
+plays there, the song takes the channel back. T3 also yields to samples and
+wavetables.
+
 ## 6. Tables
 
 A **table** is a 16-row automation strip an instrument can run while a note
@@ -195,6 +213,7 @@ take a two-digit parameter `xy`.
 | Cmd | Name | What it does |
 |---|---|---|
 | `A` | Table | Start/switch a table (`A20` = off) |
+| `B` | Wave bank | Set this note's wavetable 0–7, overriding the instrument's wave (`B0`–`B7`, just that note) |
 | `C` | Chord | Looping arpeggio: note, +x, +y semitones (`C00` off) |
 | `D` | Delay | Delay the note by a number of ticks |
 | `E` | Envelope | Override the instrument's volume envelope |
@@ -218,10 +237,17 @@ take a two-digit parameter `xy`.
 
 ## 8. Timing & grooves
 
-Tempo is set on PROJECT (**TMPO**) or with the `T` command. **Grooves** add
-swing: a groove is a short list of tick-counts per row, so uneven pairs (like
-`8,4`) shuffle the feel. The GROOVE screen edits them; the `G` command
-switches groove mid-song.
+**Grooves** are the clock. A groove is a short list of tick-counts per row
+(ticks run at the fixed 50/60 Hz frame rate), so uneven pairs (like `8,4`)
+shuffle the feel. The GROOVE screen edits them; the `G` command switches
+groove mid-song.
+
+Tempo *is* the groove — there's no separate tempo. **TMPO** (on PROJECT)
+shows the BPM of the current groove and Left/Right steps it tick-by-tick
+through the achievable BPMs (e.g. 150 → 128 → 112 on NTSC), shifting the
+whole groove together so your swing is kept. The `T` command sets a flat
+tempo by BPM mid-song. Because the groove is the grid, anything beat-locked
+(like echo taps) is measured in rows and follows the tempo automatically.
 
 **TSP** (on PROJECT) transposes the whole song up or down in semitones —
 handy for matching a vocalist or another instrument. It doesn't move sample

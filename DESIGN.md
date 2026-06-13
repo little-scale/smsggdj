@@ -112,7 +112,7 @@ Screen map (navigated with 2+D-pad):
 ```
 [OPTIONS] [PROJECT]          [WAVE]
 [SONG]  [CHAIN]  [PHRASE]  [INSTR]  [TABLE]
-          [GROOVE]
+          [GROOVE]            [ECHO]
 ```
 
 (OPTIONS and PROJECT link left/right along the top row.)
@@ -129,6 +129,7 @@ SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
+| **ECHO** | delay/echo of T1 onto T2/T3 (below INSTR): MODE off/T2/T2+T3, TAP1/TAP2 (rows, groove-scaled), RD1/RD2 (volume falloff), STER (GG ping-pong), TSP1/TSP2 (per-tap transpose). A once-per-tick engine post-pass reads a 64-tick ring of T1's output |
 | **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** schemes, **CLONE: SLIM/DEEP** (§12) |
 | **PROJECT** | Song name, default groove, **NEW** (two-press arm/confirm blank song), save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
@@ -252,6 +253,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | Cmd | Name | Param | Effect |
 |---|---|---|---|
 | `A xx` | tAble | table # / 20=off | start/switch table |
+| `B x`  | wave Bank | wave # 0-7 | set this note's wavetable, overriding the instrument's (one-shot, in PHRASE) |
 | `C xy` | Chord | +x, +y semitones | looping 0,x,y arpeggio (00 = off) |
 | `D xx` | Delay | ticks | delay note trigger |
 | `E xy` | Envelope | vol x, fade y | override instrument envelope |
@@ -271,13 +273,15 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `V xy` | Vibrato | speed x, depth y | one-shot vibrato override |
 | `W xx` | Wait-skip | ticks | shorten this row to xx ticks (shuffle fills) |
 
-Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2.
+Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2. `B` (wave-bank select) is new — no LSDJ equivalent.
 
 ---
 
 ## 9. Timing: grooves
 
-Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). Groove is global by default; `G` sets per-track grooves for polyrhythms; `T` gives direct BPM entry. In sync-IN mode grooves still shape row lengths — only the tick *source* changes (1 wire clock = 1 tick, so groove 6 = 16th-note rows at any master tempo; see §11.3).
+Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). Groove is global by default; `G` sets per-track grooves for polyrhythms.
+
+The groove is the single musical clock: tempo *is* the groove (ticks/row at the fixed 50/60 Hz frame rate), so there is no separate tempo store. The PROJECT **TMPO** field is a live readout derived from the active groove and steps it one tick at a time — i.e. it walks the achievable BPM rungs (NTSC flat groove: 60, 75, 90, 100, 112, 128, 150, 180, 225…), shifting every groove entry together so swing is preserved, never flattened. The `T` command still does direct BPM→groove entry mid-song (it flattens, by design — an explicit "set this tempo now"). Anything that should track the beat is expressed in rows against this grid (e.g. echo taps); only the sample/wave DAC feed uses raw frame-ticks. In sync-IN mode grooves still shape row lengths — only the tick *source* changes (1 wire clock = 1 tick, so groove 6 = 16th-note rows at any master tempo; see §11.3).
 
 ---
 

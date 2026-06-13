@@ -28,7 +28,10 @@ slot n base = n * $1520          (n = 0..2)
 offset  size  contents
 +$00    5     magic "SMDJ3"
 +$05    2     checksum: 16-bit little-endian sum of the 5,376 data bytes
-+$07    9     reserved
++$07    8     echo settings: mode, tap1, tap2, red1, red2, stereo,
+              tsp1, tsp2 (tap1/tap2 are in rows; see the manual). Not
+              covered by the checksum; demo builds bake these in too.
++$0F    1     reserved
 +$10    5376  song data, the contiguous RAM block:
               +$0000  wave_ram      8 waves x 32 B ($D0 | 15-minus-level per
                                     step; the drawn shape — playback maps levels

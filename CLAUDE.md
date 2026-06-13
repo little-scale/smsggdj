@@ -33,6 +33,7 @@ don't exist there (DESIGN.md §15).
 - Emulicious must have `AudioSync=true` in `tools/emulicious/Emulicious.ini`, or it free-runs at turbo speed.
 - There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent but sample/wave behavior ultimately needs hardware verification.
 - Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/demo.bin` (makedemo.py), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
+- **Demo song:** if `songs/demo.smdj` exists (a committed save export), the build strips its 16-byte header and bakes the 5376-byte block as `build/demo.bin`, with its echo settings (the SMDJ3 reserved bytes) in `build/demo_echo.bin`; both ride into `song_init`. Otherwise `makedemo.py` composes one. Delete `songs/demo.smdj` for the procedural demo.
 - **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
 - `tools/savetool.py build/smsdj.sav list|export|import` manipulates emulator/Everdrive save images (see SAVEFORMAT.md).
 
@@ -44,9 +45,9 @@ Single translation unit: the Makefile assembles only `src/main.asm`, which `.INC
 - `src/vdp.asm` — Mode 4 text UI helpers; register init table (line interrupt every 2 scanlines for the sample feed).
 - `src/input.asm` — pad read with edge detection and LSDJ-style DAS key repeat.
 - `src/psg.asm` — shadow registers in RAM; `psg_flush` writes only what changed. Volumes are stored as *attenuation* (0 = loud, $F = silent).
-- `src/engine.asm` — per-tick sequencer pipeline (groove → row advance → trigger/commands → envelope → kill → PSG shadows → mute gate). Channel state = 4 × 32-byte structs walked with IX; layout documented in the file header. Full command set K/H/A/C/E/F/G/N/P/T/V/W/M/D/L/R runs through one executor shared by phrase and table columns.
+- `src/engine.asm` — per-tick sequencer pipeline (groove → row advance → trigger/commands → envelope → kill → PSG shadows → mute gate). Channel state = 4 × 32-byte structs walked with IX; layout documented in the file header. Full command set (A/B/C/D/E/F/G/H/I/K/L/M/N/O/P/R/S/T/V/W; `cmd_chars`/`cmd_order` map ids↔letters↔alphabetical rank) runs through one executor shared by phrase and table columns. `B` (wave-bank select) and D/L/I are peeked *before* the trigger; tempo (T)/groove (G)/hop (H)/wait (W) are handled inline. A once-per-tick `echo_pass` post-pass (bank-1 `Echo` section) reads a 64-tick ring of T1 and replays delayed/transposed copies onto T2/T3.
 - `src/sample.asm` — PCM and wavetable feed through the T3 DAC: line IRQ during active display, cycle-counted feeder across VBlank.
-- `src/editor.asm` — all screens and UI (the largest file). Screen map is 2D: OPTIONS/PROJECT above SONG/CHAIN, WAVE above INSTR; navigated with 2-held + d-pad. Bank 0 (slot 0) is full, so the clone routines live in a `"Clone"` section forced into bank 1 (slot 1, always mapped) — new editor code that overflows bank 0 goes there too.
+- `src/editor.asm` — all screens and UI (the largest file). Screen map is 2D: OPTIONS/PROJECT above SONG/CHAIN, WAVE above INSTR; navigated with 2-held + d-pad. Bank 0 (slot 0) is full, so overflow code lives in bank-1 (`"Clone"`, `"CmdTab"`, `"TempoCalc"`, and the ECHO form) sections forced into slot 1 (always mapped) — new editor code that overflows bank 0 goes there too. The ECHO screen sits below INSTR; TMPO (PROJECT) is a live readout derived from the active groove (tempo *is* the groove — see DESIGN §9).
 
 Song data lives as one contiguous RAM block (wave_ram ×8 waves, phrase_pool, chains, song, instruments, tables, grooves — offsets in SAVEFORMAT.md, format SMDJ3) so save/load is a straight copy to cart SRAM slots.
 
@@ -63,4 +64,4 @@ Any new gesture must fit this frame (user's settled design, DESIGN.md §3): butt
 
 ## Workflow
 
-Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; remaining: the browser sample patcher, clone modes, config persistence, K-cuts-samples, polish, hardware verification.
+Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; clone modes, K-cuts-samples, the wave-bank (`B`) command, and the tempo-synced echo are also done; remaining: config persistence, polish, hardware verification.
