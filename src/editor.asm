@@ -1336,23 +1336,8 @@ de_cmd:
   ld c, a
   inc hl
   inc hl
-  ld a, c
-  and PAD_RIGHT|PAD_UP
   ld a, (hl)
-  jr z, dcm_dn
-  inc a
-  cp CMD_COUNT
-  jr c, dcm_st
-  xor a
-  jr dcm_st
-dcm_dn:
-  or a
-  jr nz, dcm_dec
-  ld a, CMD_COUNT-1
-  jr dcm_st
-dcm_dec:
-  dec a
-dcm_st:
+  call cmd_cycle             ; alphabetical order (preserves HL)
   ld (hl), a
   jp mark_phr_dirty
 
@@ -2830,23 +2815,8 @@ tbe_cmd:                     ; cycle the command set (edge-gated)
   ld c, a
   inc hl
   inc hl
-  ld a, c
-  and PAD_RIGHT|PAD_UP
   ld a, (hl)
-  jr z, tcm_dn
-  inc a
-  cp CMD_COUNT
-  jr c, tcm_st
-  xor a
-  jr tcm_st
-tcm_dn:
-  or a
-  jr nz, tcm_dec
-  ld a, CMD_COUNT-1
-  jr tcm_st
-tcm_dec:
-  dec a
-tcm_st:
+  call cmd_cycle             ; alphabetical order (preserves HL)
   ld (hl), a
   jp tb_mark
 
@@ -5507,6 +5477,53 @@ cch_ok:
   pop de
   pop hl
   ret
+; cycle a command cell alphabetically: A = current command id,
+; C = pad bits (right/up = forward). Internal ids never change -
+; cmd_rank maps id -> alphabetical rank, cmd_order maps back.
+; Preserves HL; clobbers A/DE.
+cmd_cycle:
+  push hl
+  ld hl, cmd_rank
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (hl)                 ; current rank
+  ld e, a
+  ld a, c
+  and PAD_RIGHT|PAD_UP
+  ld a, e
+  jr z, cc_dn
+  inc a                      ; forward, wrap
+  cp CMD_COUNT
+  jr c, cc_set
+  xor a
+  jr cc_set
+cc_dn:
+  or a
+  jr nz, cc_dec
+  ld a, CMD_COUNT-1
+  jr cc_set
+cc_dec:
+  dec a
+cc_set:
+  ld hl, cmd_order
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (hl)                 ; rank -> id
+  pop hl
+  ret
+
+; rank (alphabetical) -> command id
+cmd_order:
+  .db CMD_NONE, CMD_TBL, CMD_ARP, CMD_DELAY, CMD_ENV, CMD_FINE
+  .db CMD_GRV, CMD_HOP, CMD_ITER, CMD_KILL, CMD_SLIDE, CMD_TREM
+  .db CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG, CMD_TPO, CMD_VIB, CMD_WAIT
+; command id -> rank (inverse of cmd_order)
+cmd_rank:
+  .db 0, 9, 7, 1, 2, 4, 5, 6, 12, 14, 16, 17, 18, 11, 3, 10, 15, 13, 8
+
+; command id -> display letter
 cmd_chars:
   .db "-KHACEFGNPTVWMDLROI"
 
