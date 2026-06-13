@@ -74,6 +74,13 @@ patcher) and is baked into every build. To build from raw recordings instead,
 delete `samples/pool.bin` and put WAVs in `samples/` — `make` converts them.
 The pool is identical in both flavours, so one bank serves `.sms` and `.gg`.
 
+## License
+
+MIT — see [LICENSE](LICENSE). Use it, fork it, learn from it.
+
+The bundled Emulicious emulator (`tools/emulicious/`, not in this repo) has its
+own license.
+
 ---
 
 Made by **little-scale**.
