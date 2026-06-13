@@ -47,10 +47,10 @@ $(GGROM): $(BUILD)/main-gg.o $(BUILD)/linkfile-gg
 JAVA := /opt/homebrew/opt/openjdk/bin/java
 EMU  := tools/emulicious/Emulicious.jar
 
-run: $(ROM)
+run: all                       ; always rebuild both flavors
 	$(JAVA) -jar $(EMU) $(abspath $(ROM))
 
-run-gg: $(GGROM)
+run-gg: all
 	$(JAVA) -jar $(EMU) $(abspath $(GGROM))
 
 clean:
