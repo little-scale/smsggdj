@@ -5293,7 +5293,7 @@ idr_f11:
   call print_char
   pop hl
   ld a, (hl)
-  and $03
+  and $07
   jp print_hex_nib
 idr_skip:
   ret
