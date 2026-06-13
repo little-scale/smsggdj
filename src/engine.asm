@@ -54,7 +54,8 @@
 .DEFINE CMD_RETRIG  16         ; R: retrigger every param ticks
 .DEFINE CMD_PAN     17         ; O: GG stereo - x = left, y = right
 .DEFINE CMD_ITER    18         ; I: play when (repeats mod x) == y
-.DEFINE CMD_COUNT   19
+.DEFINE CMD_SPEED   19         ; S: sample speed (0 norm, 1 2x, 2 half)
+.DEFINE CMD_COUNT   20
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -1012,6 +1013,16 @@ exec_command:
   jp z, xc_retrig
   cp CMD_PAN
   jp z, xc_pan
+  cp CMD_SPEED
+  jp z, xc_speed
+  ret
+xc_speed:                    ; S xx: sample playback speed (0/1/2)
+  ld a, d
+  cp 3
+  ret nc
+  ld (smp_speed), a
+  xor a
+  ld (smp_hold), a
   ret
 xc_trem:
   ld a, d
@@ -1296,6 +1307,14 @@ tn_mods:
   ld (ix+12), 1              ; pitched: steal T3 (design doc 5.3)
   ret
 tn_smp:
+  ld a, c                    ; +4 byte = playback speed (0/1/2)
+  cp 3
+  jr c, tn_sspd
+  xor a
+tn_sspd:
+  ld (smp_speed), a
+  xor a
+  ld (smp_hold), a
   ld a, (smp_count)
   ld d, a
   or a

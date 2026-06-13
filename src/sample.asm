@@ -33,6 +33,8 @@
   wav_cur      db            ; wave # loaded in wav_buf
   winc_ptr     dw            ; region pitch-increment table
   smp_count    db            ; samples in the pool (boot-cached)
+  smp_speed    db            ; PCM playback speed: 0 norm, 1 2x, 2 half
+  smp_hold     db            ; 0.5x: toggle - feed every other tick
 .ENDS
 
 .RAMSECTION "wavbuf" SLOT 3 ALIGN 32
@@ -46,6 +48,23 @@ smp_feed_any:
   ld a, (smp_mode)
   cp 2
   jr z, wav_feed_one
+  ; PCM: walk the data at the playback speed (output cadence is
+  ; fixed, so this only changes pitch/length, not the IRQ timing)
+  ld a, (smp_speed)
+  or a
+  jr z, smp_feed_one         ; normal: one nibble per tick
+  dec a
+  jr z, sfa_2x               ; 2x: two nibbles per tick
+  ld a, (smp_hold)           ; 0.5x: feed every other tick
+  xor 1                      ; (the DAC holds its level between)
+  ld (smp_hold), a
+  ret nz
+  jr smp_feed_one
+sfa_2x:
+  call smp_feed_one
+  ld a, (smp_active)
+  or a
+  ret z                      ; ended on the first nibble
   jr smp_feed_one
 
 ; wavetable: HL = wav_buf (32-aligned), DE = increment,

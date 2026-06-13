@@ -33,6 +33,16 @@
 .DEFINE SCR_WAVE    7
 .DEFINE SCR_SET     8         ; OPTIONS, above SONG
 
+; screen-map indicator position (SMS: far-right margin past the
+; grid; GG: the free right columns of the 20-wide window)
+.IFDEF TARGET_GG
+.DEFINE MAP_COL     15
+.DEFINE MAP_ROW     2
+.ELSE
+.DEFINE MAP_COL     25
+.DEFINE MAP_ROW     4
+.ENDIF
+
 .RAMSECTION "edvars" SLOT 3
   scr_mode     db
   ed_track     db
@@ -670,6 +680,9 @@ ins_f2r:
   cp 3
   ld hl, f2r_wav
   jr z, if2r_go
+  cp 2
+  ld hl, f2r_wav
+  jr z, if2r_go
   ld hl, f2r_tone
 if2r_go:
   ld d, 0
@@ -722,7 +735,9 @@ ins_max_row:
   jr z, imr_noise
   cp 3
   jr z, imr_wav
-  ld a, 11                   ; TONE/SMP share the short form
+  cp 2
+  jr z, imr_wav              ; SMP shares the WAV form (field 12 = RATE)
+  ld a, 11                   ; TONE short form
   ret
 imr_noise:
   ld a, 13                   ; NOISE: + MODE/RATE
@@ -1442,29 +1457,56 @@ ini_st:
   ld (label_dirty), a
   jp mark_all_dirty
 
-ine_f11:                     ; NOISE: mode toggle; WAV: wave 0-7
+ine_f11:                     ; NOISE: mode; WAV: wave 0-7; SMP: rate
   push hl
   call ins_ptr
   ld a, (hl)
   pop hl
   cp 3
-  jp nz, ine_mode
+  jr z, if11_wav
+  cp 2
+  jr z, if11_smp
+  jp ine_mode
+if11_wav:
   ld a, (pad_edge)
   and $0F
   ret z
-  ld c, a                    ; direction bits
+  ld c, a
   ld de, 4
   add hl, de
   ld a, c
   and PAD_RIGHT|PAD_UP
   ld a, (hl)
-  jr z, if11_dn              ; left/down: decrement
+  jr z, if11w_dn
   inc a
-  jr if11_st
-if11_dn:
+  jr if11w_st
+if11w_dn:
   dec a
-if11_st:
-  and $07                    ; wrap 0-7 both ways
+if11w_st:
+  and $07                    ; wrap 0-7
+  ld (hl), a
+  jp ine_mark
+if11_smp:                    ; sample rate 0-2 (NORM/2X/HALF)
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  ld c, a
+  ld de, 4
+  add hl, de
+  ld a, c
+  and PAD_RIGHT|PAD_UP
+  ld a, (hl)
+  jr z, if11s_dn
+  inc a
+  cp 3
+  jr c, if11s_st
+  xor a
+  jr if11s_st
+if11s_dn:
+  dec a
+  jp p, if11s_st
+  ld a, 2
+if11s_st:
   ld (hl), a
   jp ine_mark
 
@@ -2138,6 +2180,8 @@ wvd_next:
 
 str_wave:   .db "WAVE", 0
 str_wavlbl: .db "WAVE", 0
+str_spdlbl: .db "RATE", 0
+str_smpspd: .db "NORM2X  HALF"
 str_blank7: .db "       ", 0
 str_sp1:    .db " ", 0
 
@@ -4142,6 +4186,9 @@ edr_next:
   cp 16
   jr c, edr_fl
 edr_done:
+.IFDEF TARGET_GG
+  call draw_scrmap           ; map lives in wiped columns - restore it
+.ENDIF
   xor a
   ld (text_attr), a
   ret
@@ -4566,7 +4613,9 @@ dl_track_tag:
 ; grows to S C P I T (+ project/groove) as screens are added.
 draw_scrmap:
 .IFDEF TARGET_GG
-  ret                        ; no side column in the LCD window
+  ld a, (scr_mode)
+  or a
+  ret z                      ; GG: SONG fills the window width
 .ENDIF
   ld a, (scr_mode)           ; the wave editor uses the full
   cp SCR_WAVE                ; width: no map there
@@ -4581,9 +4630,9 @@ dsm_l:
 dsm_attr:
   ld (text_attr), a
   ld a, d
-  add a, 25                  ; cols 25-31: seven letters fit
+  add a, MAP_COL             ; SCPIT row
   ld c, a
-  ld b, 5
+  ld b, MAP_ROW+1
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -4608,8 +4657,8 @@ dsm_attr:
   ld a, $08
 dsm_sattr:
   ld (text_attr), a
-  ld b, 4
-  ld c, 25
+  ld b, MAP_ROW
+  ld c, MAP_COL
   call nt_addr_hl
   call vdp_set_addr
   ld a, 'O'
@@ -4622,8 +4671,8 @@ dsm_sattr:
   ld a, $08
 dsm_pattr:
   ld (text_attr), a
-  ld b, 4
-  ld c, 26
+  ld b, MAP_ROW
+  ld c, MAP_COL+1
   call nt_addr_hl
   call vdp_set_addr
   ld a, 'P'
@@ -4636,8 +4685,8 @@ dsm_pattr:
   ld a, $08
 dsm_gattr:
   ld (text_attr), a
-  ld b, 6
-  ld c, 26
+  ld b, MAP_ROW+2
+  ld c, MAP_COL+1
   call nt_addr_hl
   call vdp_set_addr
   ld a, 'G'
@@ -4650,8 +4699,8 @@ dsm_gattr:
   ld a, $08
 dsm_wattr:
   ld (text_attr), a
-  ld b, 4
-  ld c, 28
+  ld b, MAP_ROW
+  ld c, MAP_COL+3
   call nt_addr_hl
   call vdp_set_addr
   ld a, 'W'
@@ -5405,13 +5454,13 @@ pdr_npr:
   ld b, 3
   call print_raw
 
-  ; instrument (1 char, col 9)
+  ; instrument (1 char, col 8)
   ld a, 1
   call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 9
+  ld c, 8
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -5430,13 +5479,13 @@ pdr_ihex:
   pop de
 
 pdr_cmd:
-  ; command (1 char, col 12)
+  ; command (1 char, col 10)
   ld a, 2
   call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 12
+  ld c, 10
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -5448,13 +5497,13 @@ pdr_cpr:
   call print_char
   pop de
 
-  ; param (2 chars, col 13)
+  ; param (2 chars, col 11)
   ld a, 3
   call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 13
+  ld c, 11
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -5491,6 +5540,9 @@ in_draw_row:
   cp 3
   ld hl, r2f_wav
   jr z, idr_map
+  cp 2
+  ld hl, r2f_wav             ; SMP shares the WAV form
+  jr z, idr_map
   ld hl, r2f_tone
 idr_map:
   ld d, 0
@@ -5513,9 +5565,16 @@ idr_map:
   call ins_ptr
   ld a, (hl)
   cp 3
-  ld a, 12
-  jr nz, idr_lblidx
+  jr z, idrl_wav
+  cp 2
+  jr z, idrl_smp
+  ld a, 12                   ; NOISE field 12: ins_lbls[12]
+  jr idr_lblidx
+idrl_wav:
   ld hl, str_wavlbl
+  jr idr_lblgo
+idrl_smp:
+  ld hl, str_spdlbl
   jr idr_lblgo
 idr_lblidx:
   ld d, a
@@ -5598,7 +5657,11 @@ idr_f11:
   ld a, (hl)
   pop hl
   cp 3
-  jp nz, idr_mode
+  jr z, idrf_wav
+  cp 2
+  jr z, idrf_smp
+  jp idr_mode
+idrf_wav:
   ld de, 4
   add hl, de
   ld a, 'W'
@@ -5608,6 +5671,22 @@ idr_f11:
   ld a, (hl)
   and $07
   jp print_hex_nib
+idrf_smp:
+  ld de, 4
+  add hl, de
+  ld a, (hl)
+  cp 3
+  jr c, idrf_sok
+  xor a
+idrf_sok:
+  add a, a
+  add a, a                   ; * 4 (NORM/2X  /HALF tokens)
+  ld e, a
+  ld d, 0
+  ld hl, str_smpspd
+  add hl, de
+  ld b, 4
+  jp print_raw
 idr_skip:
   ret
 idr_tbl:
@@ -5831,14 +5910,15 @@ cc_set:
 cmd_order:
   .db CMD_NONE, CMD_TBL, CMD_ARP, CMD_DELAY, CMD_ENV, CMD_FINE
   .db CMD_GRV, CMD_HOP, CMD_ITER, CMD_KILL, CMD_SLIDE, CMD_TREM
-  .db CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG, CMD_TPO, CMD_VIB, CMD_WAIT
+  .db CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG, CMD_SPEED, CMD_TPO
+  .db CMD_VIB, CMD_WAIT
 ; command id -> rank (inverse of cmd_order)
 cmd_rank:
-  .db 0, 9, 7, 1, 2, 4, 5, 6, 12, 14, 16, 17, 18, 11, 3, 10, 15, 13, 8
+  .db 0, 9, 7, 1, 2, 4, 5, 6, 12, 14, 17, 18, 19, 11, 3, 10, 15, 13, 8, 16
 
 ; command id -> display letter
 cmd_chars:
-  .db "-KHACEFGNPTVWMDLROI"
+  .db "-KHACEFGNPTVWMDLROIS"
 
 str_song:        .db "SONG", 0
 str_chain:       .db "CHAIN", 0

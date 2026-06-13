@@ -98,6 +98,9 @@ Hold **2** and press the D-pad to move around this map:
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).
 
+A small map of these screens shows in the top-right of every screen (on Game
+Gear, every screen except SONG and WAVE), with the current one highlighted.
+
 The four tracks are **T1, T2, T3** (melodic) and **NO** (noise/drums).
 
 ---
@@ -156,7 +159,7 @@ Each instrument has a **type**, set on the INSTR screen:
 - **NOISE** — the noise channel. White or periodic noise, at fixed rates or
   **pitched** (which borrows tone-3 to tune it — great for periodic-noise
   bass).
-- **SMP** — plays a **sample** from the ROM's sample bank (drums, vocals…).
+- **SMP** — plays a **sample** from the ROM's sample bank (drums, vocals…). A **RATE** field plays it at NORM / 2× / HALF speed (the `S` command overrides per note).
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 
 Put an instrument's number next to a note in a PHRASE to play that note with
@@ -206,6 +209,7 @@ take a two-digit parameter `xy`.
 | `O` | Output (pan) | **Game Gear stereo:** `O11` centre, `O10` left, `O01` right |
 | `P` | Pitch bend | Continuous bend |
 | `R` | Retrigger | Re-fire the note every y ticks, stepping volume by x |
+| `S` | Speed | Sample playback rate: `S01` = 2× (up an octave, half length), `S02` = ½× (down an octave); `S00` = normal |
 | `T` | Tempo | Set tempo in BPM |
 | `V` | Vibrato | One-shot vibrato: speed x, depth y |
 | `W` | Wait-skip | Shorten this row (for shuffle/swing fills) |

@@ -117,6 +117,10 @@ Screen map (navigated with 2+D-pad):
 
 (OPTIONS and PROJECT link left/right along the top row.)
 
+The map is drawn as a mini-indicator in the top-right of each screen
+(SMS: far-right margin; GG: the free right columns, on every screen but
+SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
+
 | Screen | Contents |
 |---|---|
 | **SONG** | 4 columns of chain numbers, 16 visible rows (scrolls), playhead per track, track mute/solo headers |
@@ -209,7 +213,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 |---|---|---|
 | SLOT 0–B | preset # | maps each note in an octave to a ROM-defined drum preset (periodic-noise kick drops, white-burst snares, tick hats, tone-drop toms) — free, no user tables consumed |
 
-### SMP (sample) — new in v0.2
+### SMP (sample) — new in v0.2 (RATE added post-v0.2)
 | Param | Range | Meaning |
 |---|---|---|
 | MAP | SINGLE / KIT | SINGLE: note column ignored (or selects nothing), plays SAMPLE; KIT: each note in an octave maps to a sample slot |
@@ -260,6 +264,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `N xy` | Noise | x=mode, y=rate | override noise mode/rate; on T3: release from STEAL for this note |
 | `P xx` | Pitch bend | signed | continuous bend, period units per tick |
 | `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks, stepping volume by x |
+| `S xx` | Speed | 0/1/2 | sample playback speed — 0 normal, 1 = 2× (octave up, half length, decimated), 2 = ½× (octave down, nibble-held). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. Live (can re-speed a playing sample). The SMP instrument's RATE field is the per-note default |
 | `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. The `.gg` build writes the stereo port; the `.sms` build only tracks state (port $06 is memory control on an SMS) — one song pans wherever panning exists |
 | `I xy` | Iteration | cycle x, phase y | play this row's note only when (chain repeat count mod x) == y: `I00` never, `I20`/`I21` odd/even repeats, `I40` every 4th… — phrase variation without cloning. Repeats count per track: reset on a different chain, +1 each restart of the same one |
 | `T xx` | Tempo | BPM (hex) | set global tempo — converts BPM→groove using the **active tick rate** (region-true) |
