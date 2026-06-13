@@ -96,8 +96,8 @@
   play_mode    db            ; 0 = SONG, 1 = LIVE
   trk_rep      dsb 4         ; chain repeat count per track
   echo_mode    db            ; 0 off, 1 = T2, 2 = T2+T3
-  echo_tap1    db            ; T2 delay in ticks (1-63)
-  echo_tap2    db            ; T3 delay in ticks (1-63)
+  echo_tap1    db            ; T2 delay in rows (1-15, groove-scaled)
+  echo_tap2    db            ; T3 delay in rows (1-15, groove-scaled)
   echo_red1    db            ; T2 attenuation added (quieter)
   echo_red2    db            ; T3 attenuation added
   echo_stereo  db            ; 1 = pan T2 left, T3 right (GG)
@@ -568,11 +568,10 @@ echo_t1ok:
   ld a, (psg_vols+1)
   cp $0F
   jr nz, echo_t3
-  ld a, (echo_head)
-  ld b, a
   ld a, (echo_tap1)
+  call echo_taprows          ; rows -> ticks at the current groove
   ld c, a
-  ld a, b
+  ld a, (echo_head)
   sub c
   call echo_slot             ; HL = &ring[head - tap1]
   ld a, (echo_tsp1)
@@ -605,11 +604,10 @@ echo_t3:
   ld a, (psg_vols+2)
   cp $0F
   jr nz, echo_adv
-  ld a, (echo_head)
-  ld b, a
   ld a, (echo_tap2)
+  call echo_taprows          ; rows -> ticks at the current groove
   ld c, a
-  ld a, b
+  ld a, (echo_head)
   sub c
   call echo_slot
   ld a, (echo_tsp2)
@@ -688,6 +686,34 @@ ef_ok:
   ld d, (hl)                 ; DE = transposed period
   ret
 
+; A = tap in rows -> A = ring offset in ticks (1..63), scaled by the
+; active groove's row length. This is what ties the echo to the
+; musical grid: a 2-row tap is an 8th note at any tempo or swing.
+echo_taprows:
+  or a
+  ret z
+  ld b, a                    ; B = rows
+  push hl
+  call groove_base           ; HL = active groove
+  ld c, (hl)                 ; ticks per row (downbeat of the groove)
+  ld a, c
+  or a
+  jr nz, etr_have
+  ld c, 6                    ; never divide-by-feel on a 0 groove
+etr_have:
+  xor a
+etr_loop:
+  add a, c
+  cp 64
+  jr c, etr_next
+  ld a, 63                   ; clamp to the ring depth
+  jr etr_done
+etr_next:
+  djnz etr_loop
+etr_done:
+  pop hl
+  ret
+
 ; recenter T2+T3 (full L+R) - used when echo or its stereo mode is
 ; switched off, so the taps don't leave the channels stuck off-side
 echo_pan_reset:
@@ -704,9 +730,9 @@ echo_defaults:
   ld (echo_stereo), a
   ld (echo_tsp1), a
   ld (echo_tsp2), a
-  ld a, 12
+  ld a, 2
   ld (echo_tap1), a
-  ld a, 24
+  ld a, 4
   ld (echo_tap2), a
   ld a, 4
   ld (echo_red1), a
@@ -745,9 +771,9 @@ esan_tap:
   ld (hl), 1
   ret
 esan_hi:
-  cp 64
+  cp 16
   ret c
-  ld (hl), 63
+  ld (hl), 15
   ret
 
 .ENDS
@@ -2334,12 +2360,17 @@ ld_bad:
 ; -------------------------------------------------------------
 ; copy demo song from ROM into the RAM song structures
 song_init:
-  ; the demo song is a complete pre-built block (tools/makedemo.py)
+  ; the demo song is a complete pre-built block (tools/makedemo.py
+  ; or a baked-in songs/demo.smdj)
   ld hl, demo_song_block
   ld de, wave_ram
   ld bc, SAVE_SIZE
   ldir
-  jp echo_defaults
+  ld hl, demo_echo           ; carry its echo settings too
+  ld de, echo_mode
+  ld bc, 8
+  ldir
+  jp echo_sanitize
 
 ; fresh blank song: the 8 preset waves, audible default
 ; instruments, groove 6,6 - everything else empty
@@ -2408,5 +2439,7 @@ sn_tbl:
 .SECTION "DemoSong" FREE
 demo_song_block:
   .INCBIN "demo.bin"
+demo_echo:
+  .INCBIN "demo_echo.bin"     ; 8 bytes: echo_mode..echo_tsp2
 .ENDS
 .BANK 0 SLOT 0

@@ -15,8 +15,22 @@ $(BUILD)/font.bin: tools/makefont.py | $(BUILD)
 $(BUILD)/notes.inc: tools/maketables.py | $(BUILD)
 	python3 tools/maketables.py $@
 
+# The demo song: a committed .smdj export (songs/demo.smdj) is baked
+# straight in (its 16-byte SMDJ3 header stripped, leaving the 5376-byte
+# wave_ram..grooves block); otherwise makedemo.py composes one.
+# Remove songs/demo.smdj to go back to the procedural demo.
+ifneq ($(wildcard songs/demo.smdj),)
+$(BUILD)/demo.bin: songs/demo.smdj | $(BUILD)
+	tail -c +17 songs/demo.smdj | head -c 5376 > $@
+# the 8 echo settings live in the SMDJ3 header's reserved area (+7)
+$(BUILD)/demo_echo.bin: songs/demo.smdj | $(BUILD)
+	tail -c +8 songs/demo.smdj | head -c 8 > $@
+else
 $(BUILD)/demo.bin: tools/makedemo.py | $(BUILD)
 	python3 tools/makedemo.py $@
+$(BUILD)/demo_echo.bin: | $(BUILD)
+	head -c 8 /dev/zero > $@
+endif
 
 $(BUILD)/logo.inc: tools/makelogo.py art/smsggdj-logo.png | $(BUILD)
 	python3 tools/makelogo.py art/smsggdj-logo.png $(BUILD)/logo.bin $@
@@ -35,7 +49,7 @@ $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py $(wildcard samples/*.
 endif
 
 SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm
-GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc
+GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/demo_echo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc
 
 # demo ROMs (DEMO_MODE): load the demo song and auto-play it from
 # row 0 at boot - a self-running "attract" build. The normal ROMs

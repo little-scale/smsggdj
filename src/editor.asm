@@ -2324,43 +2324,44 @@ prp_edit:
   jp z, prp_tsp
   or a
   ret nz
-  ld d, 0
-  ld a, (proj_bpm)
-  ld e, a
+  ; TMPO steps the active groove by one tick = the next achievable
+  ; BPM rung. Right = faster (fewer ticks), Left = slower. The whole
+  ; groove shifts together, so swing is preserved.
   ld a, (ed_rep)
   ld c, a
-  bit 3, c
-  jr z, pe_l
-  inc e
-pe_l:
-  bit 2, c
-  jr z, pe_u
-  dec e
-pe_u:
-  bit 0, c
-  jr z, pe_d
-  ld a, e
-  add a, 10
-  ld e, a
-pe_d:
-  bit 1, c
-  jr z, pe_cl
-  ld a, e
-  sub 10
-  ld e, a
-pe_cl:
-  ld a, e                    ; clamp 40..240
-  cp 40
-  jr nc, pe_hi
-  ld a, 40
-pe_hi:
-  cp 241
-  jr c, pe_st
-  ld a, 240
-pe_st:
-  ld (proj_bpm), a
-  ld d, a
-  call set_tempo             ; same math as the T command
+  bit 3, c                   ; right -> faster
+  jr z, pe_chkl
+  ld a, $FF                  ; delta -1
+  jr pe_apply
+pe_chkl:
+  bit 2, c                   ; left -> slower
+  ret z
+  ld a, 1                    ; delta +1
+pe_apply:
+  ld b, a                    ; B = signed delta
+  call groove_base           ; HL = active groove
+  ld c, 16
+pe_loop:
+  ld a, (hl)
+  or a
+  jr z, pe_done              ; groove terminator
+  add a, b
+  bit 7, a                   ; clamp each entry to 1..15
+  jr nz, pe_min
+  or a
+  jr z, pe_min
+  cp 16
+  jr c, pe_set
+  ld a, 15
+  jr pe_set
+pe_min:
+  ld a, 1
+pe_set:
+  ld (hl), a
+  inc hl
+  dec c
+  jr nz, pe_loop
+pe_done:
   xor a
   jp prj_mark_field
 prp_slot:
@@ -3503,7 +3504,7 @@ ee_tap1:
   jr ee_tap
 ee_tap2:
   ld hl, echo_tap2
-ee_tap:
+ee_tap:                      ; tap is in rows (1-15), L/R +-1 row
   ld a, (ed_rep)
   ld c, a
   ld a, (hl)
@@ -3512,27 +3513,16 @@ ee_tap:
   inc a
 et_l:
   bit 2, c                   ; left -1
-  jr z, et_u
-  dec a
-et_u:
-  bit 0, c                   ; up +6 (one 16th at groove 6)
-  jr z, et_d
-  add a, 6
-et_d:
-  bit 1, c                   ; down -6
   jr z, et_clamp
-  sub 6
+  dec a
 et_clamp:
-  bit 7, a                   ; underflowed below 1?
-  jr nz, et_min
-  or a
-  jr z, et_min
-  cp 64
+  or a                       ; clamp 1..15
+  jr nz, et_hi
+  inc a
+et_hi:
+  cp 16
   jr c, et_store
-  ld a, 63
-  jr et_store
-et_min:
-  ld a, 1
+  ld a, 15
 et_store:
   ld (hl), a
   jp ee_dirty
@@ -4896,11 +4886,11 @@ dl_phrase:
   ld hl, str_hnote
   call print_at
   ld b, 3
-  ld c, 9
+  ld c, 8                     ; over the instrument digit (col 8)
   ld hl, str_hinstr
   call print_at
   ld b, 3
-  ld c, 12
+  ld c, 10                    ; over the command + param (cols 10-12)
   ld hl, str_hcmd
   call print_at
   ret
@@ -5575,9 +5565,61 @@ prd_slot:
   ld a, (prj_slot)
   inc a                      ; shown 1-based
   jp print_hex_nib
-prd_tempo:
-  ld a, (proj_bpm)
+
+.ENDS
+
+; the BPM-from-groove math is cold draw code: park it in bank 1.
+.BANK 1 SLOT 1
+.SECTION "TempoCalc" FREE
+
+prd_tempo:                   ; BPM = rate * count / sum-of-ticks
+  call groove_base           ; HL = active groove
+  ld d, 0                    ; D = sum of ticks
+  ld e, 0                    ; E = count of steps
+  ld b, 16
+tmd_sum:
+  ld a, (hl)
+  or a
+  jr z, tmd_done
+  add a, d
+  ld d, a
+  inc e
+  inc hl
+  djnz tmd_sum
+tmd_done:
+  ld a, e
+  or a
+  jr z, tmd_zero             ; empty groove
+  ld a, (region_pal)
+  or a
+  ld bc, 900                 ; NTSC ticks-per-min / 60
+  jr z, tmd_rate
+  ld bc, 750                 ; PAL
+tmd_rate:
+  ld hl, 0
+tmd_mul:
+  add hl, bc                 ; HL = rate * count
+  dec e
+  jr nz, tmd_mul
+  xor a                      ; A = quotient (BPM), clears carry
+  ld e, d                    ; DE = sum (divisor)
+  ld d, 0
+tmd_div:
+  sbc hl, de
+  jr c, tmd_pr               ; HL < sum: done
+  inc a
+  jr tmd_div
+tmd_pr:
   jp print_dec3
+tmd_zero:
+  xor a
+  jp print_dec3
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "ProjDraw2" FREE
+
 prd_video:
   ld a, (region_pal)
   or a

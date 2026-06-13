@@ -182,11 +182,9 @@ init:
   call load_palette          ; the splash renders in it too
   call load_font
   call splash                ; logo + version; SMS region detect inside
-.IFDEF DEMO_MODE
-  call song_init             ; demo build: the demo song
-.ELSE
-  call song_new              ; normal build: a blank song
-.ENDIF
+  call song_init             ; load the demo song (blank-new is still
+                             ; available via PROJECT NEW); DEMO_MODE
+                             ; only controls auto-play below
   call editor_init
   ; sample pool directory (bank 2 sits in slot 2 from boot)
   xor a
@@ -358,7 +356,7 @@ spl_t:
   ld a, b
   or c
   jr nz, spl_t
-  ; logo map at row 10, column 6 (absolute: the GG window centre is
+  ; logo map at row 8, column 6 (absolute: the GG window centre is
   ; the frame centre, so one placement fits both flavours); each
   ; map byte is offset by the tile-64 base
   ld hl, logo_map
@@ -367,7 +365,7 @@ spl_row:
   push hl
   push de
   ld a, d
-  add a, 10
+  add a, 8
   ld l, a
   ld h, 0
   add hl, hl
@@ -394,38 +392,10 @@ spl_col:
   ld a, d
   cp LOGO_H
   jr c, spl_row
-  ; "LITTLE-SCALE'S" inverted band at row 6 (row 7 stays blank as
-  ; the gap before the logo at row 8) - mirrors the version bar
-  ld hl, NT_WADDR + 8*64
-  call vdp_set_addr
-  ld b, 32
-spl_cbar:
-  xor a
-  out (VDP_DATA), a
-  ld a, $08
-  out (VDP_DATA), a
-  djnz spl_cbar
-  ld hl, NT_WADDR + 8*64 + 9*2     ; 14 chars, centred
-  call vdp_set_addr
-  ld a, $08
-  ld (text_attr), a
-  ld hl, str_credit
-spl_cred:
-  ld a, (hl)
-  or a
-  jr z, spl_creddone
-  push hl
-  call print_char
-  pop hl
-  inc hl
-  jr spl_cred
-spl_creddone:
-  xor a
-  ld (text_attr), a
   ; fill the whole version row with an inverted bar (display is
   ; off here, so no write-spacing needed), then the version text
   ; on it (absolute coords, like the logo)
-  ld hl, NT_WADDR + 15*64    ; row 15, column 0
+  ld hl, NT_WADDR + 13*64    ; row 13, column 0
   call vdp_set_addr
   ld b, 32
 spl_bar:
@@ -434,7 +404,7 @@ spl_bar:
   ld a, $08                  ; inverted attribute
   out (VDP_DATA), a
   djnz spl_bar
-  ld hl, NT_WADDR + 15*64 + 14*2   ; version at column 14
+  ld hl, NT_WADDR + 13*64 + 14*2   ; version at column 14
   call vdp_set_addr
   ld a, $08
   ld (text_attr), a
@@ -683,7 +653,6 @@ str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
 str_version:     .db "V0.2", 0
-str_credit:      .db "LITTLE-SCALE'S", 0
 str_syncsym:     .db $3E, $5C, $40, $20  ; > pulse < space
 str_rest:        .db "---"
 
