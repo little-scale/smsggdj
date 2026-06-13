@@ -32,6 +32,7 @@
 .DEFINE SCR_PROJ    6
 .DEFINE SCR_WAVE    7
 .DEFINE SCR_SET     8         ; OPTIONS, above SONG
+.DEFINE SCR_ECHO    9         ; ECHO, below INSTR
 
 ; screen-map indicator position (SMS: far-right margin past the
 ; grid; GG: the free right columns of the 20-wide window)
@@ -64,6 +65,7 @@
   wv_preset    db
   prj_row      db
   stg_row      db            ; SETTINGS cursor field
+  ech_row      db            ; ECHO cursor field
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
   prj_slot     db            ; save slot 0..sram_slots-1
@@ -279,6 +281,8 @@ screen_nav:
   jp z, sn_groove
   cp SCR_WAVE
   jp z, sn_wave
+  cp SCR_ECHO
+  jp z, sn_echo
   cp SCR_INSTR
   jp z, sn_instr_up
   cp SCR_TABLE
@@ -349,11 +353,23 @@ sng_st:
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
-sn_instr_up:                 ; WAVE sits above INSTR on the map
+sn_instr_up:                 ; WAVE above INSTR, ECHO below
   ld a, (pad_edge)
   and PAD_UP
-  jp z, sn_lr
+  jr z, sni_dn
   ld a, SCR_WAVE
+  jp sn_switch
+sni_dn:
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jp z, sn_lr
+  ld a, SCR_ECHO
+  jp sn_switch
+sn_echo:                     ; 2+up returns to INSTR
+  ld a, (pad_edge)
+  and PAD_UP
+  ret z
+  ld a, SCR_INSTR
   jp sn_switch
 sn_wave:                     ; 2+down exits, 2+L/R selects wave
   ld a, (pad_edge)
@@ -511,6 +527,8 @@ cursor_move:
   jp z, cm_proj
   cp SCR_SET
   jp z, cm_set
+  cp SCR_ECHO
+  jp z, cm_echo
   cp SCR_WAVE
   jp z, cm_wave
 
@@ -857,6 +875,8 @@ do_press:
   jp z, prp_press
   cp SCR_SET
   ret z                      ; nothing pressable on OPTIONS
+  cp SCR_ECHO
+  ret z
   cp SCR_WAVE
   ret z
   ; ---- SONG ----
@@ -891,6 +911,8 @@ do_cut:
   cp SCR_PROJ
   ret z
   cp SCR_SET
+  ret z
+  cp SCR_ECHO
   ret z
   cp SCR_WAVE
   jp z, wvp_cut
@@ -954,6 +976,8 @@ do_edit:
   jp z, prp_edit
   cp SCR_SET
   jp z, stp_edit
+  cp SCR_ECHO
+  jp z, ep_edit
   cp SCR_WAVE
   jp z, wvp_edit
   ; ---- SONG: edit chain number ----
@@ -3350,6 +3374,339 @@ mark_cursor_dirty:
   ld a, (chn_row)
   jp mark_dirty_a
 
+; ===========================================================
+; ECHO screen - a form like OPTIONS (in bank 1; bank 0 is full).
+; Fields: MODE, TAP1, TAP2, RD1, RD2, STEREO. Values live in the
+; echo_* engvars that the engine post-pass (echo_pass) reads.
+; ===========================================================
+cm_echo:
+  bit 1, c                   ; down
+  jr z, ce_up
+  ld a, (ech_row)
+  cp 7
+  jr nc, ce_up
+  call ep_mark
+  inc a
+  ld (ech_row), a
+  call ep_mark
+ce_up:
+  bit 0, c                   ; up
+  ret z
+  ld a, (ech_row)
+  or a
+  ret z
+  call ep_mark
+  dec a
+  ld (ech_row), a
+  jp ep_mark
+
+ep_mark:                     ; A = field -> mark its grid row dirty
+  push hl
+  push de
+  push af
+  ld e, a
+  ld d, 0
+  ld hl, ech_f2r
+  add hl, de
+  ld a, (hl)
+  call mark_dirty_a
+  pop af
+  pop de
+  pop hl
+  ret
+
+ep_edit:
+  ld a, (ech_row)
+  or a
+  jr z, ee_mode
+  cp 1
+  jp z, ee_tap1
+  cp 2
+  jp z, ee_tap2
+  cp 3
+  jp z, ee_red1
+  cp 4
+  jp z, ee_red2
+  cp 5
+  jr z, ee_stereo
+  cp 6
+  jr z, ee_tsp1
+  ld hl, echo_tsp2           ; field 7
+  jr ee_tsp
+ee_stereo:
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (echo_stereo)
+  xor 1
+  ld (echo_stereo), a
+  or a
+  call z, echo_pan_reset     ; recenter once when STER goes off
+  jp ee_dirty
+ee_tsp1:
+  ld hl, echo_tsp1
+ee_tsp:
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld c, a
+  ld a, (hl)
+  bit 3, c                   ; right +1
+  jr z, ets_l
+  inc a
+ets_l:
+  bit 2, c                   ; left -1
+  jr z, ets_cl
+  dec a
+ets_cl:
+  bit 7, a                   ; clamp signed to -24..+24
+  jr z, ets_pos
+  cp $E8
+  jr nc, ets_store
+  ld a, $E8
+  jr ets_store
+ets_pos:
+  cp 25
+  jr c, ets_store
+  ld a, 24
+ets_store:
+  ld (hl), a
+  jp ee_dirty
+ee_mode:
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld c, a
+  ld a, (echo_mode)
+  bit 3, c                   ; right: next (wrap 2->0)
+  jr z, eem_l
+  inc a
+  cp 3
+  jr c, eem_l
+  ld a, 0
+eem_l:
+  bit 2, c                   ; left: prev (wrap 0->2)
+  jr z, eem_set
+  or a
+  jr nz, eem_dec
+  ld a, 2
+  jr eem_set
+eem_dec:
+  dec a
+eem_set:
+  ld (echo_mode), a
+  or a
+  call z, echo_pan_reset     ; recenter once when echo goes off
+  jp ee_dirty
+ee_tap1:
+  ld hl, echo_tap1
+  jr ee_tap
+ee_tap2:
+  ld hl, echo_tap2
+ee_tap:
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (hl)
+  bit 3, c                   ; right +1
+  jr z, et_l
+  inc a
+et_l:
+  bit 2, c                   ; left -1
+  jr z, et_u
+  dec a
+et_u:
+  bit 0, c                   ; up +6 (one 16th at groove 6)
+  jr z, et_d
+  add a, 6
+et_d:
+  bit 1, c                   ; down -6
+  jr z, et_clamp
+  sub 6
+et_clamp:
+  bit 7, a                   ; underflowed below 1?
+  jr nz, et_min
+  or a
+  jr z, et_min
+  cp 64
+  jr c, et_store
+  ld a, 63
+  jr et_store
+et_min:
+  ld a, 1
+et_store:
+  ld (hl), a
+  jp ee_dirty
+ee_red1:
+  ld hl, echo_red1
+  jr ee_red
+ee_red2:
+  ld hl, echo_red2
+ee_red:
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld c, a
+  ld a, (hl)
+  bit 3, c                   ; right +1
+  jr z, er_l
+  inc a
+er_l:
+  bit 2, c                   ; left -1
+  jr z, er_st
+  dec a
+er_st:
+  and $0F
+  ld (hl), a
+ee_dirty:
+  ld a, (ech_row)
+  jp ep_mark
+
+dl_echo:
+  ld b, NAME_ROW
+  ld c, NAME_COL
+  ld hl, str_echo
+  jp print_at
+
+et_draw_row:                 ; E = visible row (like st_draw_row)
+  push de
+  ld d, 0
+  ld hl, ech_r2f
+  add hl, de
+  ld a, (hl)
+  pop de
+  cp $FF
+  ret z
+  ld (ed_field), a
+  ; label (col 4)
+  xor a
+  ld (text_attr), a
+  ld a, (ed_field)
+  ld d, a
+  add a, a
+  add a, a
+  add a, d                   ; * 5
+  push de
+  ld e, a
+  ld d, 0
+  ld hl, ech_lbls
+  add hl, de
+  pop de
+  push hl
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  pop hl
+  push de
+  call print_at
+  pop de
+  ; value attr (highlight the cursor field)
+  xor a
+  ld (text_attr), a
+  ld a, (ech_row)
+  ld d, a
+  ld a, (ed_field)
+  cp d
+  jr nz, etd_addr
+  ld a, $08
+  ld (text_attr), a
+etd_addr:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 10
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld a, (ed_field)
+  or a
+  jr z, etd_mode
+  cp 1
+  jr z, etd_tap1
+  cp 2
+  jr z, etd_tap2
+  cp 3
+  jr z, etd_red1
+  cp 4
+  jr z, etd_red2
+  cp 5
+  jr z, etd_ster
+  cp 6
+  jr z, etd_tsp1
+  ld a, (echo_tsp2)          ; field 7
+  jr etd_tsp
+etd_tsp1:
+  ld a, (echo_tsp1)
+etd_tsp:
+  bit 7, a
+  jr z, etd_tpos
+  neg
+  push af
+  ld a, '-'
+  call print_char
+  pop af
+  jp print_hex_a
+etd_tpos:
+  push af
+  ld a, '+'
+  call print_char
+  pop af
+  jp print_hex_a
+etd_ster:
+  ld a, (echo_stereo)
+  or a
+  ld hl, str_ech_off
+  jr z, etd_pr
+  ld hl, str_ech_on
+etd_pr:
+  ld b, 4
+  jp print_raw
+etd_mode:
+  ld a, (echo_mode)
+  add a, a
+  add a, a                   ; * 4
+  ld e, a
+  ld d, 0
+  ld hl, str_emode
+  add hl, de
+  ld b, 4
+  jp print_raw
+etd_tap1:
+  ld a, (echo_tap1)
+  jp print_hex_a
+etd_tap2:
+  ld a, (echo_tap2)
+  jp print_hex_a
+etd_red1:
+  ld a, (echo_red1)
+  jp print_hex_nib
+etd_red2:
+  ld a, (echo_red2)
+  jp print_hex_nib
+
+str_echo:
+  .db "ECHO", 0
+ech_lbls:
+  .db "MODE", 0
+  .db "TAP1", 0
+  .db "TAP2", 0
+  .db "RD1 ", 0
+  .db "RD2 ", 0
+  .db "STER", 0
+  .db "TSP1", 0
+  .db "TSP2", 0
+str_emode:
+  .db "OFF T2  T2T3"
+str_ech_off:
+  .db "OFF "
+str_ech_on:
+  .db "ON  "
+ech_f2r:
+  .db 0, 2, 3, 5, 6, 8, 10, 11
+ech_r2f:
+  .db 0, $FF, 1, 2, $FF, 3, 4, $FF, 5, $FF, 6, 7, $FF, $FF, $FF, $FF
+
 .ENDS
 
 .BANK 0 SLOT 0
@@ -4225,6 +4582,8 @@ draw_row:
   jp z, pr_draw_row
   cp SCR_SET
   jp z, st_draw_row
+  cp SCR_ECHO
+  jp z, et_draw_row
   cp SCR_WAVE
   jp z, wv_draw_row
   jp so_draw_row
@@ -4239,6 +4598,8 @@ playhead_update:
   cp SCR_PROJ
   ret z
   cp SCR_SET
+  ret z
+  cp SCR_ECHO
   ret z
   cp SCR_WAVE
   ret z
@@ -4433,6 +4794,8 @@ draw_labels:
   jp z, dl_proj
   cp SCR_SET
   jp z, dl_set
+  cp SCR_ECHO
+  jp z, dl_echo
   cp SCR_WAVE
   jp z, dl_wave
 
@@ -4708,6 +5071,20 @@ dsm_wattr:
   call nt_addr_hl
   call vdp_set_addr
   ld a, 'W'
+  call print_char
+  ; ECHO indicator below the I
+  ld a, (scr_mode)
+  cp SCR_ECHO
+  ld a, $00
+  jr nz, dsm_eattr
+  ld a, $08
+dsm_eattr:
+  ld (text_attr), a
+  ld b, MAP_ROW+2
+  ld c, MAP_COL+3
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, 'E'
   call print_char
   xor a
   ld (text_attr), a
@@ -5910,19 +6287,31 @@ cc_set:
   pop hl
   ret
 
-; rank (alphabetical) -> command id
+.ENDS
+
+; command tables are cold lookup data: park them in bank 1 to keep
+; bank 0 (full) from overflowing. Read cross-bank via ld hl,.
+.BANK 1 SLOT 1
+.SECTION "CmdTab" FREE
+
+; rank (alphabetical) -> command id   (B = CMD_WSET sits after A)
 cmd_order:
-  .db CMD_NONE, CMD_TBL, CMD_ARP, CMD_DELAY, CMD_ENV, CMD_FINE
-  .db CMD_GRV, CMD_HOP, CMD_ITER, CMD_KILL, CMD_SLIDE, CMD_TREM
-  .db CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG, CMD_SPEED, CMD_TPO
-  .db CMD_VIB, CMD_WAIT
+  .db CMD_NONE, CMD_TBL, CMD_WSET, CMD_ARP, CMD_DELAY, CMD_ENV
+  .db CMD_FINE, CMD_GRV, CMD_HOP, CMD_ITER, CMD_KILL, CMD_SLIDE
+  .db CMD_TREM, CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG, CMD_SPEED
+  .db CMD_TPO, CMD_VIB, CMD_WAIT
 ; command id -> rank (inverse of cmd_order)
 cmd_rank:
-  .db 0, 9, 7, 1, 2, 4, 5, 6, 12, 14, 17, 18, 19, 11, 3, 10, 15, 13, 8, 16
+  .db 0, 10, 8, 1, 3, 5, 6, 7, 13, 15, 18, 19, 20, 12, 4, 11, 16, 14, 9, 17, 2
 
 ; command id -> display letter
 cmd_chars:
-  .db "-KHACEFGNPTVWMDLROIS"
+  .db "-KHACEFGNPTVWMDLROISB"
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "EdData" FREE
 
 str_song:        .db "SONG", 0
 str_chain:       .db "CHAIN", 0

@@ -85,7 +85,7 @@ demo: $(DEMOROM) $(DEMOGGROM)
 JAVA := /opt/homebrew/opt/openjdk/bin/java
 EMU  := tools/emulicious/Emulicious.jar
 
-run: all                       ; always rebuild both flavors
+run: all                       # always rebuild both flavors
 	$(JAVA) -jar $(EMU) $(abspath $(ROM))
 
 run-gg: all

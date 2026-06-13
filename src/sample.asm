@@ -30,6 +30,7 @@
   smp_vbcnt    db            ; samples to feed across vblank
   smp_tmp      db
   wav_owner    db            ; track whose volume gates the wave
+  smp_owner    db            ; track that triggered the playing sample
   wav_cur      db            ; wave # loaded in wav_buf
   winc_ptr     dw            ; region pitch-increment table
   smp_count    db            ; samples in the pool (boot-cached)

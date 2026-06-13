@@ -55,7 +55,8 @@
 .DEFINE CMD_PAN     17         ; O: GG stereo - x = left, y = right
 .DEFINE CMD_ITER    18         ; I: play when (repeats mod x) == y
 .DEFINE CMD_SPEED   19         ; S: sample speed (0 norm, 1 2x, 2 half)
-.DEFINE CMD_COUNT   20
+.DEFINE CMD_WSET    20         ; B: set this note's wavetable (0-7)
+.DEFINE CMD_COUNT   21
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -94,6 +95,17 @@
   sync_ticks   db            ; (scratch)
   play_mode    db            ; 0 = SONG, 1 = LIVE
   trk_rep      dsb 4         ; chain repeat count per track
+  echo_mode    db            ; 0 off, 1 = T2, 2 = T2+T3
+  echo_tap1    db            ; T2 delay in ticks (1-63)
+  echo_tap2    db            ; T3 delay in ticks (1-63)
+  echo_red1    db            ; T2 attenuation added (quieter)
+  echo_red2    db            ; T3 attenuation added
+  echo_stereo  db            ; 1 = pan T2 left, T3 right (GG)
+  echo_tsp1    db            ; tap1 transpose, signed semitones
+  echo_tsp2    db            ; tap2 transpose, signed semitones
+  echo_head    db            ; ring write index (0-63)
+  echo_ring    dsb 64*4      ; T1 hist: period lo, hi, atten, note
+  wav_ovr      db            ; B cmd: one-shot wave # ($FF = none)
   proj_tsp     db            ; global transpose, signed semitones
   live_q       dsb 4         ; queued song row per track ($FF -)
   sram_ok      db            ; cart SRAM detected at boot
@@ -124,6 +136,8 @@ engine_play:
   push af
   xor a
   ld (hop_pending), a
+  ld a, $FF
+  ld (wav_ovr), a
   pop af
   ld a, $FF
   ld (cur_row), a            ; first tick advances to row 0
@@ -228,6 +242,18 @@ ep_next:
   cp 4
   jp c, ep_chl
 
+  ; echo ring starts silent (atten $0F) so it doesn't echo stale
+  ; data before T1 has filled it
+  xor a
+  ld (echo_head), a
+  ld hl, echo_ring + 2
+  ld b, 64
+ep_eclr:
+  ld (hl), $0F
+  inc hl
+  inc hl
+  inc hl
+  djnz ep_eclr
   ; fresh repeat counts
   xor a
   ld (trk_rep), a
@@ -495,7 +521,239 @@ et_gstore:
   ld a, $0F
   ld (cur_row), a
 et_fx:
-  jp channels_fx
+  call channels_fx
+  jp echo_pass
+
+.ENDS
+
+; echo lives in bank 1 (slot 1, always mapped): bank 0 is full.
+.BANK 1 SLOT 1
+.SECTION "Echo" FREE
+
+; ===========================================================
+; echo post-pass (once per tick, after channels_fx): record T1's
+; output in a ring, and replay it delayed + attenuated onto T2
+; (tap1) and T3 (tap2) when those channels are otherwise silent.
+; A delay-line echo - it follows T1's pitch and volume exactly.
+; ===========================================================
+echo_pass:
+  ; ring[head] = T1 (period lo, hi, attenuation)
+  ld a, (echo_head)
+  call echo_slot             ; HL = &ring[head]
+  ld a, (psg_tone0)
+  ld (hl), a
+  inc hl
+  ld a, (psg_tone0+1)
+  ld (hl), a
+  inc hl
+  ld a, (psg_vols)
+  ld (hl), a
+  inc hl
+  ld a, (chst+0)             ; T1's base note index ($FF = none)
+  ld (hl), a
+  ld a, (echo_mode)
+  or a
+  jp z, echo_adv             ; off: just keep the ring warm
+  ; stereo: recenter T2+T3 each tick - the driven taps re-pan
+  ; themselves below, and any channel the song reclaims (or that
+  ; isn't echoing this tick) is left centred, not stuck off-side.
+  ld a, (echo_stereo)
+  or a
+  jr z, echo_t1ok
+  ld a, (psg_pan)
+  or  %01100110
+  ld (psg_pan), a
+echo_t1ok:
+  ; --- TAP1 -> T2, only if the song left T2 silent ---
+  ld a, (psg_vols+1)
+  cp $0F
+  jr nz, echo_t3
+  ld a, (echo_head)
+  ld b, a
+  ld a, (echo_tap1)
+  ld c, a
+  ld a, b
+  sub c
+  call echo_slot             ; HL = &ring[head - tap1]
+  ld a, (echo_tsp1)
+  call echo_fetch            ; DE = period (transposed), C = atten
+  ld a, e
+  ld (psg_tone1), a
+  ld a, d
+  ld (psg_tone1+1), a
+  ld a, (echo_red1)
+  add a, c
+  cp $10
+  jr c, echo_t2v
+  ld a, $0F
+echo_t2v:
+  ld (psg_vols+1), a
+  ld a, (echo_stereo)
+  or a
+  jr z, echo_t3
+  ld a, (psg_pan)            ; T2 = left only (ch1: L bit5, R bit1)
+  and %11011101
+  or  %00100000
+  ld (psg_pan), a
+echo_t3:
+  ld a, (echo_mode)
+  cp 2
+  jr nz, echo_adv
+  ld a, (smp_active)         ; T3 owned by a sample/wave: skip
+  or a
+  jr nz, echo_adv
+  ld a, (psg_vols+2)
+  cp $0F
+  jr nz, echo_adv
+  ld a, (echo_head)
+  ld b, a
+  ld a, (echo_tap2)
+  ld c, a
+  ld a, b
+  sub c
+  call echo_slot
+  ld a, (echo_tsp2)
+  call echo_fetch            ; DE = period (transposed), C = atten
+  ld a, e
+  ld (psg_tone2), a
+  ld a, d
+  ld (psg_tone2+1), a
+  ld a, (echo_red2)
+  add a, c
+  cp $10
+  jr c, echo_t3v
+  ld a, $0F
+echo_t3v:
+  ld (psg_vols+2), a
+  ld a, (echo_stereo)
+  or a
+  jr z, echo_adv
+  ld a, (psg_pan)            ; T3 = right only (ch2: L bit6, R bit2)
+  and %10111011
+  or  %00000100
+  ld (psg_pan), a
+echo_adv:
+  ld a, (echo_head)
+  inc a
+  and $3F
+  ld (echo_head), a
+  ret
+
+; A = ring index (mod 64) -> HL = &echo_ring[index*4]
+echo_slot:
+  and $3F
+  ld l, a
+  ld h, 0
+  add hl, hl                 ; *2
+  add hl, hl                 ; *4
+  ld de, echo_ring
+  add hl, de
+  ret
+
+; HL = ring slot, A = transpose (signed semitones)
+; -> DE = period to play, C = source attenuation.
+; tsp 0 (or no note) replays the recorded period verbatim (keeps
+; vibrato/bends); otherwise the base note is shifted and looked up
+; fresh in the note table - no multiply, just the existing table.
+echo_fetch:
+  ld b, a                    ; B = transpose
+  ld e, (hl)                 ; recorded period lo
+  inc hl
+  ld d, (hl)                 ; recorded period hi
+  inc hl
+  ld c, (hl)                 ; source attenuation
+  inc hl
+  ld a, (hl)                 ; recorded note
+  cp $FF
+  ret z                      ; no note: keep recorded period
+  ld l, a
+  ld a, b
+  or a
+  ret z                      ; no transpose: keep recorded period
+  add a, l                   ; note + semitones, clamp to table
+  jp p, ef_hi
+  xor a
+ef_hi:
+  cp NOTE_COUNT
+  jr c, ef_ok
+  ld a, NOTE_COUNT-1
+ef_ok:
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, (note_ptr)
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)                 ; DE = transposed period
+  ret
+
+; recenter T2+T3 (full L+R) - used when echo or its stereo mode is
+; switched off, so the taps don't leave the channels stuck off-side
+echo_pan_reset:
+  ld a, (psg_pan)
+  or %01100110
+  ld (psg_pan), a
+  ret
+
+; echo defaults: off, but taps/reductions preset so turning it on
+; sounds musical right away (eighth + quarter, fading)
+echo_defaults:
+  xor a
+  ld (echo_mode), a
+  ld (echo_stereo), a
+  ld (echo_tsp1), a
+  ld (echo_tsp2), a
+  ld a, 12
+  ld (echo_tap1), a
+  ld a, 24
+  ld (echo_tap2), a
+  ld a, 4
+  ld (echo_red1), a
+  ld a, 8
+  ld (echo_red2), a
+  ld a, $FF
+  ld (wav_ovr), a
+  ret
+
+; clamp loaded echo settings into valid ranges
+echo_sanitize:
+  ld a, (echo_mode)
+  cp 3
+  jr c, esan_m
+  xor a
+  ld (echo_mode), a
+esan_m:
+  ld hl, echo_tap1
+  call esan_tap
+  ld hl, echo_tap2
+  call esan_tap
+  ld a, (echo_red1)
+  and $0F
+  ld (echo_red1), a
+  ld a, (echo_red2)
+  and $0F
+  ld (echo_red2), a
+  ld a, (echo_stereo)
+  and 1
+  ld (echo_stereo), a
+  ret
+esan_tap:
+  ld a, (hl)
+  or a
+  jr nz, esan_hi
+  ld (hl), 1
+  ret
+esan_hi:
+  cp 64
+  ret c
+  ld (hl), 63
+  ret
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "Engine2" FREE
 
 ; HL = start of the selected groove
 groove_base:
@@ -847,6 +1105,8 @@ pr_nok:
   jr z, prn_slide
   cp CMD_ITER
   jr z, prn_iter
+  cp CMD_WSET
+  jr z, prn_wset
 prn_norm:
   ld (ix+0), b
   push hl
@@ -855,6 +1115,11 @@ prn_norm:
   pop bc
   pop hl
   jp pr_cmd
+prn_wset:                    ; set this note's wavetable, then trigger
+  ld a, d
+  and $07
+  ld (wav_ovr), a
+  jr prn_norm
 prn_delay:
   ld a, d
   or a
@@ -955,6 +1220,8 @@ pr_cmd:
   jr z, prc_tpo
   cp CMD_WAIT
   jr z, prc_wait
+  cp CMD_WSET
+  jr z, pr_next              ; applied in the trigger peek above
   call exec_command          ; channel-scope
   jp pr_next
 prc_grv:
@@ -1093,10 +1360,21 @@ xc_kill:
   or a
   jr nz, xc_klater
   ld (ix+2), 0
-  ret
+  ld a, (cur_trig_ch)
+  jp smp_kill_owned          ; K00 also cuts the sample
 xc_klater:
   ld (ix+4), a
   ret
+
+; A = channel; if it owns the playing sample, stop it (smp_abort
+; no-ops unless a PCM sample is active). Preserves BC/DE/HL.
+smp_kill_owned:
+  push hl
+  ld hl, smp_owner
+  cp (hl)
+  pop hl
+  ret nz
+  jp smp_abort
 xc_tbl:
   ld a, d
   cp NUM_TABLES
@@ -1315,6 +1593,8 @@ tn_sspd:
   ld (smp_speed), a
   xor a
   ld (smp_hold), a
+  ld a, (cur_trig_ch)
+  ld (smp_owner), a
   ld a, (smp_count)
   ld d, a
   or a
@@ -1339,6 +1619,14 @@ tn_wav:
   ld a, c                    ; +4 byte = wave number
   and $07
   ld c, a
+  ld a, (wav_ovr)            ; B command overrides it for this note
+  cp $FF
+  jr z, tnw_go
+  and $07
+  ld c, a
+  ld a, $FF
+  ld (wav_ovr), a            ; one-shot: consume the override
+tnw_go:
   ld a, (cur_trig_ch)
   ld (wav_owner), a
   ld a, (ix+0)               ; transposes already baked in at
@@ -1714,6 +2002,8 @@ cf_len:
   jr nz, cf_out
   ld (ix+2), 0               ; cut
   ld (ix+4), $FF
+  ld a, c                    ; if this channel's sample, stop it
+  call smp_kill_owned
 
   ; --- write shadows ---
 cf_out:
@@ -1948,7 +2238,14 @@ sv_go:
   inc hl
   ld (hl), 'J'
   inc hl
-  ld (hl), '3'
+  ld (hl), '3'               ; HL = slot base + 4
+  inc hl
+  inc hl
+  inc hl                     ; + 7: echo settings (reserved area)
+  ex de, hl
+  ld hl, echo_mode
+  ld bc, 8                   ; mode,tap1,tap2,red1,red2,stereo,tsp1,tsp2
+  ldir
   xor a
   ld ($FFFC), a
   ld a, 1
@@ -2014,6 +2311,13 @@ ld_go:
   ld de, wave_ram
   ld bc, SAVE_SIZE
   ldir
+  call sram_slot_base        ; echo settings from reserved area
+  ld de, 7
+  add hl, de
+  ld de, echo_mode
+  ld bc, 8
+  ldir
+  call echo_sanitize         ; old saves had random reserved bytes
   xor a
   ld ($FFFC), a
   ld a, 2
@@ -2026,6 +2330,7 @@ ld_bad:
   ld (prj_stat), a
   ret
 
+
 ; -------------------------------------------------------------
 ; copy demo song from ROM into the RAM song structures
 song_init:
@@ -2034,7 +2339,7 @@ song_init:
   ld de, wave_ram
   ld bc, SAVE_SIZE
   ldir
-  ret
+  jp echo_defaults
 
 ; fresh blank song: the 8 preset waves, audible default
 ; instruments, groove 6,6 - everything else empty
@@ -2092,7 +2397,7 @@ sn_tbl:
   ld a, 6                    ; groove 0 = 6,6
   ld (grooves), a
   ld (grooves+1), a
-  ret
+  jp echo_defaults
 
 .ENDS
 
