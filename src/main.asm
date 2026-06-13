@@ -561,7 +561,7 @@ ds_print:
 .IFDEF TARGET_GG
 str_title:       .db "GGDJ", 0
 .ELSE
-str_title:       .db "SMSDJ", 0
+str_title:       .db "SMSGGDJ", 0
 .ENDIF
 str_region_pal:  .db "REGION: PAL 50HZ ", 0
 str_region_ntsc: .db "REGION: NTSC 60HZ", 0
