@@ -31,7 +31,7 @@
 .DEFINE SCR_GROOVE  5
 .DEFINE SCR_PROJ    6
 .DEFINE SCR_WAVE    7
-.DEFINE SCR_SET     8         ; SETTINGS, above SONG
+.DEFINE SCR_SET     8         ; OPTIONS, above SONG
 
 .RAMSECTION "edvars" SLOT 3
   scr_mode     db
@@ -268,7 +268,7 @@ screen_nav:
   cp SCR_TABLE
   jp z, sn_selt
   jp sn_lr
-sn_song:                     ; SETTINGS sits above SONG
+sn_song:                     ; OPTIONS sits above SONG
   ld a, (pad_edge)
   and PAD_UP
   jp z, sn_lr
@@ -835,7 +835,7 @@ do_press:
   cp SCR_PROJ
   jp z, prp_press
   cp SCR_SET
-  ret z                      ; nothing pressable on SETTINGS
+  ret z                      ; nothing pressable on OPTIONS
   cp SCR_WAVE
   ret z
   ; ---- SONG ----
@@ -2425,7 +2425,7 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE)
   jp prj_mark_field
 
 ; -------------------------------------------------------------
-; SETTINGS screen: the machine/rig page (the future persisted
+; OPTIONS screen: the machine/rig page (the future persisted
 ; config block). Fields: 0 VID, 1 SRAM (read-only), 2 SYNC,
 ; 3 COLR.
 cm_set:
@@ -4331,7 +4331,7 @@ dsm_attr:
   ld a, d
   cp 5
   jr c, dsm_l
-  ; SETTINGS indicator above the map's S
+  ; OPTIONS indicator above the map's S
   ld a, (scr_mode)
   cp SCR_SET
   ld a, $00
@@ -4343,7 +4343,7 @@ dsm_sattr:
   ld c, 25
   call nt_addr_hl
   call vdp_set_addr
-  ld a, '='
+  ld a, 'O'
   call print_char
   ; PROJECT indicator above the map's C
   ld a, (scr_mode)
@@ -4951,7 +4951,7 @@ prj_stats:
   .db "SURE?  "
   .db "NEW    "
 str_proj:   .db "PROJECT", 0
-str_set:    .db "SETTINGS", 0
+str_set:    .db "OPTIONS", 0
 str_go:     .db "GO"
 str_vpal:   .db "PAL "
 str_vntsc:  .db "NTSC"
