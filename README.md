@@ -57,6 +57,7 @@ and press play.
   and the GGDJ build (§15). Read the relevant section before changing
   behaviour.
 - **[SAVEFORMAT.md](SAVEFORMAT.md)** — the SRAM / `.sav` / `.smdj` save format.
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed, per version.
 - **[HARDWARE.md](HARDWARE.md)** — controller-port and Game Gear EXT pinouts,
   sync cabling, and the EXT paddle-PCB notes.
 
