@@ -31,7 +31,7 @@ don't exist there (DESIGN.md §15).
 
 - Toolchain: `wla-z80` + `wlalink` (Homebrew). `make run` needs `/opt/homebrew/opt/openjdk/bin/java`.
 - Emulicious must have `AudioSync=true` in `tools/emulicious/Emulicious.ini`, or it free-runs at turbo speed.
-- There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent; the timing-critical sample/wave feed is now **confirmed on real hardware** (PAL SMS1 via flashcart) — still worth checking NTSC and Game Gear hardware.
+- There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent; the timing-critical sample/wave feed **and 32 KB SRAM (6 slots, second bank persists)** are **confirmed on real hardware** (Master Everdrive X7 on a PAL SMS1) — still worth checking NTSC and Game Gear hardware.
 - Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/demo.bin` (makedemo.py), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
 - **Demo song:** if `songs/demo.smdj` exists (a committed save export), the build strips its 16-byte header and bakes the 5376-byte block as `build/demo.bin`, with its echo settings (the SMDJ3 reserved bytes) in `build/demo_echo.bin`; both ride into `song_init`. Otherwise `makedemo.py` composes one. Delete `songs/demo.smdj` for the procedural demo.
 - **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
@@ -64,6 +64,6 @@ Any new gesture must fit this frame (user's settled design, DESIGN.md §3): butt
 
 ## Workflow
 
-Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; clone modes, K-cuts-samples, the wave-bank (`B`) command, the tempo-synced echo, and the `I` iteration play-mask are also done. **Hardware-verified on a PAL SMS1** (flashcart). Remaining: config persistence, polish, NTSC / Game-Gear hardware checks.
+Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; clone modes, K-cuts-samples, the wave-bank (`B`) command, the tempo-synced echo, and the `I` iteration play-mask are also done. **Hardware-verified on a PAL SMS1** (Master Everdrive X7): sample/wave playback and 32 KB SRAM / 6 slots. Remaining: config persistence, polish, NTSC / Game-Gear hardware checks.
 
 Releases are versioned — `str_version` in `src/main.asm` is the splash string (currently `V0.22`, dev), with a per-version `CHANGELOG.md`. Add user-facing bullets to the current version's section as you make changes, and keep `str_version` in sync on a release.

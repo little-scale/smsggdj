@@ -58,7 +58,11 @@ whether `$A000` mirrors it (8 KB) or not (16 KB), then writes distinct
 markers to `$8000` in bank 0 and bank 1 — if both persist independently the
 cart has a real second bank (32 KB → 6 slots). This detects *live* RAM only;
 whether a flashcart **battery-backs** the second bank is a separate question,
-confirmable only by a power-cycle test. `savetool.py` and `savetool.html`
+confirmable only by a power-cycle test — **confirmed on real hardware** (a Master
+Everdrive X7 on a PAL SMS1: slot 1 and slot 4 both persisted across
+power-off). Verify
+your own cart the same way before trusting slots 4-6. `savetool.py` and
+`savetool.html`
 handle all three sizes — slots 3-5 sit in the second bank at file offset
 `+$4000`; the browser tool has an 8/16/32 KB cart-size selector that sets the
 slot count and `.sav` size.

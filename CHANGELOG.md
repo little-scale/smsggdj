@@ -9,7 +9,9 @@ The git history has the full detail; this is the curated summary.
 - **32 KB SRAM detection** — boots probe for a distinct second 16 KB bank
   (`$FFFC` bit 2); carts that have it expose **6 save slots** instead of 3
   (3 per bank). Degrades to 3 (16 KB) or 1 (8 KB) everywhere else. The
-  OPTIONS SRAM readout now shows 8K / 16K / 32K.
+  OPTIONS SRAM readout now shows 8K / 16K / 32K. Confirmed end-to-end on
+  real hardware (Master Everdrive X7 on a PAL SMS1 — slot 4 persists across
+  power-off).
 - `savetool.py` and `savetool.html` handle 6 slots / the second bank; the
   browser tool gains an **8 / 16 / 32 KB cart-size selector** (sets the slot
   count and output `.sav` size) and a **song viewer** — click a slot to
