@@ -652,28 +652,58 @@ cmi_up:
   ld (ins_row), a
   jp ins_mark_field
 
-; the WAV form has no SWP/VIB/TRM (fields 7-9): hop the gap
+; WAV has no SWP/VIB/TRM (fields 7-9); SMP has only INST/TYPE/TBL/
+; TBS/RATE, so it skips fields 2-9. Hop the gaps as the cursor moves.
 ins_wskip_d:
-  cp 7
-  ret nz
+  ld e, a                    ; E = candidate field (ins_is_* keep DE)
+  call ins_is_smp
+  jr z, iwsd_smp
   call ins_is_wav
-  ld a, 7
+  ld a, e
+  ret nz                     ; TONE/NOISE: no gap
+  cp 7                       ; WAV: field 7 -> 10
   ret nz
   ld a, 10
   ret
+iwsd_smp:                    ; SMP: 2..11 -> 12 (only INST/TYPE/RATE)
+  ld a, e
+  cp 2
+  ret c
+  cp 12
+  ret nc
+  ld a, 12
+  ret
 ins_wskip_u:
-  cp 9
-  ret nz
+  ld e, a
+  call ins_is_smp
+  jr z, iwsu_smp
   call ins_is_wav
-  ld a, 9
+  ld a, e
+  ret nz
+  cp 9                       ; WAV: field 9 -> 6
   ret nz
   ld a, 6
   ret
-ins_is_wav:                  ; Z if the edited instrument is WAV
+iwsu_smp:                    ; SMP: 2..11 -> 1
+  ld a, e
+  cp 2
+  ret c
+  cp 12
+  ret nc
+  ld a, 1
+  ret
+ins_is_wav:                  ; Z if the edited instrument is WAV (type 3)
   push de
   call ins_ptr
   ld a, (hl)
   cp 3
+  pop de
+  ret
+ins_is_smp:                  ; Z if the edited instrument is SMP (type 2)
+  push de
+  call ins_ptr
+  ld a, (hl)
+  cp 2
   pop de
   ret
 
@@ -703,7 +733,7 @@ ins_f2r:
   ld hl, f2r_wav
   jr z, if2r_go
   cp 2
-  ld hl, f2r_wav
+  ld hl, f2r_smp
   jr z, if2r_go
   ld hl, f2r_tone
 if2r_go:
@@ -5964,7 +5994,7 @@ in_draw_row:
   ld hl, r2f_wav
   jr z, idr_map
   cp 2
-  ld hl, r2f_wav             ; SMP shares the WAV form
+  ld hl, r2f_smp             ; SMP: only INST/TYPE/TBL/TBS/RATE
   jr z, idr_map
   ld hl, r2f_tone
 idr_map:
@@ -6213,6 +6243,12 @@ idr_rate:
   ld b, 5
   jp print_raw
 
+.ENDS
+
+; form-map tables are cold data: park in bank 1 (read cross-bank).
+.BANK 1 SLOT 1
+.SECTION "InsForm" FREE
+
 ; field index -> grid row (groups separated by spacer rows);
 ; noise packs tighter to fit MODE/RATE in 16 rows
 f2r_tone:
@@ -6228,6 +6264,17 @@ r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
 r2f_wav:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 10, 11, 12, $FF, $FF, $FF
+; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
+; so show only INST, TYPE, TBL, TBS, RATE.
+r2f_smp:                     ; grid row -> field (INST/TYPE/RATE only)
+  .db 0, 1, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_smp:                     ; field -> grid row (2-11 unused/skipped)
+  .db 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "InsData" FREE
 
 ins_lbls:
   .db "INST", 0

@@ -1635,11 +1635,12 @@ tn_sgo:
   call smp_play
 tn_squiet:
   ; the note only selects the sample (played on T3): the host
-  ; track's own channel must stay silent
+  ; track's own channel must stay silent. No envelope/length/table.
   ld (ix+0), $FF
   ld (ix+2), 0
   ld (ix+5), 0
   ld (ix+4), $FF
+  ld (ix+20), $FF            ; samples don't run tables
   ret
 tn_wav:
   ld a, c                    ; +4 byte = wave number

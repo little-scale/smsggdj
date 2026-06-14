@@ -167,6 +167,56 @@ Put an instrument's number next to a note in a PHRASE to play that note with
 that sound. Unedited instruments default to full volume, so a fresh one makes
 sound right away.
 
+### INSTR fields in detail
+
+Timing is measured in **ticks** — one tick = one video frame, so 1/60 s on
+NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
+
+- **VOL** — starting volume, `0`–`F` (`F` = loudest).
+- **ENV** + **SPD** — a software volume envelope. **ENV** is the direction
+  (`OFF` / `DN` / `UP`); **SPD** is the rate (`0` = no envelope). SPD is not a
+  straight ticks-per-step:
+
+  | SPD | rate |
+  |---|---|
+  | `0` | envelope off |
+  | `1` | 4 volume levels per tick (fastest) |
+  | `2` | 2 levels per tick |
+  | `3` | 1 level per tick |
+  | `n` (4–F) | 1 level every **(n − 2)** ticks |
+  | `F` | 1 level every 13 ticks (slowest) |
+
+  A full fade (F→0, 15 steps) on NTSC runs ≈ 0.07 s at SPD `1`, ≈ 0.25 s at
+  `3`, ≈ 1.5 s at `8`, ≈ 3.3 s at `F` (PAL ~20 % longer).
+
+- **LEN** — auto-cut length in **ticks**: the note is silenced after this many
+  ticks. `00` = off (sustain). `01`–`FF` = 1–255 ticks (~4.25 s max on NTSC).
+- **TSP** — transpose this instrument in semitones (signed).
+- **SWP** — pitch sweep: a single **signed** byte added to the pitch every
+  tick (a continuous glide; same engine as the `P` command). Positive (`01`–
+  `7F`) slides **down**, negative (`80`–`FF`) slides **up**; bigger = steeper.
+- **VIB** — vibrato (pitch wobble). Two nibbles, **speed**·**depth**. Speed
+  (high) sets the rate ≈ speed × 0.9 Hz on NTSC (so `1` ≈ 1 Hz up to `F` ≈
+  14 Hz); depth (low) sets how wide (`0` = none). E.g. `48` = ~3.8 Hz, depth 8.
+- **TRM** — tremolo (volume wobble): same **speed**·**depth** as VIB, but it
+  dips the volume (only downward from the set level).
+- **TBL** / **TBS** — table to run, and its tick-speed (see §6).
+- **MODE** / **RATE** — wavetable selection (WAV) / sample speed (SMP).
+
+Not every type shows every field — the INSTR screen only lists the ones that
+do something for that type:
+
+- **TONE** — VOL, ENV/SPD, LEN, TSP, SWP, VIB, TRM, TBL/TBS.
+- **NOISE** — same as TONE plus a MODE (noise tone) field.
+- **WAV** — VOL, ENV/SPD, LEN, TSP, TBL/TBS, and a MODE (wave 0–7) selector
+  (no SWP/VIB/TRM).
+- **SMP** — only **TYPE** and **RATE**. A sample plays as a raw stream on T3,
+  so the envelope, length, pitch mods, volume and tables don't apply; shape
+  loudness/fades at convert time in the patcher instead.
+
+A command in a PHRASE (`E`, `P`, `V`, `M`, `L`…) overrides the matching field
+for that note.
+
 ### Wavetables (WAVE screen)
 
 Eight 32-step waveforms. They boot loaded with presets (sine, triangle, saw,
