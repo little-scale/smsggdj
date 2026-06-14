@@ -9,13 +9,14 @@ mapper carts expose at `$8000–$BFFF` when bit 3 of mapper register
 | Environment | What holds the SRAM image |
 |---|---|
 | Emulicious (and most emulators) | a raw `.sav` file written next to the ROM (`build/smsdj.sav`), created/updated when the emulator exits or flushes saves |
-| Master Everdrive X7 | a raw save file on the SD card, same byte-for-byte format |
+| Master Everdrive X7 | a raw `.srm` on the SD card (e.g. `SMSDJ.SRM`), same byte-for-byte format — confirmed readable by `savetool.html` |
 | Real battery cart | the physical SRAM chip |
 
 All three are interchangeable: the `.sav` from Emulicious copied onto an
 Everdrive X7 SD card (or vice versa) carries your songs across. It is a
 plain memory image with **no container or byte-order tricks**, so it is
-fully exportable/importable — `tools/savetool.py` works directly on it.
+fully exportable/importable — `tools/savetool.py` works directly on it, and
+`savetool.html` reads it by content (extension-agnostic: `.sav`, `.srm`, …).
 
 ## Layout
 
