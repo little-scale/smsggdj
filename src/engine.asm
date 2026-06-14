@@ -1195,39 +1195,29 @@ prn_slide:
   pop hl
   jp pr_cmd
 prn_iter:
-  ; I xy: trigger this row's note only on the matching repeat:
-  ; (chain repeats mod x) == y. x = 0 never plays; x = 1 always.
-  ld a, d
-  and $F0
-  jp z, pr_cmd               ; never
-  rrca
-  rrca
-  rrca
-  rrca
-  ld e, a                    ; E = cycle x
+  ; I xx: the param is an 8-bit play mask sampled by the repeat
+  ; count. On repeat N, play the note only if bit (N mod 8) of the
+  ; mask is set. I00 = never, IFF = always, I0F = first four of
+  ; eight, IF0 = last four, I55/IAA = odd/even repeats. D = mask.
   push hl
-  push de
   ld hl, trk_rep
-  ld a, c
+  ld a, c                    ; this track's repeat count
   add a, l
   ld l, a
   adc a, h
   sub l
   ld h, a
-  ld a, (hl)                 ; this track's repeat count
-  pop de
+  ld a, (hl)
   pop hl
-prn_imod:
-  cp e                       ; mod x by subtraction (x <= 15)
-  jr c, prn_icmp
-  sub e
-  jr prn_imod
-prn_icmp:
+  and 7                      ; bit index = repeat mod 8
+  inc a                      ; rotate (index + 1) times -> bit in carry
   ld e, a
-  ld a, d
-  and $0F
-  cp e
-  jp nz, pr_cmd              ; not this repeat: rest
+  ld a, d                    ; the mask
+prn_ibit:
+  rrca
+  dec e
+  jr nz, prn_ibit
+  jp nc, pr_cmd              ; bit clear: rest this repeat
   jp prn_norm
 pr_cmd:
   inc hl
@@ -1658,9 +1648,10 @@ tnw_go:
   ld (wav_owner), a
   ld a, (ix+0)               ; transposes already baked in at
   call wav_play              ; trigger (instrument + global)
-  ; host channel synthesizes nothing, but its volume/envelope
-  ; keep running: they gate the wave (vol 0 stops it)
+  ; host channel synthesizes nothing, but its volume/length keep
+  ; running: they gate the wave (vol 0 stops it)
   ld (ix+0), $FF
+  ld (ix+20), $FF            ; waves don't run tables
   ret
 
 ; -------------------------------------------------------------

@@ -268,7 +268,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks, stepping volume by x |
 | `S xx` | Speed | 0/1/2 | sample playback speed — 0 normal, 1 = 2× (octave up, half length, decimated), 2 = ½× (octave down, nibble-held). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. Live (can re-speed a playing sample). The SMP instrument's RATE field is the per-note default |
 | `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. The `.gg` build writes the stereo port; the `.sms` build only tracks state (port $06 is memory control on an SMS) — one song pans wherever panning exists |
-| `I xy` | Iteration | cycle x, phase y | play this row's note only when (chain repeat count mod x) == y: `I00` never, `I20`/`I21` odd/even repeats, `I40` every 4th… — phrase variation without cloning. Repeats count per track: reset on a different chain, +1 each restart of the same one |
+| `I xx` | Iteration | 8-bit play mask | play this row's note only on the repeats whose bit is set: on repeat N, play if bit (N mod 8) of the mask is set. `I00` never, `IFF` always, `I55`/`IAA` odd/even repeats, `I0F` first four of eight, `IF0` last four — phrase variation without cloning. Repeats count per track: reset on a different chain, +1 each restart of the same one |
 | `T xx` | Tempo | BPM (hex) | set global tempo — converts BPM→groove using the **active tick rate** (region-true) |
 | `V xy` | Vibrato | speed x, depth y | one-shot vibrato override |
 | `W xx` | Wait-skip | ticks | shorten this row to xx ticks (shuffle fills) |

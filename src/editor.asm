@@ -79,6 +79,7 @@
   phr_col      db
   last_note    db
   last_instr   db
+  last_cmd     db
   last_chain   db
   last_phrase  db
   dt1_timer    db            ; double-tap countdown
@@ -122,6 +123,9 @@ editor_init:
   ld (last_note), a
   xor a
   ld (last_instr), a
+  ld a, CMD_KILL             ; first command insert defaults to K
+  ld (last_cmd), a
+  xor a
   ld (last_chain), a
   ld (last_phrase), a
   ld (scr_mode), a           ; start on SONG
@@ -661,9 +665,18 @@ ins_wskip_d:
   call ins_is_wav
   ld a, e
   ret nz                     ; TONE/NOISE: no gap
-  cp 7                       ; WAV: field 7 -> 10
-  ret nz
-  ld a, 10
+  cp 3                       ; WAV fields 0,1,2,5,6,12: hop the gaps
+  ret c
+  cp 5
+  jr c, iwsd_w5              ; 3,4 -> 5
+  cp 7
+  ret c                      ; 5,6
+  cp 12
+  ret nc                     ; 12
+  ld a, 12                   ; 7..11 -> 12
+  ret
+iwsd_w5:
+  ld a, 5
   ret
 iwsd_smp:                    ; SMP: 2..11 -> 12 (only INST/TYPE/RATE)
   ld a, e
@@ -680,9 +693,18 @@ ins_wskip_u:
   call ins_is_wav
   ld a, e
   ret nz
-  cp 9                       ; WAV: field 9 -> 6
-  ret nz
-  ld a, 6
+  cp 3
+  ret c
+  cp 5
+  jr c, iwsu_w2              ; 3,4 -> 2
+  cp 7
+  ret c                      ; 5,6
+  cp 12
+  ret nc                     ; 12
+  ld a, 6                    ; 7..11 -> 6
+  ret
+iwsu_w2:
+  ld a, 2
   ret
 iwsu_smp:                    ; SMP: 2..11 -> 1
   ld a, e
@@ -1242,7 +1264,7 @@ dp_cmd:
   ld a, (hl)
   or a
   ret nz
-  ld a, CMD_KILL
+  ld a, (last_cmd)           ; repeat the last command inserted
   ld (hl), a
   jp mark_phr_dirty
 
@@ -1416,6 +1438,7 @@ de_cmd:
   ld a, (hl)
   call cmd_cycle             ; alphabetical order (preserves HL)
   ld (hl), a
+  ld (last_cmd), a           ; remember it for the next insert
   jp mark_phr_dirty
 
 de_param:
@@ -6255,15 +6278,15 @@ f2r_tone:
   .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15
 f2r_noise:
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
-f2r_wav:                     ; fields 7-9 (SWP/VIB/TRM) do not
-  .db 0, 1, 2, 4, 5, 6, 8, 0, 0, 0, 10, 11, 12  ; exist on WAV
+f2r_wav:                     ; field -> grid row (3,4,7-11 skipped)
+  .db 0, 1, 2, 0, 0, 4, 5, 0, 0, 0, 0, 0, 7
 ; grid row -> field index ($FF = spacer)
 r2f_tone:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, $FF, 10, 11
 r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
-r2f_wav:
-  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 10, 11, 12, $FF, $FF, $FF
+r2f_wav:                     ; INST/TYPE/VOL/LEN/TSP/MODE (no ENV/SPD/tables)
+  .db 0, 1, 2, $FF, 5, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
 r2f_smp:                     ; grid row -> field (INST/TYPE/RATE only)
