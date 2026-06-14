@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMSGGDJ palette patcher</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 32px auto;
+         padding: 0 18px; background: #0d1117; color: #c9d1d9; }
+  h1 { font-size: 22px; } h1 span { color: #58a6ff; }
+  .dim { color: #8b949e; } .bad { color: #f85149; }
+  a { color: #58a6ff; }
+  .zone { border: 2px dashed #2d3742; border-radius: 12px; padding: 26px;
+          text-align: center; color: #8b949e; cursor: pointer; margin: 14px 0; }
+  .zone.armed { border-color: #58a6ff; color: #c9d1d9; }
+  .pal { display: flex; align-items: center; gap: 12px; background: #161c22;
+         border: 1px solid #2d3742; border-radius: 10px; padding: 8px 12px; margin: 6px 0; }
+  .pal .num { font: 600 18px ui-monospace, monospace; color: #58a6ff; width: 22px; }
+  .pal label { font-size: 13px; color: #8b949e; }
+  .pal input[type=color] { width: 38px; height: 28px; border: 1px solid #2d3742;
+                           border-radius: 6px; background: none; padding: 0; cursor: pointer; }
+  .prev { flex: 1; text-align: right; font: 600 15px ui-monospace, monospace;
+          padding: 5px 12px; border-radius: 6px; min-width: 120px; }
+  button { background: #21262d; color: #c9d1d9; border: 1px solid #2d3742;
+           border-radius: 7px; padding: 9px 18px; font-size: 14px; cursor: pointer; }
+  button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<h1><span>SMSGGDJ</span> palette patcher</h1>
+<p class="dim">Drop a built <b>.sms</b> or <b>.gg</b> ROM to recolour its 8 UI
+palettes (0&ndash;7). Each is a background + foreground colour; the SN76489/GG
+hardware gives 2 bits per channel, so the pickers snap to those 64 colours.
+Download the patched ROM and flash it. Nothing leaves this page.</p>
+
+<div class="zone" id="zone">drop a .sms / .gg ROM here (or click)</div>
+<input type="file" id="file" hidden>
+
+<div id="pals"></div>
+
+<div style="margin-top:14px">
+  <button class="primary" id="dl" disabled>download patched ROM</button>
+  <span class="dim" id="note"></span>
+</div>
+
+<script>
+"use strict";
+const LVL = [0, 85, 170, 255];                 // 2-bit channel -> 8-bit
+let rom = null, off = -1, romName = "smsggdj.sms";
+
+const hx = v => v.toString(16).padStart(2, "0");
+function byteToHex(b) {                          // BGR222 byte -> #rrggbb
+  return "#" + hx(LVL[b & 3]) + hx(LVL[(b >> 2) & 3]) + hx(LVL[(b >> 4) & 3]);
+}
+function hexToByte(h) {                          // #rrggbb -> BGR222 byte
+  const q = x => Math.round(x / 85);            // 0..3
+  const r = q(parseInt(h.slice(1, 3), 16)),
+        g = q(parseInt(h.slice(3, 5), 16)),
+        b = q(parseInt(h.slice(5, 7), 16));
+  return (b << 4) | (g << 2) | r;
+}
+
+function findPal(d) {                            // locate "PAL8" + 16 valid bytes
+  for (let i = 0; i < d.length - 20; i++) {
+    if (d[i] === 0x50 && d[i + 1] === 0x41 && d[i + 2] === 0x4C && d[i + 3] === 0x38) {
+      let ok = true;
+      for (let j = 0; j < 16; j++) if (d[i + 4 + j] > 0x3f) { ok = false; break; }
+      if (ok) return i + 4;
+    }
+  }
+  return -1;
+}
+
+function note(msg, bad) {
+  const el = document.getElementById("note");
+  el.textContent = msg; el.className = bad ? "bad" : "dim";
+}
+
+function render() {
+  const box = document.getElementById("pals");
+  box.innerHTML = "";
+  for (let n = 0; n < 8; n++) {
+    const bi = off + n * 2, fi = off + n * 2 + 1;
+    const row = document.createElement("div");
+    row.className = "pal";
+    row.innerHTML =
+      `<span class="num">${n}</span>` +
+      `<label>bg</label><input type="color">` +
+      `<label>fg</label><input type="color">` +
+      `<span class="prev">SMSGGDJ 0F</span>`;
+    const [bgI, fgI] = row.querySelectorAll("input");
+    const prev = row.querySelector(".prev");
+    // preview shows the *quantised* hardware colour, live while you drag
+    const paint = () => {
+      prev.style.background = byteToHex(rom[bi]);
+      prev.style.color = byteToHex(rom[fi]);
+    };
+    bgI.value = byteToHex(rom[bi]);
+    fgI.value = byteToHex(rom[fi]);
+    paint();
+    const bind = (input, idx) => {
+      input.addEventListener("input", e => { rom[idx] = hexToByte(e.target.value); paint(); });
+      // on close, snap the swatch button to the colour we actually stored
+      input.addEventListener("change", e => { e.target.value = byteToHex(rom[idx]); paint(); });
+    };
+    bind(bgI, bi); bind(fgI, fi);
+    box.appendChild(row);
+  }
+  document.getElementById("dl").disabled = false;
+}
+
+function load(d, name) {
+  off = findPal(d);
+  if (off < 0) { note(name + ": no SMSGGDJ palette block found", true); return; }
+  rom = d; romName = name;
+  note(name + `: palette block at 0x${off.toString(16)}`);
+  render();
+}
+
+function download() {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([rom], { type: "application/octet-stream" }));
+  a.download = romName.replace(/\.(sms|gg)$/i, "_palette.$1");
+  a.click();
+}
+
+async function addFile(f) {
+  load(new Uint8Array(await f.arrayBuffer()), f.name);
+}
+
+const zone = document.getElementById("zone"), inp = document.getElementById("file");
+zone.onclick = () => inp.click();
+inp.onchange = () => { if (inp.files[0]) addFile(inp.files[0]); inp.value = ""; };
+zone.ondragover = e => { e.preventDefault(); zone.classList.add("armed"); };
+zone.ondragleave = () => zone.classList.remove("armed");
+zone.ondrop = e => { e.preventDefault(); zone.classList.remove("armed");
+                     if (e.dataTransfer.files[0]) addFile(e.dataTransfer.files[0]); };
+document.getElementById("dl").onclick = download;
+</script>
+</body>
+</html>

@@ -9,8 +9,9 @@ The git history has the full detail; this is the curated summary.
 - **OPTIONS persist**: colour scheme + sync mode save to a 5-byte config block
   in SRAM (written on song-save, restored at boot). Works on 8/16/32 KB carts
   (8 KB lands it via the window mirror). `savetool.html` can read/write it.
-- 8th colour scheme **MINT** (now a clean 3-bit field: WHT/GRN/AMBR/CYAN/PINK/
-  NEON/KIDD/MINT).
+- **Colour palettes are user-patchable** — OPTIONS COLR is now just palettes
+  **0–7** (names dropped); recolour any of the 8 bg/fg pairs in the new
+  `tools/palette.html` (browser, finds the `PAL8` block, exports a patched ROM).
 - **32 KB SRAM detection** — boots probe for a distinct second 16 KB bank
   (`$FFFC` bit 2); carts that have it expose **6 save slots** instead of 3
   (3 per bank). Degrades to 3 (16 KB) or 1 (8 KB) everywhere else. The

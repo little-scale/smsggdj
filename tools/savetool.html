@@ -64,10 +64,10 @@ assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
   <span id="cfgrow" style="margin-left:18px">
     <label class="dim"><input type="checkbox" id="cfgon"> config:</label>
     <select id="cfgcol">
-      <option value="0">WHT</option><option value="1">GRN</option>
-      <option value="2">AMBR</option><option value="3">CYAN</option>
-      <option value="4">PINK</option><option value="5">NEON</option>
-      <option value="6" selected>KIDD</option><option value="7">MINT</option>
+      <option value="0">pal 0</option><option value="1">pal 1</option>
+      <option value="2">pal 2</option><option value="3">pal 3</option>
+      <option value="4">pal 4</option><option value="5">pal 5</option>
+      <option value="6" selected>pal 6</option><option value="7">pal 7</option>
     </select>
     <select id="cfgsync">
       <option value="0">OUT</option><option value="1">PULSE</option>
@@ -105,7 +105,7 @@ function savBytes() { return SIZES[size].bytes; }
 // OPTIONS config block (colour + sync). The ROM writes it at $BF60, which
 // is $3F60 in a 16K/32K image (past slot 2) but mirrors to $1F60 on an 8K
 // cart (past slot 0) — so the file offset depends on the image size.
-const SCHEMES = ["WHT","GRN","AMBR","CYAN","PINK","NEON","KIDD","MINT"],
+const SCHEMES = ["0","1","2","3","4","5","6","7"],
       SYNCS = ["OUT","PULSE","IN","OFF"];
 const cfgOff = len => len <= 0x2000 ? 0x1F60 : 0x3F60;
 function readConfig(d) {

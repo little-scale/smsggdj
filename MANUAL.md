@@ -354,7 +354,9 @@ Settings that belong to the *machine*, not the song:
   on Master System; fixed NTSC on Game Gear.
 - **SRAM** — save-RAM readout (read-only).
 - **SYNC** — clock sync mode (see below).
-- **COLR** — colour scheme: KIDD (default), WHT, GRN, AMBR, CYAN, PINK, NEON.
+- **COLR** — UI colour palette **0–7** (8 background/foreground pairs). Recolour
+  any of them in `tools/palette.html` and reflash. Your choice persists in SRAM
+  (saved when you save a song).
   Changes apply instantly.
 - **CLONE** — SLIM or DEEP, how chain cloning works (see *Cloning*).
 

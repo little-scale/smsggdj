@@ -198,7 +198,9 @@ lp_fill:
   ret
 .ENDIF
 
-pal_presets:                 ; bg, fg (BGR 2:2:2)
+pal_marker:                  ; 4-byte locator for tools/palette.html
+  .db "PAL8"
+pal_presets:                 ; 8 x (bg, fg) BGR 2:2:2
   .db $00, $3F               ; WHT: white on black
   .db $04, $0E               ; GRN: green screen
   .db $00, $0B               ; AMBR: amber terminal

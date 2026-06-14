@@ -5583,16 +5583,15 @@ ptd_pr:
   call print_char
   pop af
   jp print_hex_a
-prd_colr:
-  ld a, (pal_sel)
-  add a, a
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, str_palnm
-  add hl, de
-  ld b, 4
-  jp print_raw
+prd_colr:                    ; palettes are numbered 0-7 (patch the
+  ld a, (pal_sel)            ; colours with tools/palette.html)
+  call print_hex_nib
+  ld a, ' '
+  call print_char
+  ld a, ' '
+  call print_char
+  ld a, ' '
+  jp print_char
 prd_play:
   ld a, (play_mode)
   or a
@@ -5738,15 +5737,6 @@ stg_lbls:
   .db "CLON", 0
 str_slim:   .db "SLIM"
 str_deep:   .db "DEEP"
-str_palnm:
-  .db "WHT "
-  .db "GRN "
-  .db "AMBR"
-  .db "CYAN"
-  .db "PINK"
-  .db "NEON"
-  .db "KIDD"
-  .db "MINT"
 str_syncm:
   .db "OUT   "
   .db "PULSE "

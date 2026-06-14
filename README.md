@@ -68,6 +68,7 @@ tools/      Python build tools + the browser apps:
               savetool.py       song/.sav manager (CLI)
               patcher.html      browser sample patcher
               savetool.html     browser song/save manager
+              palette.html      browser UI-palette recolourer
 samples/    sample sources; samples/pool.bin (if present) is the baked bank
 art/        the logo art
 ```

@@ -130,8 +130,8 @@ SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
 | **ECHO** | delay/echo of T1 onto T2/T3 (below INSTR): MODE off/T2/T2+T3, TAP1/TAP2 (rows, groove-scaled), RD1/RD2 (volume falloff), STER (GG ping-pong), TSP1/TSP2 (per-tap transpose). A once-per-tick engine post-pass reads a 64-tick ring of T1's output |
-| **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** schemes, **CLONE: SLIM/DEEP** (§12) |
-| **PROJECT** | Song name, default groove, **NEW** (two-press arm/confirm blank song), **DEMO** (two-press load of the ROM demo song), save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (colour scheme presets), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
+| **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** (8 palettes 0-7, patchable via tools/palette.html), **CLONE: SLIM/DEEP** (§12) |
+| **PROJECT** | Song name, default groove, **NEW** (two-press arm/confirm blank song), **DEMO** (two-press load of the ROM demo song), save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (UI palette 0-7), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 
