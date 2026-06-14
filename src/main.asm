@@ -404,7 +404,7 @@ spl_bar:
   ld a, $08                  ; inverted attribute
   out (VDP_DATA), a
   djnz spl_bar
-  ld hl, NT_WADDR + 13*64 + 14*2   ; version at column 14
+  ld hl, NT_WADDR + 13*64 + 13*2   ; version at column 13
   call vdp_set_addr
   ld a, $08
   ld (text_attr), a

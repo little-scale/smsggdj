@@ -1299,9 +1299,9 @@ exec_command:
   cp CMD_SPEED
   jp z, xc_speed
   ret
-xc_speed:                    ; S xx: sample playback speed (0/1/2)
+xc_speed:                    ; S xx: sample playback speed (0-3)
   ld a, d
-  cp 3
+  cp 4
   ret nc
   ld (smp_speed), a
   xor a
@@ -1601,8 +1601,8 @@ tn_mods:
   ld (ix+12), 1              ; pitched: steal T3 (design doc 5.3)
   ret
 tn_smp:
-  ld a, c                    ; +4 byte = playback speed (0/1/2)
-  cp 3
+  ld a, c                    ; +4 byte = playback speed (0-3)
+  cp 4
   jr c, tn_sspd
   xor a
 tn_sspd:

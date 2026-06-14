@@ -53,10 +53,12 @@ smp_feed_any:
   ; fixed, so this only changes pitch/length, not the IRQ timing)
   ld a, (smp_speed)
   or a
-  jr z, smp_feed_one         ; normal: one nibble per tick
+  jr z, smp_feed_one         ; 0 normal: one nibble per tick
   dec a
-  jr z, sfa_2x               ; 2x: skip every other sample
-  ld a, (smp_hold)           ; 0.5x: feed every other tick
+  jr z, sfa_2x               ; 1 = 2x: skip every other sample
+  dec a
+  jr nz, sfa_4x              ; 3 = 4x: skip three of every four
+  ld a, (smp_hold)           ; 2 = 0.5x: feed every other tick
   xor 1                      ; (the DAC holds its level between)
   ld (smp_hold), a
   ret nz
@@ -79,6 +81,29 @@ sfa2_go:
   or $D0                     ; T3 volume latch
   out (PSG_PORT), a
   ld c, 0                    ; stay byte-aligned
+  ret
+sfa_4x:                      ; 4x = play every 4th sample: emit a byte's
+  ld a, h                    ; high nibble, advance two bytes. End test is
+  cp d                       ; >= (the 2-byte step can skip past DE).
+  jr c, sfa4_go
+  jr nz, sfa4_end
+  ld a, l
+  cp e
+  jr c, sfa4_go
+sfa4_end:
+  jp sf_end
+sfa4_go:
+  ld a, (hl)
+  inc hl
+  inc hl
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  or $D0
+  out (PSG_PORT), a
+  ld c, 0
   ret
 
 ; wavetable: HL = wav_buf (32-aligned), DE = increment,

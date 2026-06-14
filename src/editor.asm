@@ -1567,7 +1567,7 @@ if11w_st:
   and $07                    ; wrap 0-7
   ld (hl), a
   jp ine_mark
-if11_smp:                    ; sample rate 0-2 (NORM/2X/HALF)
+if11_smp:                    ; sample rate 0-3 (NORM/2X/HALF/4X)
   ld a, (pad_edge)
   and $0F
   ret z
@@ -1579,14 +1579,14 @@ if11_smp:                    ; sample rate 0-2 (NORM/2X/HALF)
   ld a, (hl)
   jr z, if11s_dn
   inc a
-  cp 3
+  cp 4
   jr c, if11s_st
   xor a
   jr if11s_st
 if11s_dn:
   dec a
   jp p, if11s_st
-  ld a, 2
+  ld a, 3
 if11s_st:
   ld (hl), a
   jp ine_mark
@@ -2262,7 +2262,7 @@ wvd_next:
 str_wave:   .db "WAVE", 0
 str_wavlbl: .db "WAVE", 0
 str_spdlbl: .db "RATE", 0
-str_smpspd: .db "NORM2X  HALF"
+str_smpspd: .db "NORM2X  HALF4X  "
 str_blank7: .db "       ", 0
 str_sp1:    .db " ", 0
 
@@ -6151,7 +6151,7 @@ idrf_smp:
   ld de, 4
   add hl, de
   ld a, (hl)
-  cp 3
+  cp 4
   jr c, idrf_sok
   xor a
 idrf_sok:

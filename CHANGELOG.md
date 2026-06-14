@@ -5,6 +5,10 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.22 — unreleased
 
+### Added
+- Sample **4× speed** (`S03` / RATE 4X) — two octaves up, plays every 4th
+  sample. Same flat-CPU decimation as 2×.
+
 ### Fixed
 - Sample 2x speed (`S01` / RATE 2X) no longer slows the whole song. It now
   decimates the source (plays every other sample) for one DAC write per tick,

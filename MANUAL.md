@@ -278,7 +278,7 @@ take a two-digit parameter `xy`.
 | `O` | Output (pan) | **Game Gear stereo:** `O11` centre, `O10` left, `O01` right |
 | `P` | Pitch bend | Continuous bend |
 | `R` | Retrigger | Re-fire the note every y ticks, stepping volume by x |
-| `S` | Speed | Sample playback rate: `S01` = 2× (up an octave, half length), `S02` = ½× (down an octave); `S00` = normal |
+| `S` | Speed | Sample playback rate: `S01` = 2× (up an octave, half length), `S02` = ½× (down an octave), `S03` = 4× (up two octaves); `S00` = normal |
 | `T` | Tempo | Set tempo in BPM |
 | `V` | Vibrato | One-shot vibrato: speed x, depth y |
 | `W` | Wait-skip | Shorten this row (for shuffle/swing fills) |
