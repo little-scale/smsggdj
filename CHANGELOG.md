@@ -3,6 +3,14 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.22 — unreleased
+
+### Fixed
+- Sample 2x speed (`S01` / RATE 2X) no longer slows the whole song. It now
+  decimates the source (plays every other sample) for one DAC write per tick,
+  instead of feeding two nibbles per interrupt and overrunning the per-frame
+  CPU budget.
+
 ## v0.21 — 2026-06-14
 
 ### Added

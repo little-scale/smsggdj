@@ -55,18 +55,31 @@ smp_feed_any:
   or a
   jr z, smp_feed_one         ; normal: one nibble per tick
   dec a
-  jr z, sfa_2x               ; 2x: two nibbles per tick
+  jr z, sfa_2x               ; 2x: skip every other sample
   ld a, (smp_hold)           ; 0.5x: feed every other tick
   xor 1                      ; (the DAC holds its level between)
   ld (smp_hold), a
   ret nz
   jr smp_feed_one
-sfa_2x:
-  call smp_feed_one
-  ld a, (smp_active)
-  or a
-  ret z                      ; ended on the first nibble
-  jr smp_feed_one
+sfa_2x:                      ; 2x = play every other sample: emit each
+  ld a, h                    ; byte's high nibble and advance one byte, so
+  cp d                       ; it's one DAC write per tick (same cost as 1x)
+  jr nz, sfa2_go             ; instead of two - no extra feeder load.
+  ld a, l
+  cp e
+  jp z, sf_end               ; reached the end
+sfa2_go:
+  ld a, (hl)
+  inc hl
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  or $D0                     ; T3 volume latch
+  out (PSG_PORT), a
+  ld c, 0                    ; stay byte-aligned
+  ret
 
 ; wavetable: HL = wav_buf (32-aligned), DE = increment,
 ; BC = 8.8 phase. Buffer bytes are pre-OR'd $D0|attenuation.
