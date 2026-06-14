@@ -35,7 +35,7 @@ the SMS counter protocol = 7/8/9 (TH/GND/TR). +5V is on the *top* row —
 unreachable by a bottom-side-only contact.
 
 **Cable crossovers** (stock Gear-to-Gear cable): 1↔3, 2↔4, **6↔9** (TX↔RX),
-7↔7, 8↔8. SMSDJ's SYNC IN reads counter bit 0 as TR AND TL, so straight and
+7↔7, 8↔8. SMSGGDJ's SYNC IN reads counter bit 0 as TR AND TL, so straight and
 crossed cables both work (DESIGN.md §11).
 
 Measured so far (from macro photo, **verify with calipers before fab**):
@@ -117,7 +117,7 @@ input-only, which is why the sync protocol is a 2-bit counter.
 
 All lines are pulled up: unplugged reads high (idle counter = 3), which is
 why SYNC IN latches the line state when armed and counts only *changes*.
-SMSDJ reads counter bit 0 as **TR AND TL** so the Gear-to-Gear cable's
+SMSGGDJ reads counter bit 0 as **TR AND TL** so the Gear-to-Gear cable's
 TR↔TL crossover works unconfigured (the unused line floats high).
 
 ### Sync wiring scenarios
@@ -145,4 +145,4 @@ TR↔TL crossover works unconfigured (the unused line floats high).
   active-display rule) — fine in Emulicious, verify on real hardware.
 - Real-DAC sample and wavetable quality (emulator PSG-DAC accuracy varies).
 - The sync electrical checks above, both directions, all three cables.
-- TMR SEGA header acceptance by the export BIOS (logo → SMSDJ).
+- TMR SEGA header acceptance by the export BIOS (logo → SMSGGDJ).

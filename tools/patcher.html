@@ -2,7 +2,7 @@
 <!--  sample patcher: drop a built .sms and some sound
      files, trim/process/audition them, and download a ROM with
      the new sample pool. Everything runs locally in the browser.
-     Pool contract: DESIGN.md 10.3 / tools/smsdj_sample.py. -->
+     Pool contract: DESIGN.md 10.3 / tools/smsggdj_sample.py. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -80,7 +80,7 @@ any format the browser can decode. 3: trim, drive, audition.
 
 <script>
 "use strict";
-// ---- the pool contract (must match tools/smsdj_sample.py) ----
+// ---- the pool contract (must match tools/smsggdj_sample.py) ----
 const POOL_OFF = 0x8000, BANK = 16384, POOL_BANKS = 6, MAX_SAMPLES = 32;
 const DIR_END = 8 + MAX_SAMPLES * 10, RATE = 7813;
 const MAX_SAMPLE = BANK - DIR_END;
@@ -268,7 +268,7 @@ function placement() {
 
 // build the 96 KB pool image (banks 2-7): SMPL header, 32-entry
 // directory (zero-padded), then first-fit sample data. Byte-for-
-// byte the pool region the ROM carries and smsdj_sample.py emits.
+// byte the pool region the ROM carries and smsggdj_sample.py emits.
 function buildPool() {
   const p = placement();
   if (!p) return null;

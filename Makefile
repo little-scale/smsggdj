@@ -1,8 +1,8 @@
 ASM   := wla-z80
 LINK  := wlalink
 BUILD := build
-ROM   := $(BUILD)/smsdj.sms
-GGROM := $(BUILD)/smsdj.gg
+ROM   := $(BUILD)/smsggdj.sms
+GGROM := $(BUILD)/smsggdj.gg
 
 all: $(ROM) $(GGROM)
 
@@ -41,11 +41,11 @@ $(BUILD)/logo.inc: tools/makelogo.py art/smsggdj-logo.png | $(BUILD)
 # tools/patcher.html) is baked straight in; otherwise samples/*.wav
 # are converted. Remove samples/pool.bin to go back to the WAVs.
 ifneq ($(wildcard samples/pool.bin),)
-$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py samples/pool.bin | $(BUILD)
-	python3 tools/smsdj_sample.py --pool-in samples/pool.bin -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
+$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsggdj_sample.py samples/pool.bin | $(BUILD)
+	python3 tools/smsggdj_sample.py --pool-in samples/pool.bin -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 else
-$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsdj_sample.py $(wildcard samples/*.wav) | $(BUILD)
-	python3 tools/smsdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
+$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsggdj_sample.py $(wildcard samples/*.wav) | $(BUILD)
+	python3 tools/smsggdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 endif
 
 SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm

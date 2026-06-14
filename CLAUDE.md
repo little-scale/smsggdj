@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-SMSGGDJ — an LSDJ-inspired music tracker for the Sega Master System and Game Gear (one tree, two ROM flavors: SMSDJ and GGDJ), written in pure Z80 assembly (WLA-DX). Sound is the SN76489 PSG only, including 4-bit PCM and wavetable synthesis via the tone-period-1 DC-DAC trick on channel T3.
+SMSGGDJ — an LSDJ-inspired music tracker for the Sega Master System and Game Gear (one tree, two ROM flavors: SMSGGDJ and GGDJ), written in pure Z80 assembly (WLA-DX). Sound is the SN76489 PSG only, including 4-bit PCM and wavetable synthesis via the tone-period-1 DC-DAC trick on channel T3.
 
 **DESIGN.md is the contract.** It records hardware constraints, the data model, and decisions that were already debated (PAL default, CH3-steal policy, control scheme, 24 PPQN sync default). Read the relevant section before making design decisions; don't re-litigate settled ones. SAVEFORMAT.md documents the save/SRAM format and must be kept in sync with any RAM-layout change.
 
 ## Build and run
 
 ```sh
-make          # both flavors: build/smsdj.sms + build/smsdj.gg
+make          # both flavors: build/smsggdj.sms + build/smsggdj.gg
 make run      # launch the SMS ROM in Emulicious (bundled in tools/emulicious/)
 make clean
 ```
@@ -34,8 +34,8 @@ don't exist there (DESIGN.md §15).
 - There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent; the timing-critical sample/wave feed **and 32 KB SRAM (6 slots, second bank persists)** are **confirmed on real hardware** (Master Everdrive X7 on a PAL SMS1) — still worth checking NTSC and Game Gear hardware.
 - Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/demo.bin` (makedemo.py), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
 - **Demo song:** if `songs/demo.smdj` exists (a committed save export), the build strips its 16-byte header and bakes the 5376-byte block as `build/demo.bin`, with its echo settings (the SMDJ3 reserved bytes) in `build/demo_echo.bin`; both ride into `song_init`. Otherwise `makedemo.py` composes one. Delete `songs/demo.smdj` for the procedural demo.
-- **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
-- `tools/savetool.py build/smsdj.sav list|export|import` manipulates emulator/Everdrive save images (see SAVEFORMAT.md).
+- **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsggdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsggdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
+- `tools/savetool.py build/smsggdj.sav list|export|import` manipulates emulator/Everdrive save images (see SAVEFORMAT.md).
 
 ## Architecture
 

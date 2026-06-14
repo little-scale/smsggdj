@@ -16,9 +16,9 @@ Post-v0.2 addenda (implemented):
 - **Block select/copy/cut/paste** on the grid screens (§3).
 - **LIVE mode** (§5.4): per-track looping chains with quantized swaps, queued from the SONG screen.
 - **128 KB mapper move**: 8 banks, sample pool in banks 2-7 with a self-describing directory (§10.3) — the contract for **tools/patcher.html**, a single-file browser patcher: drop a built ROM + sounds (any decodable format), trim/gain/tanh/normalize/gate/fade per sample, audition the bit-exact DAC render, and download a patched ROM — no toolchain needed.
-- **GGDJ**, the native Game Gear build (§15): same tree, `make` emits `smsdj.sms` + `smsdj.gg`.
+- **GGDJ**, the native Game Gear build (§15): same tree, `make` emits `smsggdj.sms` + `smsggdj.gg`.
 - **8 user waves** (up from 4), booting as the 8 stamp presets; save format SMDJ3.
-- **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSDJ↔SMSDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
+- **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSGGDJ↔SMSGGDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
 
 ---
 
@@ -320,10 +320,10 @@ Constraint: the VDP line-interrupt counter only runs during active display, and 
 - Per-sample cadence options (÷1 = 15.6 kHz, ÷3 = 5.2 kHz) are a stretch goal; v1 is fixed ÷2.
 
 ### 10.5 Sample conversion tool (PC-side, part of the repo)
-`smsdj-sample` — Python 3, stdlib-only (`wave`, `struct`); CLI:
+`smsggdj-sample` — Python 3, stdlib-only (`wave`, `struct`); CLI:
 
 ```
-smsdj-sample in.wav [in2.wav …] -o pool.bin --asm pool.inc
+smsggdj-sample in.wav [in2.wav …] -o pool.bin --asm pool.inc
    --rate 7813      target rate (default PAL ÷2 cadence)
    --gain/--norm    normalize to full scale (default on)
    --comp X         optional dynamic-range compression (quiet detail survives 4 bits)
@@ -349,7 +349,7 @@ Wavetable synthesis through the same T3 DC-DAC as PCM samples, sharing the entir
 
 ## 11. Sync (controller port 2) — native master/slave
 
-Replaces the v0.2 MIDI-adapter-first plan: SMSDJ instances sync **directly to each
+Replaces the v0.2 MIDI-adapter-first plan: SMSGGDJ instances sync **directly to each
 other** over controller port 2, no adapter needed. PROJECT → `SYNC: OUT / PULSE /
 IN / OFF` (**OFF is the default** — the port is never driven unasked). The port only drives while the transport
 runs; stopping (or changing mode) releases the lines (`OUT ($3F), $FF`).
@@ -433,8 +433,8 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 ## 14. Deliverables, toolchain, milestones
 
 **Deliverables:**
-1. `smsdj.sms` — the ROM (128 KB, standard Sega mapper, valid TMR SEGA header + checksum).
-2. `tools/smsdj-sample` — sample conversion tool (§10.5); `tools/patcher.html` — browser sample patcher (done).
+1. `smsggdj.sms` — the ROM (128 KB, standard Sega mapper, valid TMR SEGA header + checksum).
+2. `tools/smsggdj-sample` — sample conversion tool (§10.5); `tools/patcher.html` — browser sample patcher (done).
 3. `adapter/` — MIDI sync adapter firmware (RP2040 primary target) + protocol doc + schematic.
 4. Demo song + production sample pool (`samples/pool.bin`, baked into builds) + manual (`MANUAL.md`).
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the SMSDJ 8x8 font as SMS Mode 4 tile data.
+"""Generate the SMSGGDJ 8x8 font as SMS Mode 4 tile data.
 
 Covers ASCII $20-$5F (space..underscore): digits, uppercase, punctuation.
 Each glyph is emitted as a Mode 4 tile: 8 rows x 4 bitplanes; the bitmap

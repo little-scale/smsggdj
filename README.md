@@ -9,11 +9,11 @@ tempo-synced echo, and Game Gear stereo.
 
 One source tree builds two ROMs:
 
-- **`smsdj.sms`** — Master System (full screen).
-- **`smsdj.gg`** — Game Gear / *GGDJ* (handheld screen, real stereo).
+- **`smsggdj.sms`** — Master System (full screen).
+- **`smsggdj.gg`** — Game Gear / *GGDJ* (handheld screen, real stereo).
 
 **Prebuilt ROMs are on the [Releases](../../releases) page** — download
-`smsdj.sms` / `smsdj.gg`, flash to a cart or open in an emulator, no toolchain
+`smsggdj.sms` / `smsggdj.gg`, flash to a cart or open in an emulator, no toolchain
 needed.
 
 ```
@@ -26,7 +26,7 @@ Needs [WLA-DX](https://github.com/vhelin/wla-dx) (`wla-z80` + `wlalink`) and
 Python 3. `make run` launches the bundled Emulicious (needs Java).
 
 ```sh
-make          # build both: build/smsdj.sms and build/smsdj.gg
+make          # build both: build/smsggdj.sms and build/smsggdj.gg
 make run      # build both, launch the SMS ROM
 make run-gg   # build both, launch the Game Gear ROM
 make clean
@@ -68,7 +68,7 @@ and press play.
 src/        Z80 assembly (main, vdp, input, psg, engine, sample, editor)
 tools/      Python build tools + the browser apps:
               makefont / maketables / makedemo / makelogo  (build inputs)
-              smsdj_sample.py   WAV/pool -> sample bank
+              smsggdj_sample.py   WAV/pool -> sample bank
               savetool.py       song/.sav manager (CLI)
               patcher.html      browser sample patcher
               savetool.html     browser song/save manager

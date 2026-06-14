@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate SMSDJ note-period tables (WLA-DX include).
+"""Generate SMSGGDJ note-period tables (WLA-DX include).
 
 Two tables, one per region: the PSG divides the system clock, which
 differs between PAL (3546893 Hz) and NTSC (3579545 Hz) machines - the

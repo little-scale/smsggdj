@@ -5,8 +5,8 @@ Make music on real hardware (via flashcart) or in an emulator, using just
 the D-pad and two buttons.
 
 There are two builds from the same tracker:
-- **`smsdj.sms`** — Master System (full-size screen).
-- **`smsdj.gg`** — Game Gear (GGDJ): fits the handheld screen, and adds
+- **`smsggdj.sms`** — Master System (full-size screen).
+- **`smsggdj.gg`** — Game Gear (GGDJ): fits the handheld screen, and adds
   real stereo panning.
 
 Everything in this manual applies to both unless noted.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compose the SMSDJ demo song as a complete 5,248-byte song block
+"""Compose the SMSGGDJ demo song as a complete 5,248-byte song block
 (the wave_ram..grooves layout from SAVEFORMAT.md). song_init copies
 it wholesale, so this file IS the demo song - edit and rebuild.
 

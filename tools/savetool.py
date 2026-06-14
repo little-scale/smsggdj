@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SMSDJ save manager: list/export/import song slots in a .sav image.
+"""SMSGGDJ save manager: list/export/import song slots in a .sav image.
 
 The .sav is a raw cart-SRAM image (Emulicious, Everdrive X7 and real
 battery carts all use the same bytes). See SAVEFORMAT.md.

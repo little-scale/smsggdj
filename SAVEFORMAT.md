@@ -1,15 +1,15 @@
-# SMSDJ save format
+# SMSGGDJ save format
 
 ## Where saves live
 
-SMSDJ stores songs in **cart SRAM** — the battery-backed RAM that Sega
+SMSGGDJ stores songs in **cart SRAM** — the battery-backed RAM that Sega
 mapper carts expose at `$8000–$BFFF` when bit 3 of mapper register
 `$FFFC` is set.
 
 | Environment | What holds the SRAM image |
 |---|---|
-| Emulicious (and most emulators) | a raw `.sav` file written next to the ROM (`build/smsdj.sav`), created/updated when the emulator exits or flushes saves |
-| Master Everdrive X7 | a raw `.srm` on the SD card (e.g. `SMSDJ.SRM`), same byte-for-byte format — confirmed readable by `savetool.html` |
+| Emulicious (and most emulators) | a raw `.sav` file written next to the ROM (`build/smsggdj.sav`), created/updated when the emulator exits or flushes saves |
+| Master Everdrive X7 | a raw `.srm` on the SD card (e.g. `SMSGGDJ.SRM`), same byte-for-byte format — confirmed readable by `savetool.html` |
 | Real battery cart | the physical SRAM chip |
 
 All three are interchangeable: the `.sav` from Emulicious copied onto an
@@ -76,16 +76,16 @@ pal_sel sync_mode checksum`. It's saved whenever you save a song, and
 `savetool.html` can read/write it (the **config** controls).
 
 A slot is valid when the magic matches **and** the checksum verifies;
-SMSDJ refuses to load anything else (`NO DATA`). Slot 1 (offset 0)
+SMSGGDJ refuses to load anything else (`NO DATA`). Slot 1 (offset 0)
 autoloads at boot.
 
 ## tools/savetool.py
 
 ```
-python3 tools/savetool.py build/smsdj.sav list
-python3 tools/savetool.py build/smsdj.sav export 1 mysong.smdj
-python3 tools/savetool.py build/smsdj.sav import 2 mysong.smdj
-python3 tools/savetool.py build/smsdj.sav export-all backups/mysav
+python3 tools/savetool.py build/smsggdj.sav list
+python3 tools/savetool.py build/smsggdj.sav export 1 mysong.smdj
+python3 tools/savetool.py build/smsggdj.sav import 2 mysong.smdj
+python3 tools/savetool.py build/smsggdj.sav export-all backups/mysav
 python3 tools/savetool.py build setlist.sav a.smdj b.smdj c.smdj
 python3 tools/savetool.py wrap demo.smdj build/demo.bin
 ```

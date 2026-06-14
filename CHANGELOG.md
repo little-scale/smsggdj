@@ -25,6 +25,8 @@ The git history has the full detail; this is the curated summary.
   grooves) in human-readable form.
 
 ### Changed
+- ROM outputs renamed `smsdj.sms` / `smsdj.gg` → **`smsggdj.sms` / `smsggdj.gg`**
+  (and `smsdj_sample.py` → `smsggdj_sample.py`) to match the project name.
 - `I` command now indexes its play-mask by a **per-phrase play count** (how
   many times that phrase has played this song, accumulating across the whole
   arrangement) instead of the per-track chain-repeat count — so a phrase
@@ -84,8 +86,8 @@ The git history has the full detail; this is the curated summary.
 ## v0.2
 
 First public release — a complete LSDJ-inspired tracker for the Sega Master
-System and Game Gear, one source tree building two ROMs (`smsdj.sms` /
-`smsdj.gg`).
+System and Game Gear, one source tree building two ROMs (`smsggdj.sms` /
+`smsggdj.gg`).
 
 ### Added
 - **Sound:** SN76489 PSG — 3 tone channels + noise, 4-bit PCM samples and 8
