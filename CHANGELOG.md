@@ -3,7 +3,26 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.22 — unreleased
+## v0.23 — unreleased
+
+### Added
+- **32 KB SRAM detection** — boots probe for a distinct second 16 KB bank
+  (`$FFFC` bit 2); carts that have it expose **6 save slots** instead of 3
+  (3 per bank). Degrades to 3 (16 KB) or 1 (8 KB) everywhere else. The
+  OPTIONS SRAM readout now shows 8K / 16K / 32K.
+- `savetool.py` and `savetool.html` handle 6 slots / the second bank; the
+  browser tool gains an **8 / 16 / 32 KB cart-size selector** (sets the slot
+  count and output `.sav` size) and a **song viewer** — click a slot to
+  decode it (song map, chains, phrases as note/cmd grids, instruments, echo,
+  grooves) in human-readable form.
+
+### Changed
+- `I` command now indexes its play-mask by a **per-phrase play count** (how
+  many times that phrase has played this song, accumulating across the whole
+  arrangement) instead of the per-track chain-repeat count — so a phrase
+  varies consistently across its plays. Variation without cloning.
+
+## v0.22 — 2026-06-15
 
 ### Added
 - Sample **4× speed** (`S03` / RATE 4X) — two octaves up, plays every 4th

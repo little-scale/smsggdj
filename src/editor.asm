@@ -5690,7 +5690,10 @@ prd_sram:
   cp 1
   ld hl, str_s8k
   jr z, prd_p4
+  cp 3
   ld hl, str_s16k
+  jr z, prd_p4
+  ld hl, str_s32k            ; 6 slots = 32K (two banks)
   jr prd_p4
 
 dl_proj:
@@ -5764,6 +5767,7 @@ str_go:     .db "GO"
 str_vpal:   .db "PAL "
 str_vntsc:  .db "NTSC"
 str_s8k:    .db "8K  "
+str_s32k:   .db "32K "
 str_s16k:   .db "16K "
 str_snone:  .db "NONE"
 

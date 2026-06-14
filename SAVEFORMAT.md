@@ -21,16 +21,21 @@ fully exportable/importable — `tools/savetool.py` works directly on it.
 
 The 16 KB SRAM window holds up to **3 song slots** at a stride of
 `$1520` (5,408 bytes). 8 KB carts mirror the upper half and hold 1 slot.
+A **32 KB cart adds a second 16 KB bank** (`$FFFC` bit 2), giving **6
+slots** (3 per bank) — detected at boot (see below). Slots 0-2 live in
+bank 0, slots 3-5 in bank 1; both use the same `$8000` window.
 
 ```
-slot n base = n * $1520          (n = 0..2)
+slot n base = (n mod 3) * $1520   in SRAM bank (n / 3)   (n = 0..5)
+  (16 KB cart: n = 0..2, bank 0 only; 8 KB cart: n = 0)
 
 offset  size  contents
 +$00    5     magic "SMDJ3"
 +$05    2     checksum: 16-bit little-endian sum of the 5,376 data bytes
 +$07    8     echo settings: mode, tap1, tap2, red1, red2, stereo,
               tsp1, tsp2 (tap1/tap2 are in rows; see the manual). Not
-              covered by the checksum; demo builds bake these in too.
+              covered by the checksum; the baked-in demo song carries
+              its own copy (build/demo_echo.bin).
 +$0F    1     reserved
 +$10    5376  song data, the contiguous RAM block:
               +$0000  wave_ram      8 waves x 32 B ($D0 | 15-minus-level per
@@ -47,6 +52,16 @@ offset  size  contents
 Format history: `SMDJ1` lacked wave_ram (5,120 data bytes); `SMDJ2`
 had 4 waves (5,248 data bytes, stride `$1500`). Older saves are not
 loaded by newer builds.
+
+**Size detection** (`sram_detect`, at boot): probes `$8000` for RAM, then
+whether `$A000` mirrors it (8 KB) or not (16 KB), then writes distinct
+markers to `$8000` in bank 0 and bank 1 — if both persist independently the
+cart has a real second bank (32 KB → 6 slots). This detects *live* RAM only;
+whether a flashcart **battery-backs** the second bank is a separate question,
+confirmable only by a power-cycle test. `savetool.py` and `savetool.html`
+handle all three sizes — slots 3-5 sit in the second bank at file offset
+`+$4000`; the browser tool has an 8/16/32 KB cart-size selector that sets the
+slot count and `.sav` size.
 
 A slot is valid when the magic matches **and** the checksum verifies;
 SMSDJ refuses to load anything else (`NO DATA`). Slot 1 (offset 0)

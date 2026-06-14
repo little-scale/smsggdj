@@ -6,10 +6,10 @@ battery carts all use the same bytes). See SAVEFORMAT.md.
 
 usage:
   savetool.py FILE.sav list
-  savetool.py FILE.sav export SLOT OUT.smdj    (SLOT = 1..3)
+  savetool.py FILE.sav export SLOT OUT.smdj    (SLOT = 1..6)
   savetool.py FILE.sav import SLOT IN.smdj
   savetool.py FILE.sav export-all [PREFIX]     (every valid slot)
-  savetool.py build OUT.sav A.smdj [B.smdj [C.smdj]]
+  savetool.py build OUT.sav A.smdj [...up to 6]
   savetool.py wrap OUT.smdj BLOCK.bin          (bare 5,376-byte
                                 song block -> valid .smdj)
 """
@@ -21,8 +21,15 @@ STRIDE = 0x1520
 HDR = 16
 DATA = 5376
 BLOB = HDR + DATA
-SLOTS = 3
+SLOTS = 6                  # 32K cart: 3 per 16K bank
 SAV_SIZE = 32768
+BANK = 0x4000             # second SRAM bank (slots 3-5) starts here
+
+
+def slot_offset(n):
+    """File offset of slot n: slots 0-2 in bank 0, 3-5 in bank 1."""
+    bank, idx = divmod(n, 3)
+    return bank * BANK + idx * STRIDE
 
 
 def checksum(data):
@@ -30,7 +37,7 @@ def checksum(data):
 
 
 def slot_state(img, n):
-    base = n * STRIDE
+    base = slot_offset(n)
     blob = img[base:base + BLOB]
     if len(blob) < BLOB or blob[:5] != MAGIC:
         return "empty"
@@ -61,7 +68,8 @@ def main():
                 sys.exit(p + ": not an .smdj song blob")
             if (blob[5] | (blob[6] << 8)) != checksum(blob[HDR:]):
                 sys.exit(p + ": failed its checksum")
-            img[n * STRIDE:n * STRIDE + BLOB] = blob
+            o = slot_offset(n)
+            img[o:o + BLOB] = blob
             print("slot %d <- %s" % (n + 1, p))
         open(sys.argv[2], "wb").write(img)
         print("built " + sys.argv[2])
@@ -83,7 +91,7 @@ def main():
             os.path.splitext(path)[0]
         n_out = 0
         for n in range(SLOTS):
-            base = n * STRIDE
+            base = slot_offset(n)
             blob = img[base:base + BLOB]
             if blob[:5] != MAGIC or \
                (blob[5] | (blob[6] << 8)) != checksum(blob[HDR:]):
@@ -112,7 +120,7 @@ def main():
         n = int(sys.argv[3]) - 1
         if not 0 <= n < SLOTS:
             sys.exit("slot must be 1..%d" % SLOTS)
-        base = n * STRIDE
+        base = slot_offset(n)
         if cmd == "export":
             blob = bytes(img[base:base + BLOB])
             if blob[:5] != MAGIC:

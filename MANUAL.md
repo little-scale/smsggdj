@@ -17,14 +17,14 @@ Everything in this manual applies to both unless noted.
 
 1. Put the `.sms` (or `.gg`) file on your flashcart's SD card, or open it
    in an emulator.
-2. On boot you'll see the SMSGGDJ logo, then the tracker opens on a **demo
-   song** that's already loaded. Press **Play** (see controls below) to hear
-   it — it's a tour of what the tracker can do.
-3. To start your own song, go to the **PROJECT** screen and choose **NEW**
-   (described in *Saving & Loading*).
+2. On boot you'll see the SMSGGDJ logo, then the tracker opens on an empty
+   song, ready to edit.
+3. Want to hear what it can do first? Go to the **PROJECT** screen and choose
+   **DEMO** (a two-press confirm) to load the built-in demo song, then press
+   **Play**. **NEW** (also on PROJECT) clears back to a blank song.
 
-The demo plays on every fresh boot, so you can always hear something
-immediately.
+Nothing is loaded or playing until you ask — the demo is always one
+**PROJECT → DEMO** away.
 
 ---
 
@@ -270,7 +270,7 @@ take a two-digit parameter `xy`.
 | `F` | Finetune | Detune slightly |
 | `G` | Groove | Switch groove from this row (this track) |
 | `H` | Hop | PHRASE: end / jump. TABLE: loop |
-| `I` | Iteration | An 8-bit play mask over the loop count: on repeat N the note plays if bit (N mod 8) is set. `IFF` = always, `I00` = never, `I55`/`IAA` = odd/even repeats, `I0F` = first four of eight, `IF0` = last four |
+| `I` | Iteration | An 8-bit play mask over **this phrase's play count**: on the Nth play of the phrase the note sounds if bit (N mod 8) is set. `IFF` = always, `I00` = never, `I55`/`IAA` = odd/even plays, `I0F` = first four of eight, `IF0` = last four. Lets one phrase vary across its repeats without cloning |
 | `K` | Kill | Cut the note after xy ticks (`K00` = instant; also stops samples) |
 | `L` | Slide | Glide (portamento) to this note |
 | `M` | Amp mod | Tremolo: speed x, depth y |

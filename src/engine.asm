@@ -94,7 +94,8 @@
   sync_wait    db            ; slave: armed, waiting for a clock
   sync_ticks   db            ; (scratch)
   play_mode    db            ; 0 = SONG, 1 = LIVE
-  trk_rep      dsb 4         ; chain repeat count per track
+  trk_rep      dsb 4         ; chain repeat count per track (legacy)
+  phrase_plays dsb NUM_PHRASES ; per-phrase play count (I command)
   echo_mode    db            ; 0 off, 1 = T2, 2 = T2+T3
   echo_tap1    db            ; T2 delay in rows (1-15, groove-scaled)
   echo_tap2    db            ; T3 delay in rows (1-15, groove-scaled)
@@ -260,6 +261,14 @@ ep_eclr:
   ld (trk_rep+1), a
   ld (trk_rep+2), a
   ld (trk_rep+3), a
+  ; per-phrase play counts: $FF so the first play of each reads 0
+  ld hl, phrase_plays
+  ld b, NUM_PHRASES
+  ld a, $FF
+ep_pclr:
+  ld (hl), a
+  inc hl
+  djnz ep_pclr
   ; live queue starts empty
   ld a, $FF
   ld (live_q), a
@@ -1076,6 +1085,20 @@ pr_loop:
   ld a, (ix+10)
   cp $FF
   jp z, pr_next
+  ; per-phrase play counter: +1 on row 0 (phrase start), so the I
+  ; command can vary a phrase across its plays without cloning it
+  ld e, a                    ; E = phrase #
+  ld a, (cur_row)
+  or a
+  jr nz, pr_ppdone
+  push hl
+  ld d, 0
+  ld hl, phrase_plays
+  add hl, de
+  inc (hl)
+  pop hl
+pr_ppdone:
+  ld a, e                    ; A = phrase # again
 
   ; HL = step = phrase_pool + phrase*64 + row*4
   ld l, a
@@ -1195,13 +1218,14 @@ prn_slide:
   pop hl
   jp pr_cmd
 prn_iter:
-  ; I xx: the param is an 8-bit play mask sampled by the repeat
-  ; count. On repeat N, play the note only if bit (N mod 8) of the
-  ; mask is set. I00 = never, IFF = always, I0F = first four of
-  ; eight, IF0 = last four, I55/IAA = odd/even repeats. D = mask.
+  ; I xx: the param is an 8-bit play mask sampled by this phrase's
+  ; play count (how many times the phrase has played this song). On
+  ; play N, play the note only if bit (N mod 8) of the mask is set.
+  ; I00 never, IFF always, I0F first four of eight, IF0 last four,
+  ; I55/IAA odd/even plays. D = mask.
   push hl
-  ld hl, trk_rep
-  ld a, c                    ; this track's repeat count
+  ld hl, phrase_plays
+  ld a, (ix+10)              ; how many times this phrase has played
   add a, l
   ld l, a
   adc a, h
@@ -1456,6 +1480,12 @@ xc_vib:
   ld (ix+18), a
   ret
 
+.ENDS
+
+; set_tempo is cold (T command / PROJECT): park it in bank 1.
+.BANK 1 SLOT 1
+.SECTION "SetTempo" FREE
+
 ; D = BPM: write an even groove into the selected groove
 set_tempo:
   ld a, d
@@ -1496,6 +1526,11 @@ st_ok:
   ld (hl), 0
   pop bc
   ret
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "Engine3" FREE
 
 ; trigger note on channel struct IX from instrument (ix+1)
 trigger_note:
@@ -2135,6 +2170,12 @@ cf_adv:
 .DEFINE SRAM_DATA $8010
 .DEFINE SAVE_SIZE 5376       ; wave_ram..grooves, contiguous
 
+.ENDS
+
+; the SRAM probe is boot-only (cold): park it in bank 1.
+.BANK 1 SLOT 1
+.SECTION "SramDetect" FREE
+
 sram_detect:
   ld a, $08
   ld ($FFFC), a
@@ -2164,6 +2205,41 @@ sram_detect:
   ld (hl), a
   ld a, c
   ld (de), a
+  ; --- probe for a distinct second 16K bank (32K cart -> 6 slots) ---
+  ; write different markers to $8000 in bank 0 and bank 1; only a
+  ; real, independent second bank keeps both. The bank-0 read between
+  ; the writes re-drives the bus, so open bus fails the bank-1 check.
+  ld a, $08
+  ld ($FFFC), a
+  ld b, (hl)                 ; bank 0 original
+  ld (hl), $C3               ; marker A -> bank 0
+  ld a, $0C
+  ld ($FFFC), a
+  ld c, (hl)                 ; bank 1 original
+  ld (hl), $3C               ; marker B -> bank 1
+  ld a, $08
+  ld ($FFFC), a
+  ld a, (hl)
+  cp $C3                     ; bank 0 clobbered -> aliased -> 16K
+  jr nz, sd_16
+  ld a, $0C
+  ld ($FFFC), a
+  ld a, (hl)
+  cp $3C                     ; bank 1 didn't hold -> open bus -> 16K
+  jr nz, sd_16
+  ld a, c                    ; distinct second bank: restore both
+  ld (hl), a                 ; bank 1 (selected)
+  ld a, $08
+  ld ($FFFC), a
+  ld a, b
+  ld (hl), a                 ; bank 0
+  ld a, 6                    ; 32K: 6 slots
+  jr sd_slots
+sd_16:
+  ld a, $08
+  ld ($FFFC), a
+  ld a, b
+  ld (hl), a                 ; restore bank 0
   ld a, 3                    ; 16K window: 3 slots
   jr sd_slots
 sd_8k:
@@ -2183,9 +2259,25 @@ sd_st:
   ld ($FFFC), a
   ret
 
-; HL = base of the selected save slot ($1500 stride)
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "Engine4" FREE
+
+; HL = base of the selected save slot ($1520 stride); also pages in
+; its SRAM bank via $FFFC (slots 0-2 = bank 0, 3-5 = bank 1 on 32K).
 sram_slot_base:
   ld a, (prj_slot)
+  ld b, $08                  ; bank 0 enable
+  cp 3
+  jr c, ssb_bank
+  sub 3                      ; second bank: slot 3-5 -> index 0-2
+  ld b, $0C                  ; bank 1 enable
+ssb_bank:
+  push af
+  ld a, b
+  ld ($FFFC), a
+  pop af
   ld hl, $8000
   or a
   ret z

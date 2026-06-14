@@ -42,7 +42,8 @@ and press play.
   sounds in a browser, tune them (trim, gain, tanh, fades), audition the exact
   console sound, and download a ROM with your sample bank. No toolchain.
 - **[tools/savetool.html](tools/savetool.html)** — unpack songs from a `.sav`,
-  or assemble a cart image from song files, in the browser.
+  assemble a cart image (pick 8/16/32 KB), or click a slot to view a song's
+  notes, commands and instruments — in the browser.
 
 ## For developers
 
