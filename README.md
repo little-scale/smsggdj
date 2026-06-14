@@ -12,6 +12,10 @@ One source tree builds two ROMs:
 - **`smsdj.sms`** — Master System (full screen).
 - **`smsdj.gg`** — Game Gear / *GGDJ* (handheld screen, real stereo).
 
+**Prebuilt ROMs are on the [Releases](../../releases) page** — download
+`smsdj.sms` / `smsdj.gg`, flash to a cart or open in an emulator, no toolchain
+needed.
+
 ```
        L I T T L E - S C A L E
 ```

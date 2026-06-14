@@ -2,11 +2,11 @@
 <!--  sample patcher: drop a built .sms and some sound
      files, trim/process/audition them, and download a ROM with
      the new sample pool. Everything runs locally in the browser.
-     Pool contract: DESIGN.md 10.3 / tools/_sample.py. -->
+     Pool contract: DESIGN.md 10.3 / tools/smsdj_sample.py. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title> sample patcher</title>
+<title>SMSGGDJ sample patcher</title>
 <style>
   :root { color-scheme: dark; }
   body { font: 14px/1.45 ui-monospace, Menlo, monospace; background: #101418;
@@ -45,7 +45,7 @@
 </style>
 </head>
 <body>
-<h1><span></span> sample patcher</h1>
+<h1><span>SMSGGDJ</span> sample patcher</h1>
 <p class="dim">1: load your <b>.sms</b> or <b>.gg</b> (128 KB). 2: drop sounds —
 any format the browser can decode. 3: trim, drive, audition.
 4: download the patched ROM. Nothing leaves this page.</p>
@@ -80,7 +80,7 @@ any format the browser can decode. 3: trim, drive, audition.
 
 <script>
 "use strict";
-// ---- the pool contract (must match tools/_sample.py) ----
+// ---- the pool contract (must match tools/smsdj_sample.py) ----
 const POOL_OFF = 0x8000, BANK = 16384, POOL_BANKS = 6, MAX_SAMPLES = 32;
 const DIR_END = 8 + MAX_SAMPLES * 10, RATE = 7813;
 const MAX_SAMPLE = BANK - DIR_END;
