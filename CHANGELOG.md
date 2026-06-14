@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.23 — unreleased
+## v0.23 — 2026-06-15
 
 ### Added
 - **OPTIONS persist**: colour scheme + sync mode save to a 5-byte config block
