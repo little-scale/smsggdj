@@ -2492,11 +2492,11 @@ pc_l:
   jr z, pc_w
   dec a
 pc_w:
-  cp $FF                     ; wrap 0..6
+  cp $FF                     ; wrap 0..7
   jr nz, pc_hi
-  ld a, 6
+  ld a, 7
 pc_hi:
-  cp 7
+  cp 8
   jr c, pc_st
   xor a
 pc_st:
@@ -5746,6 +5746,7 @@ str_palnm:
   .db "PINK"
   .db "NEON"
   .db "KIDD"
+  .db "MINT"
 str_syncm:
   .db "OUT   "
   .db "PULSE "

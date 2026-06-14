@@ -206,6 +206,7 @@ pal_presets:                 ; bg, fg (BGR 2:2:2)
   .db $11, $33               ; PINK: magenta on purple
   .db $39, $23               ; NEON: neon pink on light blue
   .db $34, $0F               ; KIDD: star yellow on sky blue
+  .db $14, $2D               ; MINT: mint green on dark teal
 
 ; B = row, C = col -> HL = name table write address. The UI
 ; origin shifts the whole interface into the GG's LCD window.

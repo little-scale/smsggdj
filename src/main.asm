@@ -195,6 +195,7 @@ init:
   ld (smp_count), a
 init_nopool:
   call sram_detect
+  call config_load           ; restore persisted OPTIONS (colour, sync)
   ; boot lands on the ROM demo (no slot-1 autoload for now: a
   ; first power-on should make sound - saves load via PROJECT)
   xor a

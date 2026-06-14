@@ -2169,6 +2169,7 @@ cf_adv:
 ; =============================================================
 .DEFINE SRAM_DATA $8010
 .DEFINE SAVE_SIZE 5376       ; wave_ram..grooves, contiguous
+.DEFINE CFG_ADDR  $BF60      ; OPTIONS config: tail of bank 0 (8K cart mirrors -> $1F60)
 
 .ENDS
 
@@ -2258,6 +2259,67 @@ sd_st:
   xor a
   ld ($FFFC), a
   ret
+
+; -------------------------------------------------------------
+; OPTIONS config block (colour scheme + sync mode) at CFG_ADDR
+; ($BF60), separate from the song slots. On a 16K/32K cart that's the
+; free tail past slot 2; on an 8K cart the window mirrors, so $BF60
+; lands at real $1F60 - also free (past slot 0). 5 bytes:
+;   'C' 'F' pal_sel sync_mode checksum(=pal_sel+sync_mode & FF)
+config_save:                 ; called by song_save (SRAM already on)
+  ld a, $08                  ; select bank 0
+  ld ($FFFC), a
+  ld hl, CFG_ADDR
+  ld (hl), 'C'
+  inc hl
+  ld (hl), 'F'
+  inc hl
+  ld a, (pal_sel)
+  ld (hl), a
+  ld b, a
+  inc hl
+  ld a, (sync_mode)
+  ld (hl), a
+  add a, b
+  inc hl
+  ld (hl), a                 ; checksum
+  ret
+
+config_load:                 ; boot: restore OPTIONS if a valid block exists
+  ld a, (sram_ok)
+  or a
+  ret z
+  ld a, $08
+  ld ($FFFC), a
+  ld hl, CFG_ADDR
+  ld a, (hl)
+  cp 'C'
+  jr nz, cfgl_done
+  inc hl
+  ld a, (hl)
+  cp 'F'
+  jr nz, cfgl_done
+  inc hl
+  ld c, (hl)                 ; pal_sel
+  inc hl
+  ld b, (hl)                 ; sync_mode
+  inc hl
+  ld a, c
+  add a, b
+  cp (hl)                    ; checksum match?
+  jr nz, cfgl_done
+  ld a, c
+  cp 8                       ; pal_sel 0-7?
+  jr nc, cfgl_done
+  ld (pal_sel), a
+  ld a, b
+  and 3                      ; sync_mode 0-3
+  ld (sync_mode), a
+cfgl_done:
+  xor a
+  ld ($FFFC), a
+  ld a, (pal_sel)
+  jp load_palette            ; apply (default or restored)
 
 .ENDS
 
@@ -2356,6 +2418,7 @@ sv_go:
   ld hl, echo_mode
   ld bc, 8                   ; mode,tap1,tap2,red1,red2,stereo,tsp1,tsp2
   ldir
+  call config_save           ; persist OPTIONS (colour, sync) in bank 0
   xor a
   ld ($FFFC), a
   ld a, 1

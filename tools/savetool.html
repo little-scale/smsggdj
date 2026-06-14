@@ -61,6 +61,19 @@ assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
       <option value="32">32 KB &mdash; 6 slots</option>
     </select>
   </label>
+  <span id="cfgrow" style="margin-left:18px">
+    <label class="dim"><input type="checkbox" id="cfgon"> config:</label>
+    <select id="cfgcol">
+      <option value="0">WHT</option><option value="1">GRN</option>
+      <option value="2">AMBR</option><option value="3">CYAN</option>
+      <option value="4">PINK</option><option value="5">NEON</option>
+      <option value="6" selected>KIDD</option><option value="7">MINT</option>
+    </select>
+    <select id="cfgsync">
+      <option value="0">OUT</option><option value="1">PULSE</option>
+      <option value="2">IN</option><option value="3" selected>OFF</option>
+    </select>
+  </span>
 </div>
 
 <div id="slots"></div>
@@ -88,6 +101,33 @@ let savName = "smsggdj.sav";
 
 function numSlots() { return SIZES[size].slots; }
 function savBytes() { return SIZES[size].bytes; }
+
+// OPTIONS config block (colour + sync). The ROM writes it at $BF60, which
+// is $3F60 in a 16K/32K image (past slot 2) but mirrors to $1F60 on an 8K
+// cart (past slot 0) — so the file offset depends on the image size.
+const SCHEMES = ["WHT","GRN","AMBR","CYAN","PINK","NEON","KIDD","MINT"],
+      SYNCS = ["OUT","PULSE","IN","OFF"];
+const cfgOff = len => len <= 0x2000 ? 0x1F60 : 0x3F60;
+function readConfig(d) {
+  const o = cfgOff(d.length);
+  if (o + 5 > d.length || d[o] !== 0x43 || d[o + 1] !== 0x46) return null;
+  const col = d[o + 2], sync = d[o + 3];
+  if (((col + sync) & 0xff) !== d[o + 4] || col > 7 || sync > 3) return null;
+  return { col, sync };
+}
+function writeConfig(img) {
+  if (!document.getElementById("cfgon").checked) return;
+  const o = cfgOff(img.length);
+  if (o + 5 > img.length) return;
+  const col = +document.getElementById("cfgcol").value;
+  const sync = +document.getElementById("cfgsync").value;
+  img[o] = 0x43; img[o + 1] = 0x46;
+  img[o + 2] = col; img[o + 3] = sync;
+  img[o + 4] = (col + sync) & 0xff;
+}
+function syncCfgUI() {   // config persists on every cart size now
+  ["cfgon", "cfgcol", "cfgsync"].forEach(id => document.getElementById(id).disabled = false);
+}
 // slots 0-2 live in bank 0, 3-5 in bank 1 (second 16K at 0x4000)
 function slotOffset(n) {
   const bank = (n / 3) | 0, idx = n % 3;
@@ -104,6 +144,7 @@ function setSize(s, keep) {
     if (dropped) note(`${dropped} song(s) dropped — ${size}K has ${numSlots()} slot(s)`, true);
   }
   document.getElementById("size").value = s;
+  syncCfgUI();
   render();
 }
 
@@ -141,7 +182,15 @@ function loadSav(d, name) {
     slots[n] = validBlob(blob) ? blob : null;
     if (slots[n]) found++;
   }
-  note(`${name}: ${size}K image, ${found} song(s) found`);
+  const cfg = readConfig(d);
+  document.getElementById("cfgon").checked = !!cfg;
+  if (cfg) {
+    document.getElementById("cfgcol").value = cfg.col;
+    document.getElementById("cfgsync").value = cfg.sync;
+  }
+  syncCfgUI();
+  note(`${name}: ${size}K image, ${found} song(s) found` +
+       (cfg ? `, config ${SCHEMES[cfg.col]}/${SYNCS[cfg.sync]}` : ""));
 }
 
 function addSong(blob, name) {
@@ -158,6 +207,7 @@ function addSong(blob, name) {
 function buildSav() {
   const img = new Uint8Array(savBytes()).fill(0xff);
   slots.forEach((b, n) => { if (b) img.set(b, slotOffset(n)); });
+  writeConfig(img);
   return img;
 }
 
@@ -339,6 +389,7 @@ document.getElementById("viewer").addEventListener("click", e => {
     document.getElementById("viewer").classList.remove("open");
 });
 
+syncCfgUI();
 render();
 </script>
 </body>

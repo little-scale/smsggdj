@@ -68,6 +68,13 @@ handle all three sizes — slots 3-5 sit in the second bank at file offset
 `+$4000`; the browser tool has an 8/16/32 KB cart-size selector that sets the
 slot count and `.sav` size.
 
+**OPTIONS config block** (colour scheme + sync mode) lives outside the song
+slots, written by the ROM at CPU `$BF60` and read at boot. That's file offset
+`$3F60` on a 16/32 KB image (the free tail past slot 2); on an 8 KB cart the
+window mirrors, so it lands at `$1F60` (past slot 0). 5 bytes: `'C' 'F'
+pal_sel sync_mode checksum`. It's saved whenever you save a song, and
+`savetool.html` can read/write it (the **config** controls).
+
 A slot is valid when the magic matches **and** the checksum verifies;
 SMSDJ refuses to load anything else (`NO DATA`). Slot 1 (offset 0)
 autoloads at boot.
