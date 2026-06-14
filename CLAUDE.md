@@ -16,12 +16,11 @@ make run      # launch the SMS ROM in Emulicious (bundled in tools/emulicious/)
 make clean
 ```
 
-Build flags (passed to `wla-z80` via the Makefile): `DEMO_MODE` makes a
-self-playing build (auto-plays the demo song from boot). Normal builds load
-the same demo song but wait for play (a blank song is still available via
-PROJECT → NEW). `make demo` / `make run-demo[-gg]` produce separate
-`-demo.sms`/`-demo.gg` outputs. The boot splash lives in a bank-1 `"Splash"`
-section (bank 0/slot 0 is full).
+Build flags (passed to `wla-z80` via the Makefile): `TARGET_GG` selects the
+Game Gear flavor (below). The build boots to a blank song; the baked-in demo
+song is loadable from the PROJECT screen (DEMO, a two-press confirm —
+`song_init` copies the ROM `demo_song_block`). The boot splash lives in a
+bank-1 `"Splash"` section (bank 0/slot 0 is full).
 
 Two ROM flavors from one tree: `TARGET_GG` (assembled as `main-gg.o`) is the
 native Game Gear build — 20×18-tile window layout via a UI origin in

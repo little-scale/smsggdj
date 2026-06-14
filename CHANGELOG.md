@@ -9,6 +9,11 @@ The git history has the full detail; this is the curated summary.
 - Sample **4× speed** (`S03` / RATE 4X) — two octaves up, plays every 4th
   sample. Same flat-CPU decimation as 2×.
 
+### Changed
+- Boot opens a blank song. Removed the DEMO build flavor (the `-demo` ROMs and
+  boot auto-play); the demo song is still baked in and loads from the PROJECT
+  screen (DEMO).
+
 ### Fixed
 - Sample 2x speed (`S01` / RATE 2X) no longer slows the whole song. It now
   decimates the source (plays every other sample) for one DAC write per tick,

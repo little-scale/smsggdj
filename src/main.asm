@@ -182,9 +182,8 @@ init:
   call load_palette          ; the splash renders in it too
   call load_font
   call splash                ; logo + version; SMS region detect inside
-  call song_init             ; load the demo song (blank-new is still
-                             ; available via PROJECT NEW); DEMO_MODE
-                             ; only controls auto-play below
+  call song_new              ; boot a blank song; the baked demo
+                             ; loads from PROJECT (DEMO, two-press)
   call editor_init
   ; sample pool directory (bank 2 sits in slot 2 from boot)
   xor a
@@ -280,12 +279,6 @@ init_paint:
   ld a, 1
   ld (ints_on), a
   ei
-.IFDEF DEMO_MODE
-  ld a, MODE_SONG            ; demo build: auto-play from row 0
-  call engine_play
-  ld a, 1
-  ld (state_dirty), a
-.ENDIF
 
 ; =============================================================
 ; main loop
