@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.24 — unreleased
+## v0.24 — 2026-06-15
 
 ### Added
 - **Ableton Link sync** via the new companion bridge
