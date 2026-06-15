@@ -494,6 +494,13 @@ engine_tick:
   jr nz, et_gok
   ld a, 6                    ; safety for empty groove
 et_gok:
+  ld b, a                    ; SYNC IN: ignore the song's groove and lock
+  ld a, (sync_mode)          ; to a flat 6-tick row (24 PPQN) so external
+  cp SYNC_IN                 ; clock stays beat-aligned. The stored groove
+  ld a, b                    ; is untouched - it returns when SYNC leaves IN.
+  jr nz, et_gset
+  ld a, 6
+et_gset:
   ld (groove_cnt), a
   ; advance groove pos (wrap at 16 or on 0-terminator)
   call groove_base
@@ -1276,6 +1283,9 @@ prc_hop:
   ld (hop_pending), a
   jp pr_next
 prc_wait:
+  ld a, (sync_mode)          ; W shortens a row; that fights the SYNC IN
+  cp SYNC_IN                 ; 6-tick lock, so ignore it while following
+  jp z, pr_next
   ld a, d
   or a
   jr nz, prc_wst

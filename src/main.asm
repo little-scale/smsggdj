@@ -646,7 +646,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
-str_version:     .db "V0.23", 0
+str_version:     .db "V0.24", 0
 str_syncsym:     .db $3E, $5C, $40, $20  ; > pulse < space
 str_rest:        .db "---"
 

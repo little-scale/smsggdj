@@ -371,7 +371,10 @@ analog-clock gear. Set it on **OPTIONS → SYNC**:
 - **OFF** — no sync (default).
 - **OUT** — this unit is the **master**; it sends a clock while playing.
 - **IN** — this unit **follows** an incoming clock. Press Play and it waits
-  (top bar shows **WAIT**) until the clock starts, then locks on.
+  (top bar shows **WAIT**) until the clock starts, then locks on. While
+  following, the song plays at a fixed **groove 6** (24 ticks/beat) so it
+  stays beat-aligned at any tempo — your stored groove is untouched and
+  returns when you leave IN.
 - **PULSE** — sends a simple analog-style pulse (2 PPQN) for gear like
   Volca / Pocket Operator.
 

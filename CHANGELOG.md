@@ -3,6 +3,14 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.24 — unreleased
+
+### Changed
+- **SYNC IN** now locks the engine to a flat **groove 6** (24 PPQN) and ignores
+  the song's stored groove (and the `W` command) while following, so a song
+  stays beat-aligned with the master at any tempo regardless of its groove.
+  Non-destructive — the stored groove returns when you leave SYNC IN.
+
 ## v0.23 — 2026-06-15
 
 ### Added
