@@ -41,11 +41,15 @@
 .DEFINE MAP_ROW     2
 .DEFINE INS_LBL     2        ; INSTR form shifted left to clear the map
 .DEFINE INS_VAL     8
+.DEFINE PH_INS_COL  9        ; PHRASE columns shifted +1 to gap NOTE/I
+.DEFINE PH_CMD_COL  11
 .ELSE
 .DEFINE MAP_COL     25
 .DEFINE MAP_ROW     4
 .DEFINE INS_LBL     4
 .DEFINE INS_VAL     10
+.DEFINE PH_INS_COL  8
+.DEFINE PH_CMD_COL  10
 .ENDIF
 
 .RAMSECTION "edvars" SLOT 3
@@ -4948,11 +4952,11 @@ dl_phrase:
   ld hl, str_hnote
   call print_at
   ld b, GRID_ROW-1
-  ld c, 8                     ; over the instrument digit (col 8)
+  ld c, PH_INS_COL            ; over the instrument digit
   ld hl, str_hinstr
   call print_at
   ld b, GRID_ROW-1
-  ld c, 10                    ; over the command + param (cols 10-12)
+  ld c, PH_CMD_COL            ; over the command + param
   ld hl, str_hcmd
   call print_at
   ret
@@ -5938,13 +5942,13 @@ pdr_npr:
   ld b, 3
   call print_raw
 
-  ; instrument (1 char, col 8)
+  ; instrument (1 char)
   ld a, 1
   call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 8
+  ld c, PH_INS_COL
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -5963,13 +5967,13 @@ pdr_ihex:
   pop de
 
 pdr_cmd:
-  ; command (1 char, col 10)
+  ; command (1 char)
   ld a, 2
   call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 10
+  ld c, PH_CMD_COL
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -5981,13 +5985,13 @@ pdr_cpr:
   call print_char
   pop de
 
-  ; param (2 chars, col 11)
+  ; param (2 chars)
   ld a, 3
   call ph_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 11
+  ld c, PH_CMD_COL+1
   push de
   call nt_addr_hl
   call vdp_set_addr

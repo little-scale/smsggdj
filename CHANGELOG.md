@@ -37,6 +37,9 @@ The git history has the full detail; this is the curated summary.
   of flashing the default first.
 
 ### Fixed
+- **Game Gear PHRASE spacing.** The instrument (`I`) and command columns shift
+  one tile right, opening a gap after the `NOTE` field so the header reads
+  `NOTE  I  CMD` instead of a crammed `NOTEI`. SMS layout unchanged.
 - Restoring the persisted **sync mode** at boot no longer gets clobbered by the
   boot default (a side effect of moving config load before the splash).
 - **Game Gear PHRASE/CHAIN headers.** The phrase/chain number, track tag, and
