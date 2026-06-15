@@ -13,6 +13,15 @@ The git history has the full detail; this is the curated summary.
   on the flat-groove-6 lock below. Wiring in HARDWARE.md.
 
 ### Changed
+- **Instrument envelopes are now AHD (attack / hold / decay).** The old
+  VOL + ENV(UP/DN/OFF) + SPD + LEN cluster is replaced by **VOL** (peak/hold
+  level) + **ATK** + **HLD** + **DCY** — all nibbles. ATK/DCY are ramp rates
+  (ticks per volume step, `0` = instant; full ramp = VOL × rate); HLD is
+  `0` = none, `1`–`E` = ×2 ticks, **`F` = hold forever**. `E xy` re-slopes the
+  ramps live (ATK = x, DCY = y); `K` still hard-cuts. New instruments default
+  to ATK 1 / HLD 4 / DCY 3. WAV uses HLD as its length (its volume gates the
+  DAC, so ramps are inaudible); SMP is unaffected. The envelope engine moved to
+  a bank-1 state machine.
 - **SYNC IN** now locks the engine to a flat **groove 6** (24 PPQN) and ignores
   the song's stored groove (and the `W` command) while following, so a song
   stays beat-aligned with the master at any tempo regardless of its groove.

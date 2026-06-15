@@ -353,13 +353,14 @@ function decodeView(blob, slot) {
   for (let i = 0; i < 16; i++) {
     const b = d.slice(VOFF.instr + i * 16, VOFF.instr + i * 16 + 16);
     const ty = VITYPE[b[0]] || "?";
-    const dir = ["off", "dn", "up"][b[2] >> 4] || "?", spd = b[2] & 0xf;
+    const atk = b[2] >> 4, dcy = b[2] & 0xf, hldn = b[3] & 0xf;
+    const hld = hldn === 0xf ? "inf" : hldn * 2;   // F = forever, else x2 ticks
     let extra = "";
     if (b[0] === 3) extra = "wave " + (b[4] & 7);
     else if (b[0] === 2) extra = "rate " + (VRATE[b[4] & 3] || b[4]);
     else if (b[0] === 1) extra = "noise " + hx2(b[4]);
     ins += `<tr><td>${hx2(i)}</td><td>${ty}</td><td>vol ${hx1(b[1])}</td>`
-         + `<td>env ${spd ? dir + "/" + spd : "off"}</td><td>len ${b[3] ? hx2(b[3]) : "--"}</td>`
+         + `<td>atk ${hx1(atk)} dcy ${hx1(dcy)}</td><td>hld ${hld}</td>`
          + `<td>tsp ${vsig(b[8])}</td><td>swp ${hx2(b[5])}</td><td>vib ${hx2(b[6])}</td>`
          + `<td>trm ${hx2(b[7])}</td><td>tbl ${b[9] === 0xff ? "--" : hx2(b[9])}</td>`
          + `<td class="dim">${extra}</td></tr>`;

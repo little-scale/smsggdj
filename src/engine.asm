@@ -61,6 +61,14 @@
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
 
+; AHD envelope stages (ix+4). Anything else reads as idle.
+.DEFINE STG_ATK     0          ; ramp 0 -> peak at ATK rate
+.DEFINE STG_HLD     1          ; sit at peak (ix+3 ticks, $FF = forever)
+.DEFINE STG_DCY     2          ; ramp peak -> 0 at DCY rate
+.DEFINE STG_KILL    3          ; K command: count down then hard cut
+.DEFINE STG_IDLE    4          ; finished/silent
+.DEFINE PRELISTEN_CAP 32       ; ticks: cap a forever-hold while stopped
+
 .DEFINE MODE_SONG   0
 .DEFINE MODE_CHAIN  1
 .DEFINE MODE_PHRASE 2
@@ -183,7 +191,7 @@ ep_chl:
   ld (ix+0), $FF
   ld (ix+2), 0
   ld (ix+3), 1
-  ld (ix+4), $FF
+  ld (ix+4), STG_IDLE
   ld (ix+5), 0
   ld (ix+8), $FF             ; chain step: load on first boundary
   ld (ix+9), 0
@@ -1409,11 +1417,13 @@ xc_kill:
   ld a, d
   or a
   jr nz, xc_klater
-  ld (ix+2), 0
+  ld (ix+2), 0               ; K00: cut now
+  ld (ix+4), STG_IDLE        ; envelope done
   ld a, (cur_trig_ch)
   jp smp_kill_owned          ; K00 also cuts the sample
 xc_klater:
-  ld (ix+4), a
+  ld (ix+3), a               ; Kxx: count down xx ticks...
+  ld (ix+4), STG_KILL        ; ...then hard cut (overrides the AHD)
   ret
 
 ; A = channel; if it owns the playing sample, stop it (smp_abort
@@ -1443,30 +1453,9 @@ xc_arp:
   ld (ix+26), 0
   ret
 xc_env:
-  ld a, d
-  rrca
-  rrca
-  rrca
-  rrca
-  and $0F
-  ld (ix+2), a               ; volume
-  ld a, d
-  and $0F
-  jr z, xc_eoff
-  cp 8
-  jr nc, xc_eup
-  or $10                     ; fade down
-  jr xc_est
-xc_eup:
-  and $07
-  or $20                     ; fade up
-  jr xc_est
-xc_eoff:
-  xor a
-xc_est:
-  ld (ix+5), a
-  ld (ix+3), 1
-  ret
+  ld (ix+5), d               ; E xy: set ATK=x, DCY=y live; the
+  ret                        ; cached rate byte IS the E param,
+                             ; HLD and the current stage untouched
 xc_fine:
   ld a, d
   ld (ix+27), a
@@ -1555,25 +1544,18 @@ trigger_note:
   add hl, de
   ld a, (hl)                 ; +0 type
   ld b, a
-  inc hl
-  ld a, (hl)                 ; +1 initial volume
-  ld (ix+2), a
-  inc hl
-  ld a, (hl)                 ; +2 envelope
+  inc hl                     ; -> +1 (init volume = AHD peak; re-read
+                             ;    live by ahd_process, not cached here)
+  inc hl                     ; -> +2 (ATK|DCY; the byte E writes)
+  ld a, (hl)                 ; +2 ATK|DCY rates
   ld (ix+5), a
-  and $0F
-  jr nz, tn_spd
-  ld a, 1                    ; keep counter sane when env off
-tn_spd:
-  ld (ix+3), a
-  inc hl
-  ld a, (hl)                 ; +3 length
-  or a
-  jr nz, tn_len
-  ld a, $FF
-tn_len:
-  ld (ix+4), a
-  inc hl
+  xor a
+  ld (ix+2), a               ; AHD starts silent...
+  ld (ix+4), a               ; ...in the attack stage (STG_ATK = 0)
+  inc a
+  ld (ix+3), a               ; pace = 1: first ramp step next tick
+  inc hl                     ; -> +3 (HLD; ahd re-reads on entering hold)
+  inc hl                     ; -> +4
   ld c, (hl)                 ; +4 noise control
   inc hl
   ld a, (hl)                 ; +5 sweep
@@ -2013,60 +1995,12 @@ cf_env:
 cf_arpst:
   ld (ix+26), a
 cf_env2:
-  ; --- envelope ---
-  ; speed 1 = 4 vol steps/tick, 2 = 2 steps/tick, 3 = 1/tick,
-  ; 4..F = one step every speed-2 ticks (ticks are the engine's
-  ; finest resolution: one per frame)
-  ld a, (ix+5)
-  and $0F
-  jr z, cf_len               ; speed 0 = env off
-  ld b, a
-  ld a, b
-  cp 3
-  jr c, cf_envfast
-  sub 2
-  ld b, a
-  dec (ix+3)
-  jr nz, cf_len
-  ld (ix+3), b               ; reload tick counter
-  ld b, 1
-  jr cf_envstep
-cf_envfast:
-  dec a                      ; 1 -> 4 steps, 2 -> 2 steps
-  ld b, 2
-  jr nz, cf_envstep
-  ld b, 4
-cf_envstep:
-  ld a, (ix+5)
-  and $F0
-  cp $20                     ; UP; anything else fades down
-  jr nz, cf_envdn
-  ld a, (ix+2)               ; fade up
-  add a, b
-  cp $0F
-  jr c, cf_envst
-  ld a, $0F
-  jr cf_envst
-cf_envdn:
-  ld a, (ix+2)               ; fade down
-  sub b
-  jr nc, cf_envst
-  xor a
-cf_envst:
-  ld (ix+2), a
-
-  ; --- length / kill countdown ---
-cf_len:
-  ld a, (ix+4)
-  cp $FF
-  jr z, cf_out
-  dec a
-  ld (ix+4), a
-  jr nz, cf_out
-  ld (ix+2), 0               ; cut
-  ld (ix+4), $FF
-  ld a, c                    ; if this channel's sample, stop it
-  call smp_kill_owned
+  ; --- AHD volume envelope (attack / hold / decay) ---
+  ; full state machine lives in bank 1 (ahd_process); it walks
+  ; ix+2 vol through the stage in ix+4, paced by ix+3, with the
+  ; cached ATK|DCY rates in ix+5. Cuts the channel's sample when
+  ; the decay/kill finishes.
+  call ahd_process
 
   ; --- write shadows ---
 cf_out:
@@ -2599,4 +2533,165 @@ demo_song_block:
 demo_echo:
   .INCBIN "demo_echo.bin"     ; 8 bytes: echo_mode..echo_tsp2
 .ENDS
+
+; -------------------------------------------------------------
+; AHD volume envelope state machine (bank 1, always-mapped slot).
+; IN: ix = channel struct, c = channel index. Walks ix+2 (current
+; vol) through the stage in ix+4, paced by ix+3, with the cached
+; ATK|DCY rates in ix+5 (ATK high nibble, DCY low). The peak (hold
+; level) and HLD time are re-read live from the instrument (ix+1)
+; so the E command can re-slope ATK/DCY without disturbing them.
+; Preserves c and ix. ATK/DCY are ticks-per-volume-step (rate 0 =
+; instant); HLD is raw ticks, nibble $F = hold forever.
+.BANK 1 SLOT 1
+.SECTION "AHD" FREE
+ahd_process:
+  ld a, (ix+4)
+  or a
+  jr z, ahd_atk
+  cp STG_HLD
+  jp z, ahd_hld
+  cp STG_DCY
+  jp z, ahd_dcy
+  cp STG_KILL
+  jp z, ahd_kill
+  ret                        ; idle: hold current vol
+
+; ---- attack: ramp 0 -> peak ----
+ahd_atk:
+  ld a, (ix+5)
+  and $F0
+  jr z, ahd_atk_now          ; ATK rate 0 -> instant to peak
+  rrca
+  rrca
+  rrca
+  rrca                       ; a = ATK rate 1..F (ticks/step)
+  dec (ix+3)
+  ret nz
+  ld (ix+3), a               ; reload pace counter
+  call ahd_peak              ; e = peak VOL
+  ld a, (ix+2)
+  inc a
+  cp e
+  jr c, ahd_atk_set          ; below peak: keep climbing
+  ld a, e
+  ld (ix+2), a
+  jr ahd_enter_hold
+ahd_atk_set:
+  ld (ix+2), a
+  ret
+ahd_atk_now:
+  call ahd_peak
+  ld a, e
+  ld (ix+2), a
+  ; fall into enter_hold
+
+; ---- attack done -> set up hold (HLD nibble) ----
+ahd_enter_hold:
+  call ahd_hldval            ; a = HLD nibble 0..F
+  cp $0F
+  jr z, ahd_hold_inf         ; F = hold forever
+  or a
+  jr z, ahd_begin_decay      ; 0 = no hold -> straight to decay
+  add a, a                   ; 1..E -> hold 2..28 ticks
+  ld (ix+3), a
+  ld a, STG_HLD
+  ld (ix+4), a
+  ret
+ahd_hold_inf:
+  ld a, (play_state)         ; while stopped (prelisten), a forever-
+  or a                       ; hold note would drone, so cap it
+  ld a, $FF                  ; playing: sentinel = hold forever
+  jr nz, ahd_hold_set
+  ld a, PRELISTEN_CAP
+ahd_hold_set:
+  ld (ix+3), a
+  ld a, STG_HLD
+  ld (ix+4), a
+  ret
+
+; ---- hold: sit at peak ----
+ahd_hld:
+  ld a, (ix+3)
+  inc a
+  ret z                      ; $FF -> forever
+  dec (ix+3)
+  ret nz
+  ; fall into begin_decay
+
+; ---- hold done -> set up decay (DCY rate) ----
+ahd_begin_decay:
+  ld a, (ix+5)
+  and $0F                    ; DCY rate
+  jr z, ahd_cut              ; DCY 0 -> instant cut
+  ld (ix+3), a               ; pace counter
+  ld a, STG_DCY
+  ld (ix+4), a
+  ret
+
+; ---- decay: ramp peak -> 0 ----
+ahd_dcy:
+  ld a, (ix+5)
+  and $0F
+  jr z, ahd_cut
+  dec (ix+3)
+  ret nz
+  ld (ix+3), a               ; reload pace
+  ld a, (ix+2)
+  or a
+  jr z, ahd_cut
+  dec a
+  ld (ix+2), a
+  ret nz
+ahd_cut:
+  ld (ix+2), 0
+  ld a, STG_IDLE
+  ld (ix+4), a
+  ld a, c                    ; stop a sample this channel owns
+  jp smp_kill_owned
+
+; ---- K command: count down then hard cut ----
+ahd_kill:
+  dec (ix+3)
+  ret nz
+  jr ahd_cut
+
+; helper: e = instrument peak VOL (instruments[(ix+1)*16]+1)
+ahd_peak:
+  push hl
+  push bc
+  ld a, (ix+1)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld bc, instruments+1
+  add hl, bc
+  ld e, (hl)
+  pop bc
+  pop hl
+  ret
+
+; helper: a = HLD nibble (instruments[(ix+1)*16]+3 low nibble)
+ahd_hldval:
+  push hl
+  push bc
+  ld a, (ix+1)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld bc, instruments+3
+  add hl, bc
+  ld a, (hl)
+  pop bc
+  pop hl
+  and $0F
+  ret
+.ENDS
+
 .BANK 0 SLOT 0

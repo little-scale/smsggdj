@@ -154,8 +154,8 @@ won't fit), the cursor flashes and nothing is cloned.
 
 Each instrument has a **type**, set on the INSTR screen:
 
-- **TONE** — a melodic voice. Volume, a software envelope (fade up/down),
-  note length, transpose, plus vibrato / pitch-sweep / tremolo modulation,
+- **TONE** — a melodic voice. Volume, an AHD volume envelope (attack / hold /
+  decay), transpose, plus vibrato / pitch-sweep / tremolo modulation,
   and an optional table.
 - **NOISE** — the noise channel. White or periodic noise, at fixed rates or
   **pitched** (which borrows tone-3 to tune it — great for periodic-noise
@@ -164,33 +164,33 @@ Each instrument has a **type**, set on the INSTR screen:
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 
 Put an instrument's number next to a note in a PHRASE to play that note with
-that sound. Unedited instruments default to full volume, so a fresh one makes
-sound right away.
+that sound. Unedited instruments default to full volume with a quick attack
+and a short decay tail, so a fresh one makes sound right away.
 
 ### INSTR fields in detail
 
 Timing is measured in **ticks** — one tick = one video frame, so 1/60 s on
 NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
 
-- **VOL** — starting volume, `0`–`F` (`F` = loudest).
-- **ENV** + **SPD** — a software volume envelope. **ENV** is the direction
-  (`OFF` / `DN` / `UP`); **SPD** is the rate (`0` = no envelope). SPD is not a
-  straight ticks-per-step:
+- **VOL** — peak / hold volume, `0`–`F` (`F` = loudest). The note swells up to
+  this level and decays back from it.
+- **ATK** / **HLD** / **DCY** — an **AHD volume envelope**: the note ramps up
+  from silence (attack), sits at VOL (hold), then ramps down to silence
+  (decay).
+  - **ATK** `0`–`F` — attack rate, **ticks per volume step** on the way up
+    (`0` = instant). A full ramp takes `VOL × ATK` ticks, so at VOL `F`,
+    ATK `1` ≈ 0.25 s and ATK `F` ≈ 3.7 s on NTSC.
+  - **HLD** `0`–`F` — how long it holds at VOL: `0` = no hold, `1`–`E` =
+    nibble × 2 ticks (up to ~0.5 s), **`F` = ∞** (sustain until the note
+    retriggers or a `K` cuts it).
+  - **DCY** `0`–`F` — decay rate, ticks per volume step on the way down
+    (`0` = cut instantly at the end of the hold); same `VOL × DCY` timing.
 
-  | SPD | rate |
-  |---|---|
-  | `0` | envelope off |
-  | `1` | 4 volume levels per tick (fastest) |
-  | `2` | 2 levels per tick |
-  | `3` | 1 level per tick |
-  | `n` (4–F) | 1 level every **(n − 2)** ticks |
-  | `F` | 1 level every 13 ticks (slowest) |
+  A plain sustained tone is **ATK 0 / HLD F / DCY 0**, a pluck is
+  **ATK 0 / HLD 0 / DCY 3**, a pad is **ATK 8 / HLD 4 / DCY 8**. Note an `F`
+  (infinite) hold never reaches the decay stage — give HLD a finite value for
+  a fade-out tail.
 
-  A full fade (F→0, 15 steps) on NTSC runs ≈ 0.07 s at SPD `1`, ≈ 0.25 s at
-  `3`, ≈ 1.5 s at `8`, ≈ 3.3 s at `F` (PAL ~20 % longer).
-
-- **LEN** — auto-cut length in **ticks**: the note is silenced after this many
-  ticks. `00` = off (sustain). `01`–`FF` = 1–255 ticks (~4.25 s max on NTSC).
 - **TSP** — transpose this instrument in semitones (signed).
 - **SWP** — pitch sweep: a single **signed** byte added to the pitch every
   tick (a continuous glide; same engine as the `P` command). Positive (`01`–
@@ -206,12 +206,13 @@ NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
 Not every type shows every field — the INSTR screen only lists the ones that
 do something for that type:
 
-- **TONE** — VOL, ENV/SPD, LEN, TSP, SWP, VIB, TRM, TBL/TBS.
+- **TONE** — VOL, ATK/HLD/DCY, TSP, SWP, VIB, TRM, TBL/TBS.
 - **NOISE** — same as TONE plus a MODE (noise tone) field.
-- **WAV** — VOL, ENV/SPD, LEN, TSP, TBL/TBS, and a MODE (wave 0–7) selector
-  (no SWP/VIB/TRM).
+- **WAV** — VOL, **HLD** (the wave's length), TSP, TBL/TBS, and a WAVE (0–7)
+  selector. ATK/DCY don't show — the wave is gated on/off by volume, so the
+  ramps are inaudible; HLD `F` rings the wave until the next note.
 - **SMP** — only **TYPE** and **RATE**. A sample plays as a raw stream on T3,
-  so the envelope, length, pitch mods, volume and tables don't apply; shape
+  so the envelope, pitch mods, volume and tables don't apply; shape
   loudness/fades at convert time in the patcher instead.
 
 A command in a PHRASE (`E`, `P`, `V`, `M`, `L`…) overrides the matching field
@@ -266,7 +267,7 @@ take a two-digit parameter `xy`.
 | `B` | Wave bank | Set this note's wavetable 0–7, overriding the instrument's wave (`B0`–`B7`, just that note) |
 | `C` | Chord | Looping arpeggio: note, +x, +y semitones (`C00` off) |
 | `D` | Delay | Delay the note by a number of ticks |
-| `E` | Envelope | Override the instrument's volume envelope |
+| `E` | Envelope | Re-slope the AHD ramps live: `Exy` sets ATK = x, DCY = y (hold is left alone) |
 | `F` | Finetune | Detune slightly |
 | `G` | Groove | Switch groove from this row (this track) |
 | `H` | Hop | PHRASE: end / jump. TABLE: loop |

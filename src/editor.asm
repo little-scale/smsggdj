@@ -1781,109 +1781,79 @@ inv_st:
   ld (hl), d
   jp ine_mark
 
-ine_dir:                     ; envelope dir OFF -> DN -> UP
-  ld a, (pad_edge)
-  and $0F
-  ret z
-  inc hl
-  inc hl
-  ld a, (hl)
-  and $F0
-  rrca
-  rrca
-  rrca
-  rrca
-  inc a
-  cp 3
-  jr c, ind_ok
-  xor a
-ind_ok:
-  rlca
-  rlca
-  rlca
-  rlca
-  ld d, a
-  ld a, (hl)
-  and $0F
-  or d
-  ld (hl), a
-  jp ine_mark
-
-ine_spd:
-  inc hl
-  inc hl
-  ld a, (hl)
-  and $0F
-  ld d, a
+; adjust the nibble in D (0-F) per the d-pad repeat bits (ed_rep)
+ins_nib_adj:
   ld a, (ed_rep)
   ld c, a
   bit 3, c
-  jr nz, ins_inc
+  jr nz, ina_inc
   bit 0, c
-  jr z, ins_dec
-ins_inc:
+  jr z, ina_dec
+ina_inc:
   ld a, d
   cp $0F
-  jr nc, ins_dec
+  jr nc, ina_dec
   inc d
-ins_dec:
+ina_dec:
   bit 2, c
-  jr nz, ins_d2
+  jr nz, ina_d2
   bit 1, c
-  jr z, ins_st
-ins_d2:
+  ret z
+ina_d2:
   ld a, d
   or a
-  jr z, ins_st
+  ret z
   dec d
-ins_st:
+  ret
+
+ine_dir:                     ; field 3 = ATK (+2 high nibble)
+  inc hl
+  inc hl
+  ld a, (hl)
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  ld d, a
+  call ins_nib_adj
+  ld a, d
+  rlca
+  rlca
+  rlca
+  rlca
+  ld d, a
+  ld a, (hl)
+  and $0F
+  or d
+  ld (hl), a
+  jp ine_mark
+
+ine_spd:                     ; field 4 = HLD (+3 low nibble; F = inf)
+  inc hl
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $0F
+  ld d, a
+  call ins_nib_adj
   ld a, (hl)
   and $F0
   or d
   ld (hl), a
   jp ine_mark
 
-ine_len:
+ine_len:                     ; field 5 = DCY (+2 low nibble)
   inc hl
   inc hl
-  inc hl
-  ld d, (hl)
-  ld a, (ed_rep)
-  ld c, a
-  bit 3, c
-  jr z, inl_l
-  ld a, d
-  cp $3F
-  jr nc, inl_l
-  inc d
-inl_l:
-  bit 2, c
-  jr z, inl_u
-  ld a, d
-  or a
-  jr z, inl_u
-  dec d
-inl_u:
-  bit 0, c
-  jr z, inl_d
-  ld a, d
-  add a, 8
-  cp $40
-  jr c, inl_us
-  ld a, $3F
-inl_us:
+  ld a, (hl)
+  and $0F
   ld d, a
-inl_d:
-  bit 1, c
-  jr z, inl_st
-  ld a, d
-  sub 8
-  jr nc, inl_ds
-  xor a
-inl_ds:
-  ld d, a
-inl_st:
-  ld (hl), d
+  call ins_nib_adj
+  ld a, (hl)
+  and $F0
+  or d
+  ld (hl), a
   jp ine_mark
 
 ine_mode:                    ; WHITE <-> PERIODIC (edge-gated)
@@ -3129,8 +3099,8 @@ ffc_byte:
 ffc_no:
   or 1                       ; force NZ
   ret
-instr_default:               ; type TONE, vol F, env off, no table
-  .db 0, $0F, 0, 0, 0, 0, 0, 0, 0, $FF, 1, 0, 0, 0, 0, 0
+instr_default:               ; TONE, vol F, ATK 1 / HLD 4 / DCY 3
+  .db 0, $0F, $13, $04, 0, 0, 0, 0, 0, $FF, 1, 0, 0, 0, 0, 0
 instr_default_old:           ; pre-vol-F saves: zeroed slots
   .db 0, 0, 0, 0, 0, 0, 0, 0, 0, $FF, 0, 0, 0, 0, 0, 0
 
@@ -3906,12 +3876,8 @@ prelisten:
   dec a
   ld (ix+0), a
   ld (ix+1), c
-  call trigger_note
-  ld a, (ix+4)
-  cp $FF
-  ret nz
-  ld (ix+4), PRELISTEN_LEN
-  ret
+  jp trigger_note            ; AHD plays out; a forever-hold note is
+                             ; capped while stopped (see ahd_hold_inf)
 
 ; =============================================================
 ; block selection (SONG/CHAIN/PHRASE/TABLE)
@@ -6207,29 +6173,29 @@ idr_vol:
   inc hl
   ld a, (hl)
   jp print_hex_nib
-idr_dir:
+idr_dir:                     ; field 3 = ATK (+2 high nibble)
   inc hl
   inc hl
   ld a, (hl)
-  and $F0
-  cp $20
-  ld hl, str_edn
-  jr nz, idr_p3
-  ld hl, str_eup
-idr_p3:
-  ld b, 3
-  jp print_raw
-idr_spd:
-  inc hl
-  inc hl
-  ld a, (hl)
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
   jp print_hex_nib
-idr_len:
+idr_spd:                     ; field 4 = HLD (+3 low nibble; F = inf)
   inc hl
   inc hl
   inc hl
   ld a, (hl)
-  jp print_hex_a
+  and $0F
+  jp print_hex_nib
+idr_len:                     ; field 5 = DCY (+2 low nibble)
+  inc hl
+  inc hl
+  ld a, (hl)
+  and $0F
+  jp print_hex_nib
 idr_mode:
   inc hl
   inc hl
@@ -6273,15 +6239,15 @@ f2r_tone:
   .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15
 f2r_noise:
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
-f2r_wav:                     ; field -> grid row (3,4,7-11 skipped)
-  .db 0, 1, 2, 0, 0, 4, 5, 0, 0, 0, 0, 0, 7
+f2r_wav:                     ; field -> grid row (HLD=4 shown; 3,5,7-11 skipped)
+  .db 0, 1, 2, 0, 4, 0, 5, 0, 0, 0, 0, 0, 7
 ; grid row -> field index ($FF = spacer)
 r2f_tone:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, $FF, 10, 11
 r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
-r2f_wav:                     ; INST/TYPE/VOL/LEN/TSP/MODE (no ENV/SPD/tables)
-  .db 0, 1, 2, $FF, 5, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE (no ATK/DCY/tables)
+  .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
 r2f_smp:                     ; grid row -> field (INST/TYPE/RATE only)
@@ -6298,9 +6264,9 @@ ins_lbls:
   .db "INST", 0
   .db "TYPE", 0
   .db "VOL ", 0
-  .db "ENV ", 0
-  .db "SPD ", 0
-  .db "LEN ", 0
+  .db "ATK ", 0
+  .db "HLD ", 0
+  .db "DCY ", 0
   .db "TSP ", 0
   .db "SWP ", 0
   .db "VIB ", 0
@@ -6315,9 +6281,6 @@ str_wavt:   .db "WAV  "
 str_noise:  .db "NOISE"
 str_white:  .db "WHITE"
 str_perio:  .db "PERIO"
-str_eoff:   .db "OFF"
-str_edn:    .db "DN "
-str_eup:    .db "UP "
 str_rates:
   .db "512  "
   .db "1K   "

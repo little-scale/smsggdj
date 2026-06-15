@@ -159,7 +159,7 @@ Per tick, per channel (fixed order, deterministic):
 
 1. **Groove counter** — on expiry, advance phrase row; read note/instr/cmd; apply per-step command.
 2. **Table tick** (at table speed) — volume column, pitch column, table command.
-3. **Software envelope** — initial volume + fade up/down at rate.
+3. **Software AHD envelope** — attack 0→VOL, hold at VOL, decay VOL→0.
 4. **Pitch effects** — slide, tone-portamento, vibrato (ROM LFO tables), detune.
 5. **Final write** — note + transposes → ROM note table (10-bit period) + finetune; clamp; write PSG only on change (shadow registers, `OUT (0x7F)`).
 
@@ -188,9 +188,10 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 |---|---|---|
 | TYPE | TONE / NOISE / KIT / SMP | |
 | NAME | 5 chars | shown in PHRASE column hint |
-| VOL | 0–F | initial volume (F = loudest) |
-| ENV | dir + speed | fade UP / DOWN / OFF, speed 0–F ticks per step |
-| LEN | 0–3F | auto note-cut after N ticks, 0 = hold |
+| VOL | 0–F | peak / hold volume (F = loudest) |
+| ATK | 0–F | attack: ticks per volume step on the way up (0 = instant). Full ramp = VOL × ATK ticks |
+| HLD | 0–F | hold at VOL: 0 = none, 1–E = nibble × 2 ticks, **F = ∞** (sustain until retrigger / `K`) |
+| DCY | 0–F | decay: ticks per volume step on the way down (0 = instant cut at end of hold) |
 | TBL | 0–1F / -- | table assignment |
 | TBL SPD | 1–F | ticks per table row |
 | TSP | ±24 | semitone transpose |
@@ -221,7 +222,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 | SAMPLE | pool slot # | which sample (SINGLE mode) |
 | VOL OFS | 0–7 | software attenuation added to every nibble at ring-refill time (2 dB steps — free at playback time, §10.3) |
 | LOOP | ON/OFF | loop sample to end of note |
-| ENV/TBL | — | tables and envelopes do **not** run during sample playback v1 (volume is the DAC); LEN and `K` still cut |
+| ENV/TBL | — | tables and the AHD envelope do **not** run during sample playback v1 (volume is the DAC); `K` still cuts |
 
 Notes on SMP: playback rate is fixed (§10.4); pitched sample playback via phase accumulator is a v2 stretch. The note table maps to sample slots in KIT mode, mirroring the KIT type.
 
@@ -230,7 +231,7 @@ Notes on SMP: playback rate is fixed (§10.4); pitched sample playback via phase
 |---|---|---|
 | WAVE | 0–3 | which user-drawn wave plays (§10.6) |
 
-Common params apply; the host channel's volume/envelope *gate* the wave (volume 0 stops it) rather than scaling the DAC. The note column is pitched normally — wavetables are melodic instruments.
+Common params apply; the host channel's volume/envelope *gate* the wave (volume 0 stops it) rather than scaling the DAC, so a WAV instrument only uses **HLD** as its length (ATK/DCY are inaudible through the gate). The note column is pitched normally — wavetables are melodic instruments.
 
 ---
 
@@ -256,7 +257,7 @@ Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx
 | `B x`  | wave Bank | wave # 0-7 | set this note's wavetable, overriding the instrument's (one-shot, in PHRASE) |
 | `C xy` | Chord | +x, +y semitones | looping 0,x,y arpeggio (00 = off) |
 | `D xx` | Delay | ticks | delay note trigger |
-| `E xy` | Envelope | vol x, fade y | override instrument envelope |
+| `E xy` | Envelope | ATK x, DCY y | re-slope the AHD ramps live (HLD and the current stage are untouched) |
 | `F xx` | Finetune | signed | detune in period units |
 | `G xx` | Groove | groove # | switch groove from this row (this track) |
 | `H xx` | Hop | position | PHRASE: end phrase / jump to song row; TABLE: loop |
