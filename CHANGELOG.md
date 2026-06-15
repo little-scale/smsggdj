@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.25 — unreleased
+## v0.25 — 2026-06-16
 
 ### Added
 - **`X` command — per-note volume.** `Xxx` sets a triggered note's volume
@@ -28,7 +28,7 @@ The git history has the full detail; this is the curated summary.
   first 3 MIDI tracks' Session clips convert to a `.smdj`: each clip becomes
   phrases (cut to a 16th-note grid; long clips spill across phrases), a track's
   clips fill its chain, identical phrases de-dup. Highest note wins, out-of-range
-  notes octave-fold in, note-offs are dropped; optional velocity→`V`. Loads via
+  notes octave-fold in, note-offs are dropped; optional velocity→`X`. Loads via
   `savetool.html`.
 
 ### Changed
