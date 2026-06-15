@@ -164,7 +164,7 @@ Each instrument has a **type**, set on the INSTR screen:
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 
 Put an instrument's number next to a note in a PHRASE to play that note with
-that sound. Unedited instruments default to full volume with a quick attack
+that sound. Unedited instruments default to full volume with an instant attack
 and a short decay tail, so a fresh one makes sound right away.
 
 ### INSTR fields in detail

@@ -19,7 +19,7 @@ The git history has the full detail; this is the curated summary.
   (ticks per volume step, `0` = instant; full ramp = VOL × rate); HLD is
   `0` = none, `1`–`E` = ×2 ticks, **`F` = hold forever**. `E xy` re-slopes the
   ramps live (ATK = x, DCY = y); `K` still hard-cuts. New instruments default
-  to ATK 1 / HLD 4 / DCY 3. WAV uses HLD as its length (its volume gates the
+  to ATK 0 / HLD 1 / DCY 3. WAV uses HLD as its length (its volume gates the
   DAC, so ramps are inaudible); SMP is unaffected. The envelope engine moved to
   a bank-1 state machine.
 - **SYNC IN** now locks the engine to a flat **groove 6** (24 PPQN) and ignores

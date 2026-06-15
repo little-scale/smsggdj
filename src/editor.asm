@@ -3099,8 +3099,8 @@ ffc_byte:
 ffc_no:
   or 1                       ; force NZ
   ret
-instr_default:               ; TONE, vol F, ATK 1 / HLD 4 / DCY 3
-  .db 0, $0F, $13, $04, 0, 0, 0, 0, 0, $FF, 1, 0, 0, 0, 0, 0
+instr_default:               ; TONE, vol F, ATK 0 / HLD 1 / DCY 3
+  .db 0, $0F, $03, $01, 0, 0, 0, 0, 0, $FF, 1, 0, 0, 0, 0, 0
 instr_default_old:           ; pre-vol-F saves: zeroed slots
   .db 0, 0, 0, 0, 0, 0, 0, 0, 0, $FF, 0, 0, 0, 0, 0, 0
 
