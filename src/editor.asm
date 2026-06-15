@@ -4878,11 +4878,11 @@ dl_chain:
   ld a, (cur_chain)
   call print_hex_a
   call dl_track_tag
-  ld b, 3
+  ld b, GRID_ROW-1
   ld c, 4
   ld hl, str_hphr
   call print_at
-  ld b, 3
+  ld b, GRID_ROW-1
   ld c, 8
   ld hl, str_htsp
   call print_at
@@ -4893,22 +4893,22 @@ dl_phrase:
   ld c, NAME_COL
   ld hl, str_phrase
   call print_at
-  ld b, 1
+  ld b, NAME_ROW              ; phrase # on the name row (matches CHAIN)
   ld c, 8
   call nt_addr_hl
   call vdp_set_addr
   ld a, (cur_phrase)
   call print_hex_a
   call dl_track_tag
-  ld b, 3
+  ld b, GRID_ROW-1
   ld c, 4
   ld hl, str_hnote
   call print_at
-  ld b, 3
+  ld b, GRID_ROW-1
   ld c, 8                     ; over the instrument digit (col 8)
   ld hl, str_hinstr
   call print_at
-  ld b, 3
+  ld b, GRID_ROW-1
   ld c, 10                    ; over the command + param (cols 10-12)
   ld hl, str_hcmd
   call print_at
@@ -4977,7 +4977,7 @@ dl_track_tag:
   ld hl, track_names
   add hl, de
   push hl
-  ld b, 1
+  ld b, NAME_ROW
   ld c, 12
   call nt_addr_hl
   call vdp_set_addr

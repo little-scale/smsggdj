@@ -5,6 +5,14 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.25 — unreleased
 
+### Fixed
+- **Game Gear PHRASE/CHAIN headers.** The phrase/chain number, track tag, and
+  column headers were pinned to fixed rows that only matched the SMS layout, so
+  on GG the number sat a row low and the `NOTE`/`I`/`CMD` (and `PHR`/`TSP`)
+  headers were drawn inside the grid and never showed. They now use the layout
+  constants, so the number/tag sit on the name row and the headers on the row
+  above the grid (SMS layout unchanged).
+
 ## v0.24 — 2026-06-15
 
 ### Added
