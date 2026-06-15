@@ -387,6 +387,13 @@ Gear uses a standard Gear-to-Gear cable. The slave unit reads whichever cable
 is plugged in automatically. (Sending a clock as master needs an *export*
 Master System — Japanese units can't drive the port.)
 
+**Ableton Link:** with `SYNC: IN` you can follow Ableton Live (or any Link
+app) using the companion **smsggdj-link-esp32** bridge — a small ESP32 board
+that joins your Link session over WiFi and feeds the clock into port 2.
+SMSGGDJ then plays in time with Live's tempo and transport. Build and wiring
+details are in the bridge's repo (github.com/little-scale/smsggdj-link-esp32)
+and in HARDWARE.md.
+
 ---
 
 ## 13. Game Gear notes (GGDJ)

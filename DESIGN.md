@@ -397,8 +397,23 @@ drive a Volca/PO sync-in directly: tip = TR, sleeve = GND.
 - Jitter: slave ticks quantize to its own frame (≤20 ms, slowly wandering
   between same-region units) — same order as LSDJ slave mode. A mid-frame
   poll can halve this later if needed.
+- Under `SYNC: IN` the engine also locks to a flat **groove 6** (24 PPQN) and
+  ignores the song's stored groove and the `W` command (v0.24, non-destructive
+  — the stored groove returns on leaving IN), so any song stays beat-aligned at
+  one tick = 1/24 beat regardless of its own groove.
 
-### 11.4 MIDI (future)
+### 11.4 Ableton Link bridge (external)
+
+The 2-bit counter is host-agnostic, so anything that can present a monotonic
+counter on TR/TH can be the master. The companion project
+**[smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32)** is
+a Seeed XIAO ESP32-C3 that joins an **Ableton Link** session over WiFi, derives
+the 24 PPQN tick clock from the shared beat timeline (bar-aligned launch), and
+drives the counter into port 2 via open-drain GPIOs. SMSGGDJ in `SYNC: IN` then
+follows Live's tempo and transport. Verified on real PAL SMS1 hardware; wiring
+in HARDWARE.md. It relies on the flat-groove-6 lock above to stay aligned.
+
+### 11.5 MIDI (future)
 
 A MIDI adapter now reduces to: receive MIDI clock/start/stop, drive the same
 2-bit counter on two pins. Far simpler than the v0.2 polled-nibble protocol;

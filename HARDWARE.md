@@ -128,6 +128,15 @@ TR↔TL crossover works unconfigured (the unused line floats high).
 - **GG ↔ GG**: stock Gear-to-Gear cable (TR↔TL crossover absorbed).
 - **PULSE out** (Volca / Pocket Operator): tip = pin 9 (TR), sleeve = pin 8
   (GND); 5 V pulse, one tick high every 12 ticks (2 PPQN at groove 6).
+- **Ableton Link in** (companion ESP32 bridge,
+  [smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32)):
+  a Seeed XIAO ESP32-C3 joins a Link session over WiFi and drives the same
+  2-bit counter into port 2 — TR/bit0 ← GPIO3, TH/bit1 ← GPIO4, shared GND
+  ← pin 8. **Open-drain** outputs (the ESP32 only pulls low; the SMS pull-ups
+  supply the 5 V high — no level shifter); **USB-powered, sharing only GND**
+  (don't tap pin-5 +5 V — WiFi peaks risk sagging the console rail). Select
+  `SYNC: IN` on the tracker; it then follows Live's tempo and transport.
+  Hardware-verified on a PAL SMS1.
 
 ### Caveats
 

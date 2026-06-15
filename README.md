@@ -62,6 +62,13 @@ and press play.
 - **[HARDWARE.md](HARDWARE.md)** — controller-port and Game Gear EXT pinouts,
   sync cabling, and the EXT paddle-PCB notes.
 
+### Companion projects
+
+- **[smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32)** —
+  an ESP32 (Seeed XIAO ESP32-C3) **Ableton Link** bridge: joins a Link session
+  over WiFi and drives SMSGGDJ's `SYNC: IN` so the tracker follows Ableton
+  Live's tempo and transport on real hardware. Wiring in HARDWARE.md.
+
 ### Source layout
 
 ```

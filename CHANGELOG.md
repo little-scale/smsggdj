@@ -5,6 +5,13 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.24 — unreleased
 
+### Added
+- **Ableton Link sync** via the new companion bridge
+  [smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32) — an
+  ESP32-C3 joins a Link session over WiFi and drives `SYNC: IN`, so the tracker
+  follows Ableton Live's tempo and transport. Verified on real hardware; relies
+  on the flat-groove-6 lock below. Wiring in HARDWARE.md.
+
 ### Changed
 - **SYNC IN** now locks the engine to a flat **groove 6** (24 PPQN) and ignores
   the song's stored groove (and the `W` command) while following, so a song
