@@ -1569,17 +1569,24 @@ trigger_note:
   inc hl
   ld d, (hl)                 ; +8 transpose (apply below)
   inc hl
+  ld a, (ix+20)              ; old table # (compare before overwrite)
+  ld e, a
   ld a, (hl)                 ; +9 table # ($FF = none)
   ld (ix+20), a
   inc hl
-  ld a, (hl)                 ; +10 table speed (0 -> 1)
-  or a
-  jr nz, tn_tbs
-  ld a, 1
-tn_tbs:
-  ld (ix+23), a
-  ld (ix+21), 0              ; table restarts on note
-  ld (ix+22), 1              ; first row applies this tick
+  ld a, (hl)                 ; +10 table speed; TBS 0 = advance one row
+  ld (ix+23), a              ;   per triggered note, else ticks/row
+  ld (ix+22), 1              ; arm: one table row applies this trigger
+  or a                       ; note mode (TBS 0)?
+  jr z, tn_tnote
+  ld (ix+21), 0              ; tick mode: table restarts on every note
+  jr tn_tdone
+tn_tnote:                    ; note mode: restart only when the table #
+  ld a, (ix+20)              ;   changed (else the row persists and steps
+  cp e                       ;   one row per note)
+  jr z, tn_tdone
+  ld (ix+21), 0
+tn_tdone:
   ld (ix+24), 0
   ld (ix+25), 0              ; arp clears on new note
   ld (ix+26), 0
@@ -1926,14 +1933,23 @@ cf_retrig:
 cf_rst:
   ld (ix+31), a
 cf_table:
-  ; --- table tick (design doc 7: vol / pitch / command) ---
+  ; --- table: per-tick (TBS 1-F) or per-note (TBS 0) advance ---
   ld a, (ix+20)
   cp NUM_TABLES
   jr nc, cf_env
-  dec (ix+22)
-  jr nz, cf_env
   ld a, (ix+23)
-  ld (ix+22), a              ; reload speed counter
+  or a
+  jr z, ct_note              ; TBS 0 = advance one row per triggered note
+  dec (ix+22)                ; tick mode: a row every (ix+23) ticks
+  jr nz, cf_env
+  ld (ix+22), a              ; reload speed counter (a = TBS)
+  jr ct_apply
+ct_note:
+  ld a, (ix+22)              ; note mode: only when a trigger armed us
+  or a
+  jr z, cf_env
+  ld (ix+22), 0              ; disarm: exactly one row per note
+ct_apply:
   ld a, (ix+20)              ; row ptr = tables + tbl*64 + row*4
   ld l, a
   ld h, 0

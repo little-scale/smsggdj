@@ -656,8 +656,8 @@ cmi_up:
   ld (ins_row), a
   jp ins_mark_field
 
-; WAV has no SWP/VIB/TRM (fields 7-9); SMP has only INST/TYPE/TBL/
-; TBS/RATE, so it skips fields 2-9. Hop the gaps as the cursor moves.
+; WAV has no SWP/VIB/TRM (fields 7-9); SMP shows only INST/TYPE/TSP/
+; RATE, so it skips the rest. Hop the gaps as the cursor moves.
 ins_wskip_d:
   ld e, a                    ; E = candidate field (ins_is_* keep DE)
   call ins_is_smp
@@ -678,13 +678,18 @@ ins_wskip_d:
 iwsd_w5:
   ld a, 5
   ret
-iwsd_smp:                    ; SMP: 2..11 -> 12 (only INST/TYPE/RATE)
+iwsd_smp:                    ; SMP path: INST TYPE TSP(6) RATE(12)
   ld a, e
   cp 2
-  ret c
+  ret c                      ; 0,1 unchanged
+  cp 7
+  jr c, iwsd_s6              ; 2..6 -> 6 (TSP)
   cp 12
-  ret nc
-  ld a, 12
+  ret nc                     ; 12 unchanged
+  ld a, 12                   ; 7..11 -> 12 (RATE)
+  ret
+iwsd_s6:
+  ld a, 6
   ret
 ins_wskip_u:
   ld e, a
@@ -706,12 +711,17 @@ ins_wskip_u:
 iwsu_w2:
   ld a, 2
   ret
-iwsu_smp:                    ; SMP: 2..11 -> 1
+iwsu_smp:                    ; SMP up: RATE(12) TSP(6) TYPE INST
   ld a, e
   cp 2
-  ret c
+  ret c                      ; 0,1 unchanged
+  cp 7
+  jr c, iwsu_s1              ; 2..6 -> 1 (TYPE)
   cp 12
-  ret nc
+  ret nc                     ; 12 unchanged
+  ld a, 6                    ; 7..11 -> 6 (TSP)
+  ret
+iwsu_s1:
   ld a, 1
   ret
 ins_is_wav:                  ; Z if the edited instrument is WAV (type 3)
@@ -1645,7 +1655,7 @@ its_dn:
   and PAD_LEFT|PAD_DOWN
   jr z, its_st
   ld a, d
-  cp 2
+  cp 1                       ; allow TBS down to 0 (= per-note advance)
   jr c, its_st
   dec d
 its_st:
@@ -6138,7 +6148,10 @@ idr_tbs:
   ld de, 10
   add hl, de
   ld a, (hl)
-  jp print_hex_nib
+  or a
+  jp nz, print_hex_nib
+  ld a, 'N'                  ; TBS 0 = advance one row per triggered note
+  jp print_char
 idr_tsp:
   ld de, 8
   jr idr_bhex
@@ -6250,10 +6263,10 @@ r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE (no ATK/DCY/tables)
   .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
-r2f_smp:                     ; grid row -> field (INST/TYPE/RATE only)
-  .db 0, 1, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_smp:                     ; field -> grid row (2-11 unused/skipped)
-  .db 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3
+r2f_smp:                     ; grid row -> field (INST/TYPE/TSP/RATE)
+  .db 0, 1, $FF, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_smp:                     ; field -> grid row (TSP=6 shown; 2-5,7-11 skipped)
+  .db 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4
 
 .ENDS
 

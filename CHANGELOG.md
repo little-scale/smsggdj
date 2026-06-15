@@ -5,6 +5,17 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.25 — unreleased
 
+### Added
+- **Note-advanced tables.** Set an instrument's **TBS** to **`0`** (shown `N`)
+  and its table steps **one row per triggered note** instead of per tick. The
+  row persists across notes (restarting only when the table # is reassigned)
+  and `H` loops as usual, so a short table running against a longer phrase gives
+  arpeggios, polymeter, and phrase↔table interplay. TBS `1`–`F` are unchanged.
+- **SMP transpose** — the **TSP** field is back on SMP instruments. Because the
+  note selects the sample, an instrument transpose of `+1`/`+2`/`+3` auditions
+  adjacent samples in the pool — handy when kicks/snares/etc. are grouped in
+  banks. (The engine already applied it; it just had no field.)
+
 ### Fixed
 - **Game Gear PHRASE/CHAIN headers.** The phrase/chain number, track tag, and
   column headers were pinned to fixed rows that only matched the SMS layout, so

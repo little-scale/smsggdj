@@ -193,7 +193,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 | HLD | 0–F | hold at VOL: 0 = none, 1–E = nibble × 2 ticks, **F = ∞** (sustain until retrigger / `K`) |
 | DCY | 0–F | decay: ticks per volume step on the way down (0 = instant cut at end of hold) |
 | TBL | 0–1F / -- | table assignment |
-| TBL SPD | 1–F | ticks per table row |
+| TBL SPD | 0–F | ticks per table row; **0 (shown `N`) = advance one row per triggered note** instead of per tick |
 | TSP | ±24 | semitone transpose |
 
 ### TONE
@@ -246,6 +246,13 @@ Common params apply; the host channel's volume/envelope *gate* the wave (volume 
 | CMD+PARAM | any phrase command | `H xy` inside a table = loop to row x, y times (y=0 → forever) |
 
 Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx` command mid-note, runs until note-off/next note.
+
+**Advance modes (TBL SPD):** `1–F` = a row every N ticks (time-based, restarts at
+row 0 on every note). **`0` = per-note**: the table advances exactly one row per
+*triggered note* (nothing happens on held ticks), and the row **persists across
+notes** — it only restarts at row 0 when the table # is (re)assigned. `H` loops
+as usual, so a short note-mode table run against a longer phrase gives polymeter
+and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 
 ---
 

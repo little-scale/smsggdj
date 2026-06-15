@@ -200,7 +200,11 @@ NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
   14 Hz); depth (low) sets how wide (`0` = none). E.g. `48` = ~3.8 Hz, depth 8.
 - **TRM** — tremolo (volume wobble): same **speed**·**depth** as VIB, but it
   dips the volume (only downward from the set level).
-- **TBL** / **TBS** — table to run, and its tick-speed (see §6).
+- **TBL** / **TBS** — table to run, and its speed. `1`–`F` step the table one
+  row every N ticks; **`N` (TBS 0)** steps it one row **per played note**
+  instead — the row carries over from note to note (restarting only when you
+  change which table the instrument uses), so a looping table (`H`) runs against
+  the phrase for arpeggios and polymeter. See §6.
 - **MODE** / **RATE** — wavetable selection (WAV) / sample speed (SMP).
 
 Not every type shows every field — the INSTR screen only lists the ones that
