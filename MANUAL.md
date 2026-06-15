@@ -287,6 +287,7 @@ take a two-digit parameter `xy`.
 | `T` | Tempo | Set tempo in BPM |
 | `V` | Vibrato | One-shot vibrato: speed x, depth y |
 | `W` | Wait-skip | Shorten this row (for shuffle/swing fills) |
+| `X` | Volume | Set this note's volume `0`–`F` (accent). Use it on a note — the attack ramps to that level |
 
 ---
 

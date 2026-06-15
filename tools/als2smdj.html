@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMSGGDJ — Ableton → song converter</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 32px auto;
+         padding: 0 18px; background: #0d1117; color: #c9d1d9; }
+  h1 { font-size: 22px; } h1 span { color: #58a6ff; }
+  .dim { color: #8b949e; } .bad { color: #f85149; } .ok { color: #3fb950; }
+  a { color: #58a6ff; }
+  code { background: #161c22; padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+  .zone { border: 2px dashed #2d3742; border-radius: 12px; padding: 26px;
+          text-align: center; color: #8b949e; cursor: pointer; margin: 14px 0; }
+  .zone.armed { border-color: #58a6ff; color: #c9d1d9; }
+  label.opt { display: block; margin: 8px 0; }
+  button { background: #21262d; color: #c9d1d9; border: 1px solid #2d3742;
+           border-radius: 7px; padding: 9px 18px; font-size: 14px; cursor: pointer; }
+  button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  pre { background: #161c22; border: 1px solid #2d3742; border-radius: 8px;
+        padding: 12px 14px; white-space: pre-wrap; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1><span>SMSGGDJ</span> — Ableton → song</h1>
+<p class="dim">Drop a Live Set (<b>.als</b>). The first <b>3 MIDI tracks</b> map to
+T1/T2/T3; each track's <b>Session clips</b> (top→bottom) become phrases in that
+track's chain. Clips are cut to a 16th-note grid; a clip longer than 16 steps
+spills into more phrases. Highest note wins on polyphony, out-of-range notes
+octave-fold in, note-offs are ignored. Downloads a <b>.smdj</b> — load it with
+<a href="savetool.html">savetool.html</a> (or <code>savetool.py import</code>).
+Nothing leaves this page.</p>
+
+<label class="opt"><input type="checkbox" id="vel"> map note velocity to <code>X</code> (volume) commands</label>
+
+<div class="zone" id="zone">drop a .als here (or click)</div>
+<input type="file" id="file" accept=".als" hidden>
+
+<div>
+  <button class="primary" id="dl" disabled>download .smdj</button>
+  <span class="dim" id="note"></span>
+</div>
+<pre id="report" hidden></pre>
+
+<script>
+"use strict";
+const NPHR = 32, NCHN = 32, NROWS = 128, NINS = 16, NTBL = 16, NGRV = 16;
+const VOL_CMD = 21;                                 // engine command id for X (set volume)
+// current ROM instrument default: TONE, vol F, ATK 0 / HLD 1 / DCY 3
+const INSTR_DEFAULT = [0, 0x0F, 0x03, 0x01, 0, 0, 0, 0, 0, 0xFF, 1, 0, 0, 0, 0, 0];
+
+let outBytes = null, outName = "song.smdj";
+
+const val = el => el ? el.getAttribute("Value") : null;
+const num = (el, d) => { const v = val(el); return v == null ? d : +v; };
+
+async function decompress(buf) {
+  try {                                             // .als is gzipped XML
+    const s = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return await new Response(s).text();
+  } catch (e) {                                     // already plain XML?
+    return new TextDecoder().decode(buf);
+  }
+}
+
+function parseClip(clip) {
+  const loop = clip.getElementsByTagName("Loop")[0];
+  let lStart = 0, lenBeats = null;
+  if (loop) {
+    lStart = num(loop.getElementsByTagName("LoopStart")[0], 0);
+    const lEnd = num(loop.getElementsByTagName("LoopEnd")[0], NaN);
+    if (!isNaN(lEnd)) lenBeats = lEnd - lStart;
+  }
+  if (lenBeats == null) {
+    lenBeats = num(clip.getElementsByTagName("CurrentEnd")[0], 0)
+             - num(clip.getElementsByTagName("CurrentStart")[0], 0);
+  }
+  if (!(lenBeats > 0)) lenBeats = 4;                // fallback: 1 bar
+  const notes = [];
+  for (const kt of clip.getElementsByTagName("KeyTrack")) {
+    const pitch = num(kt.getElementsByTagName("MidiKey")[0], null);
+    if (pitch == null) continue;
+    for (const ev of kt.getElementsByTagName("MidiNoteEvent"))
+      notes.push({ t: +ev.getAttribute("Time"), pitch, v: +ev.getAttribute("Velocity") });
+  }
+  return { lStart, lenBeats, notes };
+}
+
+// clip -> array of 16-row phrases (row = [note, instr, cmd, param])
+function clipToPhrases(clip, track, velToV, st) {
+  const steps = Math.max(1, Math.ceil(clip.lenBeats * 4));
+  const grid = new Array(steps).fill(null);
+  for (const note of clip.notes) {
+    if (!(note.v > 0)) continue;                    // vel 0 = note-off
+    const step = Math.round((note.t - clip.lStart) * 4);
+    if (step < 0 || step >= steps) continue;        // outside the loop region
+    let midi = note.pitch;
+    if (midi < 45 || midi > 107) {
+      st.folded++;
+      while (midi < 45) midi += 12;
+      while (midi > 107) midi -= 12;
+    }
+    if (!grid[step]) grid[step] = { midi, v: note.v };
+    else { st.poly++; if (midi > grid[step].midi) grid[step] = { midi, v: note.v }; }
+  }
+  const phrases = [];
+  for (let base = 0; base < steps; base += 16) {
+    const rows = [];
+    for (let r = 0; r < 16; r++) {
+      const g = grid[base + r];
+      if (!g) { rows.push([0, 0xFF, 0, 0]); continue; }   // rest
+      let cmd = 0, par = 0;
+      if (velToV) { cmd = VOL_CMD; par = Math.min(15, Math.round(g.v / 127 * 15)); }
+      rows.push([g.midi - 44, track, cmd, par]);          // note index+1 = midi-44
+    }
+    phrases.push(rows);
+  }
+  return phrases;
+}
+
+function convert(xml, velToV) {
+  const st = { folded: 0, poly: 0, truncated: false, skippedTracks: 0 };
+  const all = [...xml.getElementsByTagName("MidiTrack")];
+  st.totalTracks = all.length;
+  if (all.length > 3) st.skippedTracks = all.length - 3;
+
+  const phraseList = [], phraseMap = new Map(), trackPhrases = [[], [], []];
+  all.slice(0, 3).forEach((track, ti) => {
+    const seq = track.getElementsByTagName("MainSequencer")[0];
+    const csl = seq && seq.getElementsByTagName("ClipSlotList")[0];
+    if (!csl) return;
+    for (const slot of [...csl.children].filter(e => e.tagName === "ClipSlot")) {
+      const clipEl = slot.getElementsByTagName("MidiClip")[0];
+      if (!clipEl) continue;                        // empty slot -> skip
+      for (const rows of clipToPhrases(parseClip(clipEl), ti, velToV, st)) {
+        const key = rows.map(r => r.join(",")).join("|");
+        let idx = phraseMap.get(key);               // de-dup identical phrases
+        if (idx === undefined) {
+          if (phraseList.length >= NPHR) { st.truncated = true; continue; }
+          idx = phraseList.length;
+          phraseList.push(rows); phraseMap.set(key, idx);
+        }
+        trackPhrases[ti].push(idx);
+      }
+    }
+  });
+
+  const chainList = [], trackChains = [[], [], []];  // pack 16 phrases / chain
+  for (let ti = 0; ti < 3; ti++)
+    for (let base = 0; base < trackPhrases[ti].length; base += 16) {
+      if (chainList.length >= NCHN) { st.truncated = true; break; }
+      const steps = [];
+      for (let s = 0; s < 16 && base + s < trackPhrases[ti].length; s++)
+        steps.push([trackPhrases[ti][base + s], 0]);
+      trackChains[ti].push(chainList.length);
+      chainList.push(steps);
+    }
+
+  let songRows = Math.max(1, ...trackChains.map(c => c.length));
+  if (songRows > NROWS) { songRows = NROWS; st.truncated = true; }
+  const song = [];                                  // each track's chains down its column
+  for (let r = 0; r < songRows; r++)
+    song.push([trackChains[0][r] ?? 0xFF, trackChains[1][r] ?? 0xFF,
+               trackChains[2][r] ?? 0xFF, 0xFF]);    // T4 (noise) unused
+
+  st.phrases = phraseList.length; st.chains = chainList.length; st.songRows = songRows;
+  return { phraseList, chainList, song, st };
+}
+
+function buildBlock(c) {
+  const b = [];
+  for (let i = 0; i < 256; i++) b.push(0);                       // wave_ram
+  for (let i = 0; i < NPHR; i++)                                 // phrases 32x64
+    for (let r = 0; r < 16; r++) {
+      const row = c.phraseList[i] ? c.phraseList[i][r] : [0, 0xFF, 0, 0];
+      b.push(row[0] & 0xFF, row[1] & 0xFF, row[2] & 0xFF, row[3] & 0xFF);
+    }
+  for (let i = 0; i < NCHN; i++)                                 // chains 32x32
+    for (let s = 0; s < 16; s++) {
+      const st = c.chainList[i] && c.chainList[i][s];
+      b.push(st ? st[0] & 0xFF : 0xFF, st ? st[1] & 0xFF : 0);
+    }
+  for (let r = 0; r < NROWS; r++) {                              // song 128x4
+    const row = c.song[r] || [0xFF, 0xFF, 0xFF, 0xFF];
+    b.push(row[0] & 0xFF, row[1] & 0xFF, row[2] & 0xFF, row[3] & 0xFF);
+  }
+  for (let i = 0; i < NINS; i++) for (const x of INSTR_DEFAULT) b.push(x & 0xFF); // instruments
+  for (let t = 0; t < NTBL; t++) for (let r = 0; r < 16; r++) b.push(0xFF, 0, 0, 0); // tables (empty)
+  for (let g = 0; g < NGRV; g++) for (let i = 0; i < 16; i++) b.push(g === 0 && i < 2 ? 6 : 0); // grooves: 0 = 6,6
+  return new Uint8Array(b);                                      // 5376 bytes
+}
+
+function wrapSmdj(block) {                           // SMDJ3 header + checksum
+  let sum = 0; for (const x of block) sum = (sum + x) & 0xFFFF;
+  const out = new Uint8Array(16 + block.length);
+  out.set([0x53, 0x4D, 0x44, 0x4A, 0x33]);           // "SMDJ3"
+  out[5] = sum & 0xFF; out[6] = sum >> 8;
+  out.set(block, 16);
+  return out;
+}
+
+function note(msg, cls) {
+  const el = document.getElementById("note");
+  el.textContent = msg; el.className = cls || "dim";
+}
+
+function showReport(st) {
+  const lines = [
+    `tracks: ${Math.min(st.totalTracks, 3)} used` +
+      (st.skippedTracks ? ` (${st.skippedTracks} extra track(s) skipped — noise/4+)` : ""),
+    `phrases: ${st.phrases} / ${NPHR}`,
+    `chains:  ${st.chains} / ${NCHN}`,
+    `song:    ${st.songRows} / ${NROWS} rows`,
+    st.poly ? `dropped ${st.poly} overlapping note(s) (highest wins)` : "",
+    st.folded ? `octave-folded ${st.folded} out-of-range note(s)` : "",
+    st.truncated ? "!! ran out of phrase/chain/song space — output TRUNCATED" : "",
+  ].filter(Boolean);
+  const pre = document.getElementById("report");
+  pre.textContent = lines.join("\n");
+  pre.hidden = false;
+}
+
+async function handle(f) {
+  try {
+    const text = await decompress(new Uint8Array(await f.arrayBuffer()));
+    const xml = new DOMParser().parseFromString(text, "application/xml");
+    if (xml.getElementsByTagName("parsererror").length)
+      return note(f.name + ": not valid XML (is it really an .als?)", "bad");
+    if (!xml.getElementsByTagName("MidiTrack").length)
+      return note(f.name + ": no MIDI tracks found", "bad");
+    const c = convert(xml, document.getElementById("vel").checked);
+    outBytes = wrapSmdj(buildBlock(c));
+    outName = f.name.replace(/\.als$/i, "") + ".smdj";
+    document.getElementById("dl").disabled = false;
+    showReport(c.st);
+    note(`${f.name} → ${outName}` + (c.st.truncated ? " (truncated)" : " ✓"),
+         c.st.truncated ? "bad" : "ok");
+  } catch (e) {
+    note("failed: " + e.message, "bad");
+  }
+}
+
+function download() {
+  if (!outBytes) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([outBytes], { type: "application/octet-stream" }));
+  a.download = outName;
+  a.click();
+}
+
+const zone = document.getElementById("zone"), inp = document.getElementById("file");
+zone.onclick = () => inp.click();
+inp.onchange = () => { if (inp.files[0]) handle(inp.files[0]); inp.value = ""; };
+zone.ondragover = e => { e.preventDefault(); zone.classList.add("armed"); };
+zone.ondragleave = () => zone.classList.remove("armed");
+zone.ondrop = e => { e.preventDefault(); zone.classList.remove("armed");
+                     if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); };
+document.getElementById("dl").onclick = download;
+</script>
+</body>
+</html>

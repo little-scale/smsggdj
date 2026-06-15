@@ -6,6 +6,10 @@ The git history has the full detail; this is the curated summary.
 ## v0.25 — unreleased
 
 ### Added
+- **`X` command — per-note volume.** `Xxx` sets a triggered note's volume
+  (`0`–`F`, the AHD peak the attack ramps to) — the per-note accent that went
+  missing when `E` became ATK/DCY. The Ableton converter's velocity option now
+  maps to `X` (it was wrongly using `V` = vibrato).
 - **VIDEO choice in OPTIONS** (SMS). The `VID` field is now editable —
   **AUTO** (follow region auto-detection, the default), **PAL**, or **NTSC** —
   letting you override the detected region's tuning/timing. The choice persists
@@ -20,6 +24,12 @@ The git history has the full detail; this is the curated summary.
   note selects the sample, an instrument transpose of `+1`/`+2`/`+3` auditions
   adjacent samples in the pool — handy when kicks/snares/etc. are grouped in
   banks. (The engine already applied it; it just had no field.)
+- **Ableton → song converter** (`tools/als2smdj.html`). Drop a Live Set and the
+  first 3 MIDI tracks' Session clips convert to a `.smdj`: each clip becomes
+  phrases (cut to a 16th-note grid; long clips spill across phrases), a track's
+  clips fill its chain, identical phrases de-dup. Highest note wins, out-of-range
+  notes octave-fold in, note-offs are dropped; optional velocity→`V`. Loads via
+  `savetool.html`.
 
 ### Changed
 - **Saved colour scheme now applies before the boot splash** — `config_load`

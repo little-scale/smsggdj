@@ -51,6 +51,10 @@ and press play.
 - **[tools/palette.html](tools/palette.html)** — drop a built ROM and recolour
   its 8 UI palettes (0–7): pick a background + foreground for each (the pickers
   snap to the 64 hardware colours), then download the patched ROM. No toolchain.
+- **[tools/als2smdj.html](tools/als2smdj.html)** — drop an Ableton Live Set
+  (`.als`) and get a `.smdj` song: the first 3 MIDI tracks' Session clips become
+  phrases/chains on a 16th-note grid (highest note wins, out-of-range folds in,
+  note-offs ignored). Load the result with `savetool.html`. No toolchain.
 
 ## For developers
 

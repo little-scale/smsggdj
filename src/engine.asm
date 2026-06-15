@@ -40,7 +40,7 @@
 .DEFINE CMD_HOP     2          ; H: phrase -> end now; table -> jump
 .DEFINE CMD_TBL     3          ; A: start/switch table (>=16 off)
 .DEFINE CMD_ARP     4          ; C: chord arp 0,x,y
-.DEFINE CMD_ENV     5          ; E: vol x, fade y (0 off,1-7 dn,9-F up)
+.DEFINE CMD_ENV     5          ; E: ATK x, DCY y (re-slope AHD live)
 .DEFINE CMD_FINE    6          ; F: finetune, period units
 .DEFINE CMD_GRV     7          ; G: select groove
 .DEFINE CMD_NOI     8          ; N: noise control override
@@ -56,7 +56,8 @@
 .DEFINE CMD_ITER    18         ; I: play when (repeats mod x) == y
 .DEFINE CMD_SPEED   19         ; S: sample speed (0 norm, 1 2x, 2 half)
 .DEFINE CMD_WSET    20         ; B: set this note's wavetable (0-7)
-.DEFINE CMD_COUNT   21
+.DEFINE CMD_VOL     21         ; X: set this note's volume (AHD peak 0-F)
+.DEFINE CMD_COUNT   22
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -1340,6 +1341,25 @@ exec_command:
   jp z, xc_pan
   cp CMD_SPEED
   jp z, xc_speed
+  cp CMD_VOL
+  jp z, xc_vol
+  ret
+xc_vol:                      ; X xx: set this note's volume (AHD peak 0-F).
+  ld a, d                    ; takes effect when paired with a note (the
+  cp 16                      ; attack then ramps to it)
+  jr c, xv_ok
+  ld a, 15
+xv_ok:
+  rlca
+  rlca
+  rlca
+  rlca
+  and $F0
+  ld d, a
+  ld a, (ix+4)
+  and $0F                    ; keep the stage; set the peak (high nibble)
+  or d
+  ld (ix+4), a
   ret
 xc_speed:                    ; S xx: sample playback speed (0-3)
   ld a, d
@@ -1544,14 +1564,19 @@ trigger_note:
   add hl, de
   ld a, (hl)                 ; +0 type
   ld b, a
-  inc hl                     ; -> +1 (init volume = AHD peak; re-read
-                             ;    live by ahd_process, not cached here)
-  inc hl                     ; -> +2 (ATK|DCY; the byte E writes)
-  ld a, (hl)                 ; +2 ATK|DCY rates
+  inc hl                     ; -> +1
+  ld a, (hl)                 ; +1 init volume = AHD peak
+  rlca
+  rlca
+  rlca
+  rlca
+  and $F0                    ; peak in the stage byte's high nibble; the
+  ld (ix+4), a               ;   X command can override it (STG_ATK = 0)
+  inc hl                     ; -> +2
+  ld a, (hl)                 ; +2 ATK|DCY rates (the byte E writes)
   ld (ix+5), a
   xor a
-  ld (ix+2), a               ; AHD starts silent...
-  ld (ix+4), a               ; ...in the attack stage (STG_ATK = 0)
+  ld (ix+2), a               ; AHD starts silent in the attack stage
   inc a
   ld (ix+3), a               ; pace = 1: first ramp step next tick
   inc hl                     ; -> +3 (HLD; ahd re-reads on entering hold)
@@ -2565,17 +2590,19 @@ demo_echo:
 ; -------------------------------------------------------------
 ; AHD volume envelope state machine (bank 1, always-mapped slot).
 ; IN: ix = channel struct, c = channel index. Walks ix+2 (current
-; vol) through the stage in ix+4, paced by ix+3, with the cached
-; ATK|DCY rates in ix+5 (ATK high nibble, DCY low). The peak (hold
-; level) and HLD time are re-read live from the instrument (ix+1)
-; so the E command can re-slope ATK/DCY without disturbing them.
-; Preserves c and ix. ATK/DCY are ticks-per-volume-step (rate 0 =
-; instant); HLD is raw ticks, nibble $F = hold forever.
+; vol) through the stage (low nibble of ix+4), paced by ix+3, with
+; the cached ATK|DCY rates in ix+5 (ATK high nibble, DCY low). The
+; peak sits in the HIGH nibble of ix+4 (snapshotted from the
+; instrument VOL at trigger; the X command overrides it); HLD time
+; is re-read live from the instrument (ix+1), so E re-slopes ATK/DCY
+; without disturbing it. Preserves c and ix. ATK/DCY are ticks-per-
+; volume-step (rate 0 = instant); HLD is raw ticks, nibble $F = hold
+; forever.
 .BANK 1 SLOT 1
 .SECTION "AHD" FREE
 ahd_process:
   ld a, (ix+4)
-  or a
+  and $07                    ; stage (high nibble carries the peak in attack)
   jr z, ahd_atk
   cp STG_HLD
   jp z, ahd_hld
@@ -2684,22 +2711,16 @@ ahd_kill:
   ret nz
   jr ahd_cut
 
-; helper: e = instrument peak VOL (instruments[(ix+1)*16]+1)
+; helper: e = this note's peak volume (high nibble of the stage byte
+; ix+4, snapshotted from the instrument at trigger; X overrides it)
 ahd_peak:
-  push hl
-  push bc
-  ld a, (ix+1)
-  ld l, a
-  ld h, 0
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  ld bc, instruments+1
-  add hl, bc
-  ld e, (hl)
-  pop bc
-  pop hl
+  ld a, (ix+4)
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  ld e, a
   ret
 
 ; helper: a = HLD nibble (instruments[(ix+1)*16]+3 low nibble)
