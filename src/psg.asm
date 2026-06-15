@@ -1,5 +1,5 @@
 ; =============================================================
-; SMSDJ - SN76489 PSG driver
+; SMSGGDJ - SN76489 PSG driver
 ;
 ; The engine writes to shadow registers in RAM; psg_flush sends
 ; only what changed (deduplicated writes, per the design doc).

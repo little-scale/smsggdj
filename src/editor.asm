@@ -1,22 +1,28 @@
 ; =============================================================
-; SMSDJ - editor: SONG / CHAIN / PHRASE screens (milestone 5)
+; SMSGGDJ - editor and UI
 ;
-; Screen map (design doc section 4, subset implemented):
-;   [SONG] <-> [CHAIN] <-> [PHRASE]      (2 held + left/right)
-; Context flows right: entering CHAIN opens the chain under the
-; SONG cursor (and selects its track); entering PHRASE opens the
-; phrase under the CHAIN cursor.
+; Owns screen navigation, grid editing, block selection, clone
+; flows, project/options forms, and all tile-row drawing. The UI
+; follows the settled two-button control scheme from DESIGN.md:
+; button 1 edits/items, button 2 navigates/project actions.
 ;
-; Common controls (held-state disambiguation, no timing windows):
+; Common controls:
 ;   dpad           cursor       1 tap          insert/audition
 ;   1 + dpad       edit         1H + 2 tap     cut field
 ;   2H + 1 tap     play/stop    1H + 2 held    block SELECT
-;   1 double-tap   paste        2H + dpad      screen map
+;   1 double-tap   paste/clone  2H + dpad      screen map
+;
 ; SELECT mode (SONG/CHAIN/PHRASE/TABLE): dpad extends the box,
-;   1 tap copies, 1H + 2 cuts, 2 alone cancels. Paste anchors at
-;   the cursor row; columns stay where they were cut.
-; SONG screen: header row is labels only (mute/solo parked -
-;   gesture TBD). LIVE: transport on the playing cell = kill.
+; 1 tap copies, 1H + 2 cuts, 2 alone cancels. Paste anchors at
+; the cursor row; columns stay where they were cut.
+;
+; Navigation map:
+;   input router          editor_input + per-screen move/edit paths
+;   grid clipboards       clip_* field ops, blk_* block selection ops
+;   clone flows           bank-1 "Clone" section
+;   row drawing           so_/ch_/ph_/tb_/gr_/prj_/stg_/ech_ draw paths
+; Future split candidates: gesture routing, block clipboard, clone
+; helpers, and row-draw helpers.
 ; =============================================================
 
 .DEFINE DT_WINDOW    15        ; frames: double-tap window
@@ -176,6 +182,8 @@ editor_init:
 ; =============================================================
 ; input
 ; =============================================================
+; editor_input is the main gesture router. It resolves held-button
+; precedence first, then dispatches to per-screen edit/move paths.
 editor_input:
   ; held-state disambiguation (no timing windows):
   ;   1 while 2 held = transport   2 while 1 held = cut/select
@@ -1214,7 +1222,7 @@ cht_store:
   jp mark_dirty_a
 
 ; -------------------------------------------------------------
-; PHRASE screen handlers (note/instr/cmd/param, as milestone 4)
+; PHRASE field handlers: note, instrument, command, parameter
 php_press:
   ld a, (phr_row)
   ld e, a
@@ -3181,10 +3189,9 @@ ffp_next:
 .SECTION "Clone" FREE
 
 ; ===========================================================
-; cloning (double-tap-1 on a populated cell, no clipboard):
-; duplicate the chain/phrase into the next free slot. SONG clones
-; the chain (SLIM = share phrases, DEEP = clone them too); CHAIN's
-; phrase column clones the phrase. No free slot -> flash, no-op.
+; Double-tap clone path. SONG clones the current chain (SLIM
+; shares phrases, DEEP copies them first); CHAIN clones the
+; current phrase. No free destination leaves the source alone.
 ; ===========================================================
 dt_clone:
   ld a, (scr_mode)
@@ -3221,7 +3228,7 @@ phrase_base:
   add hl, de
   ret
 
-; copy 64 bytes phrase tmp_note -> phrase tmp_instr
+; Copy one 64-byte phrase from tmp_note to tmp_instr.
 copy_phrase_blk:
   ld a, (tmp_note)
   call phrase_base
@@ -3363,9 +3370,8 @@ pif_used:
   or 1
   ret
 
-; DEEP: clone every phrase the new chain (tmp_instr) references to
-; a fresh slot and repoint the step. The precheck guarantees a
-; free phrase is always available.
+; DEEP chain clone: repoint each referenced phrase to a fresh copy.
+; The earlier free-slot preflight should guarantee success.
 deep_clone_chain:
   ld a, (tmp_instr)
   call chain_base
@@ -3403,8 +3409,7 @@ clone_fail:
   ld (cur_flash), a
   ret
 
-; cursor cell attribute: $08 (inverted) normally; blinks while a
-; clone-fail flash is counting down
+; Cursor cell attribute: $08 normally; blinks during clone-fail flash.
 cursor_attr:
   ld a, (cur_flash)
   or a
@@ -3420,7 +3425,7 @@ cra_off:
   xor a
   ret
 
-; mark the cursor row dirty (SONG / CHAIN - the clone screens)
+; Mark the active clone row dirty on SONG/CHAIN after a clone edit.
 mark_cursor_dirty:
   ld a, (scr_mode)
   or a
@@ -4303,7 +4308,7 @@ blk_cut:
   call blk_erase
   jp sel_exit
 
-; selection box -> block clipboard
+; Copy the normalized selection box into the block clipboard.
 blk_grab:
   ld a, (scr_mode)
   ld (blk_scr), a
@@ -5854,7 +5859,7 @@ cfa_set:
   ret
 
 ; -------------------------------------------------------------
-; PHRASE screen row (E = row), as milestone 4
+; Draw one PHRASE row (E = row).
 ph_draw_row:
   xor a
   ld (text_attr), a

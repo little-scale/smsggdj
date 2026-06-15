@@ -1,15 +1,15 @@
 ; =============================================================
-; SMSDJ - sequencer engine (milestone 5: song/chain playback)
+; SMSGGDJ - sequencer engine
 ;
-; Per-tick pipeline (design doc 5.2, subset):
-;   groove counter -> row advance (-> chain/song advance at
-;   phrase boundaries) -> trigger/commands -> envelope ->
-;   length/kill -> PSG shadows -> mute gate
+; Runs the per-tick playback pipeline, transport state, groove
+; timing, sync I/O, and SRAM-backed song storage. Phrase and
+; table commands share one executor; PSG writes stay deferred in
+; shadow RAM until psg_flush.
 ;
-; Playback modes (transport context, design doc 3/5.4):
+; Playback modes:
 ;   MODE_SONG   all tracks walk song rows -> chains -> phrases
-;   MODE_CHAIN  edited track loops the current chain (solo)
-;   MODE_PHRASE edited track loops the current phrase (solo)
+;   MODE_CHAIN  edited track loops the current chain
+;   MODE_PHRASE edited track loops the current phrase
 ;
 ; Channel state: 4 structs of 32 bytes, walked with IX.
 ;   +0 note index ($FF = none)   +1 instrument index

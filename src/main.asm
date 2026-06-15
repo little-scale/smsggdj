@@ -1,9 +1,9 @@
 ; =============================================================
-; SMSDJ - LSDJ-inspired tracker for the Sega Master System
-; Milestone 4: PHRASE editor (first playable build)
-;   - cursor over note/instrument/command/param columns
-;   - insert, edit, cut with the 2-button scheme + hold timing
-;   - prelisten on entry while stopped, live edit while playing
+; SMSGGDJ - SMS/Game Gear tracker entrypoint
+;
+; Owns the hardware map, boot sequence, IRQ/NMI vectors, region
+; setup, and the top-level frame loop. The ROM has two flavors:
+; SMSGGDJ for Master System and GGDJ for native Game Gear.
 ; =============================================================
 
 .MEMORYMAP
@@ -674,5 +674,5 @@ font_data_end:
 .INCLUDE "logo.inc"
 
 ; sample pool: banks 2-7, self-describing (directory at bank 2,
-; $8000 - see tools/smsdj_sample.py for the contract)
+; $8000 - see tools/smsggdj_sample.py for the contract)
 .INCLUDE "pool.inc"

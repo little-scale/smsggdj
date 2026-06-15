@@ -1,5 +1,7 @@
 ; =============================================================
-; SMSDJ - VDP helpers (Mode 4 text UI)
+; SMSGGDJ - VDP helpers
+;
+; Mode 4 text/UI helpers plus IRQ-safe control-port writes.
 ; =============================================================
 
 .SECTION "VDP" FREE
