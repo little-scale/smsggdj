@@ -48,6 +48,9 @@ and press play.
 - **[tools/savetool.html](tools/savetool.html)** — unpack songs from a `.sav`,
   assemble a cart image (pick 8/16/32 KB), or click a slot to view a song's
   notes, commands and instruments — in the browser.
+- **[tools/palette.html](tools/palette.html)** — drop a built ROM and recolour
+  its 8 UI palettes (0–7): pick a background + foreground for each (the pickers
+  snap to the 64 hardware colours), then download the patched ROM. No toolchain.
 
 ## For developers
 
