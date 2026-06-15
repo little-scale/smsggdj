@@ -83,6 +83,8 @@ BANKS 8
   pad_rep        db
   das_timer      db
   pal_sel        db           ; colour scheme (pal_presets index)
+  vid_sel        db           ; VIDEO choice: 0 AUTO, 1 PAL, 2 NTSC
+  region_detected db          ; region from boot detection (1 = PAL)
   start_prev     db           ; GG START level last frame
   region_timer   db           ; frames left on the boot region line
   ints_on        db           ; init done: helpers may EI
@@ -177,10 +179,15 @@ init:
   call psg_init
   call vdp_init
   call vdp_clear_vram
-  ld a, 6                    ; KIDD is the house palette
-  ld (pal_sel), a
-  call load_palette          ; the splash renders in it too
+  ld a, 6                    ; KIDD is the house palette (default if no
+  ld (pal_sel), a            ;   valid saved config)
+  call load_palette
+  ld a, SYNC_OFF             ; defaults config_load may override; set
+  ld (sync_mode), a          ;   before it now that it runs pre-splash
   call load_font
+  call sram_detect           ; restore persisted OPTIONS (colour, sync,
+  call config_load           ;   video) before the splash, so it renders
+                             ;   in the saved palette (config reapplies it)
   call splash                ; logo + version; SMS region detect inside
   call song_new              ; boot a blank song; the baked demo
                              ; loads from PROJECT (DEMO, two-press)
@@ -194,30 +201,19 @@ init:
   ld a, ($8005)
   ld (smp_count), a
 init_nopool:
-  call sram_detect
-  call config_load           ; restore persisted OPTIONS (colour, sync)
   ; boot lands on the ROM demo (no slot-1 autoload for now: a
   ; first power-on should make sound - saves load via PROJECT)
   xor a
   ld (prj_stat), a
 
-  ; region-specific note table
-  ld hl, note_table_ntsc
+  ; region: detection ran during the splash. Remember it, then let the
+  ; VIDEO choice pick the effective region (AUTO follows detection) and
+  ; point the region tables (note/winc) + the vblank sample budget.
   ld a, (region_pal)
-  or a
-  jr z, init_nt
-  ld hl, note_table_pal
-init_nt:
-  ld (note_ptr), hl
-  ld hl, winc_table_ntsc
-  ld a, (region_pal)
-  or a
-  jr z, init_wi
-  ld hl, winc_table_pal
-init_wi:
-  ld (winc_ptr), hl
-  ld a, 150                  ; default tempo display by region
-  ld b, a
+  ld (region_detected), a
+  call apply_video
+  ld a, 150                  ; default tempo display by region (boot seed;
+  ld b, a                    ;   TMPO tracks the groove live thereafter)
   ld a, (region_pal)
   or a
   jr z, init_bpm
@@ -225,17 +221,6 @@ init_wi:
 init_bpm:
   ld a, b
   ld (proj_bpm), a
-  ; vblank sample budget: (lines-192)/2
-  ld a, (region_pal)
-  or a
-  ld a, 34                   ; NTSC: 70 vblank lines, minus one
-  jr z, init_vbc             ; slot of slack - overrunning into
-  ld a, 59                   ; the first pending line IRQ double-
-                             ; fires a sample (a click per frame)
-init_vbc:
-  ld (smp_vbcnt), a
-  ld a, SYNC_OFF             ; sync stays off until asked for
-  ld (sync_mode), a
 
   ; ---- static screen ----
   xor a
@@ -478,6 +463,44 @@ dr_nomax:
   ld a, 1                      ; implausible -> PAL fallback
 dr_store:
   ld (region_pal), a
+  ret
+
+; resolve the VIDEO choice (vid_sel) against the detected region into
+; the effective region_pal, then point the region tables. Called at
+; boot and whenever OPTIONS VID changes. vid_sel: 0 AUTO, 1 PAL, 2 NTSC.
+apply_video:
+  ld a, (vid_sel)
+  dec a
+  jr z, av_pal               ; 1 = force PAL
+  dec a
+  jr z, av_ntsc              ; 2 = force NTSC
+  ld a, (region_detected)    ; 0 = AUTO: follow detection
+  jr av_set
+av_pal:
+  ld a, 1
+  jr av_set
+av_ntsc:
+  xor a
+av_set:
+  ld (region_pal), a
+  ; fall into apply_region
+
+; point note/winc tables and the vblank sample budget at region_pal.
+apply_region:
+  ld hl, note_table_ntsc
+  ld de, winc_table_ntsc
+  ld b, 34                   ; NTSC: 70 vblank lines / 2, minus one slot
+  ld a, (region_pal)         ;   of slack (overrun double-fires a sample)
+  or a
+  jr z, ar_set
+  ld hl, note_table_pal
+  ld de, winc_table_pal
+  ld b, 59                   ; PAL
+ar_set:
+  ld (note_ptr), hl
+  ld (winc_ptr), de
+  ld a, b
+  ld (smp_vbcnt), a
   ret
 
 ; =============================================================

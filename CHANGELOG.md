@@ -6,6 +6,11 @@ The git history has the full detail; this is the curated summary.
 ## v0.25 — unreleased
 
 ### Added
+- **VIDEO choice in OPTIONS** (SMS). The `VID` field is now editable —
+  **AUTO** (follow region auto-detection, the default), **PAL**, or **NTSC** —
+  letting you override the detected region's tuning/timing. The choice persists
+  in the SRAM config block (alongside colour/sync) and re-tunes the note tables
+  and sample feed live. (Game Gear stays NTSC.)
 - **Note-advanced tables.** Set an instrument's **TBS** to **`0`** (shown `N`)
   and its table steps **one row per triggered note** instead of per tick. The
   row persists across notes (restarting only when the table # is reassigned)
@@ -16,7 +21,14 @@ The git history has the full detail; this is the curated summary.
   adjacent samples in the pool — handy when kicks/snares/etc. are grouped in
   banks. (The engine already applied it; it just had no field.)
 
+### Changed
+- **Saved colour scheme now applies before the boot splash** — `config_load`
+  runs ahead of the splash, so the logo renders in your chosen palette instead
+  of flashing the default first.
+
 ### Fixed
+- Restoring the persisted **sync mode** at boot no longer gets clobbered by the
+  boot default (a side effect of moving config load before the splash).
 - **Game Gear PHRASE/CHAIN headers.** The phrase/chain number, track tag, and
   column headers were pinned to fixed rows that only matched the SMS layout, so
   on GG the number sat a row low and the `NOTE`/`I`/`CMD` (and `PHR`/`TSP`)

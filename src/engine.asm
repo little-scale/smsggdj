@@ -2221,11 +2221,11 @@ sd_st:
   ret
 
 ; -------------------------------------------------------------
-; OPTIONS config block (colour scheme + sync mode) at CFG_ADDR
-; ($BF60), separate from the song slots. On a 16K/32K cart that's the
-; free tail past slot 2; on an 8K cart the window mirrors, so $BF60
-; lands at real $1F60 - also free (past slot 0). 5 bytes:
-;   'C' 'F' pal_sel sync_mode checksum(=pal_sel+sync_mode & FF)
+; OPTIONS config block (colour, sync, video) at CFG_ADDR ($BF60),
+; separate from the song slots. On a 16K/32K cart that's the free tail
+; past slot 2; on an 8K cart the window mirrors, so $BF60 lands at real
+; $1F60 - also free (past slot 0). 6 bytes:
+;   'C' 'F' pal_sel sync_mode vid_sel checksum(=pal+sync+vid & FF)
 config_save:                 ; called by song_save (SRAM already on)
   ld a, $08                  ; select bank 0
   ld ($FFFC), a
@@ -2236,13 +2236,18 @@ config_save:                 ; called by song_save (SRAM already on)
   inc hl
   ld a, (pal_sel)
   ld (hl), a
-  ld b, a
+  ld b, a                    ; b = running checksum
   inc hl
   ld a, (sync_mode)
   ld (hl), a
   add a, b
+  ld b, a
   inc hl
-  ld (hl), a                 ; checksum
+  ld a, (vid_sel)
+  ld (hl), a
+  add a, b
+  inc hl
+  ld (hl), a                 ; checksum = pal+sync+vid
   ret
 
 config_load:                 ; boot: restore OPTIONS if a valid block exists
@@ -2264,9 +2269,12 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   inc hl
   ld b, (hl)                 ; sync_mode
   inc hl
+  ld e, (hl)                 ; vid_sel
+  inc hl
   ld a, c
   add a, b
-  cp (hl)                    ; checksum match?
+  add a, e
+  cp (hl)                    ; checksum match? (pal+sync+vid)
   jr nz, cfgl_done
   ld a, c
   cp 8                       ; pal_sel 0-7?
@@ -2275,6 +2283,10 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   ld a, b
   and 3                      ; sync_mode 0-3
   ld (sync_mode), a
+  ld a, e
+  cp 3                       ; vid_sel 0-2? (else keep AUTO)
+  jr nc, cfgl_done
+  ld (vid_sel), a
 cfgl_done:
   xor a
   ld ($FFFC), a

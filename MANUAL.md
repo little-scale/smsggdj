@@ -355,8 +355,11 @@ in SMSGGDJ, then close the emulator normally, to keep your songs.
 
 Settings that belong to the *machine*, not the song:
 
-- **VID** — PAL / NTSC region. Affects tuning and tempo math. Auto-detected
-  on Master System; fixed NTSC on Game Gear.
+- **VID** — video region: **AUTO** (follow auto-detection, the default),
+  **PAL**, or **NTSC**. Affects tuning and tempo math (the refresh rate itself
+  is fixed by the console). Leave it on AUTO and it detects PAL/NTSC at boot;
+  force PAL/NTSC to override a misreporting setup. Your choice persists in SRAM
+  and applies instantly. Game Gear is NTSC-only.
 - **SRAM** — save-RAM readout (read-only).
 - **SYNC** — clock sync mode (see below).
 - **COLR** — UI colour palette **0–7** (8 background/foreground pairs). Recolour

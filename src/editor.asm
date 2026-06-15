@@ -2528,9 +2528,9 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE)
   jp prj_mark_field
 
 ; -------------------------------------------------------------
-; OPTIONS screen: the machine/rig page (the future persisted
-; config block). Fields: 0 VID, 1 SRAM (read-only), 2 SYNC,
-; 3 COLR.
+; OPTIONS screen: the machine/rig page (persisted config block).
+; Fields: 0 VID (AUTO/PAL/NTSC, SMS only), 1 SRAM (read-only),
+; 2 SYNC, 3 COLR, 4 CLON.
 cm_set:
   bit 1, c                   ; down
   jr z, cs_up
@@ -2569,6 +2569,10 @@ stg_mark_field:              ; A = field (preserved)
 
 stp_edit:
   ld a, (stg_row)
+.IFNDEF TARGET_GG
+  or a
+  jp z, stp_video            ; row 0 = VIDEO (SMS only; GG is NTSC)
+.ENDIF
   cp 2
   jp z, stp_sync
   cp 3
@@ -2576,6 +2580,35 @@ stp_edit:
   cp 4
   jp z, stp_clone
   ret
+.IFNDEF TARGET_GG
+stp_video:                   ; 1 + L/R cycles AUTO / PAL / NTSC
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (vid_sel)
+  bit 3, c
+  jr z, pv_l
+  inc a
+pv_l:
+  bit 2, c
+  jr z, pv_w
+  dec a
+pv_w:
+  cp $FF                     ; wrap 0..2
+  jr nz, pv_hi
+  ld a, 2
+pv_hi:
+  cp 3
+  jr c, pv_st
+  xor a
+pv_st:
+  ld (vid_sel), a
+  call apply_video           ; re-resolve region + retune note/sample tables
+  xor a
+  jp stg_mark_field          ; redraw the VID field
+.ENDIF
 stp_clone:                   ; 1 + L/R toggles SLIM/DEEP
   ld a, (ed_rep)
   and PAD_LEFT|PAD_RIGHT
@@ -5649,11 +5682,13 @@ tmd_zero:
 .SECTION "ProjDraw2" FREE
 
 prd_video:
-  ld a, (region_pal)
-  or a
-  ld hl, str_vntsc
-  jr z, prd_p4
-  ld hl, str_vpal
+  ld a, (vid_sel)            ; 0 AUTO / 1 PAL / 2 NTSC
+  add a, a
+  add a, a                   ; * 4 (4-char tokens)
+  ld e, a
+  ld d, 0
+  ld hl, str_video
+  add hl, de
 prd_p4:
   ld b, 4
   jp print_raw
@@ -5731,8 +5766,10 @@ prj_stats:
 str_proj:   .db "PROJECT", 0
 str_set:    .db "OPTIONS", 0
 str_go:     .db "GO"
-str_vpal:   .db "PAL "
-str_vntsc:  .db "NTSC"
+str_video:                   ; indexed by vid_sel (4-char tokens)
+  .db "AUTO"
+  .db "PAL "
+  .db "NTSC"
 str_s8k:    .db "8K  "
 str_s32k:   .db "32K "
 str_s16k:   .db "16K "

@@ -147,8 +147,8 @@ The engine tick is decoupled from its **tick source**:
 - **MIDI SLAVE**: ticks are driven by incoming MIDI clocks (§11); VBlank still drives UI/meters.
 
 Region handling:
-- **Auto-detect at boot** (count scanlines / time VBlank-to-VBlank); result shown on PROJECT.
-- **PROJECT → VIDEO: AUTO / PAL / NTSC** — manual override for modded 50/60 Hz consoles or misreporting emulators. When detection is ambiguous, **PAL is assumed** (project default).
+- **Auto-detect at boot** (count scanlines / time VBlank-to-VBlank); the effective region shows on the OPTIONS **VIDEO** field.
+- **OPTIONS → VIDEO: AUTO / PAL / NTSC** — AUTO follows detection (default); PAL/NTSC force the timing/tuning math for modded 50/60 Hz consoles or misreporting emulators. When detection is ambiguous, **PAL is assumed** (project default). The choice persists in the SRAM config block (alongside colour/sync) and re-points the note/wave tables + sample budget live; Game Gear is NTSC-only.
 - The setting governs *timing and tuning math* (refresh rate is fixed by the console): BPM display, the `T` tempo command's BPM→groove conversion, groove BPM readouts, sample-cadence constants, **and the note table**. Grooves are stored in ticks, so a song authored at PAL 50 Hz runs ~20 % faster on NTSC; the `T` command always re-derives ticks from BPM at the *active* rate, so `T`-driven songs stay tempo-true across regions.
 - **Region tuning:** the PSG divides the system clock, which differs by region (3.546893 MHz PAL vs 3.579545 MHz NTSC) — the same period value sounds **~15.9 cents sharper on NTSC**. Two complete note-period tables live in ROM, each computed for A=440 against its own clock, selected by the VIDEO setting at boot. This also covers everything derived from tone periods: pitched/periodic-noise bass (driven by T3's divider) and finetune deltas. Residual region differences are only quantization (10-bit periods round differently per region, worst in the top octave) and the sample channel's fixed cadence (~12 cents, §10.4).
 - Default groove `6,6` = 125 BPM at 50 Hz (150 at 60 Hz), 4 rows per beat.

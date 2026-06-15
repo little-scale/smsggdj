@@ -73,6 +73,10 @@ assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
       <option value="0">OUT</option><option value="1">PULSE</option>
       <option value="2">IN</option><option value="3" selected>OFF</option>
     </select>
+    <select id="cfgvid">
+      <option value="0" selected>AUTO</option><option value="1">PAL</option>
+      <option value="2">NTSC</option>
+    </select>
   </span>
 </div>
 
@@ -106,27 +110,29 @@ function savBytes() { return SIZES[size].bytes; }
 // is $3F60 in a 16K/32K image (past slot 2) but mirrors to $1F60 on an 8K
 // cart (past slot 0) — so the file offset depends on the image size.
 const SCHEMES = ["0","1","2","3","4","5","6","7"],
-      SYNCS = ["OUT","PULSE","IN","OFF"];
+      SYNCS = ["OUT","PULSE","IN","OFF"],
+      VIDEOS = ["AUTO","PAL","NTSC"];
 const cfgOff = len => len <= 0x2000 ? 0x1F60 : 0x3F60;
 function readConfig(d) {
   const o = cfgOff(d.length);
-  if (o + 5 > d.length || d[o] !== 0x43 || d[o + 1] !== 0x46) return null;
-  const col = d[o + 2], sync = d[o + 3];
-  if (((col + sync) & 0xff) !== d[o + 4] || col > 7 || sync > 3) return null;
-  return { col, sync };
+  if (o + 6 > d.length || d[o] !== 0x43 || d[o + 1] !== 0x46) return null;
+  const col = d[o + 2], sync = d[o + 3], vid = d[o + 4];
+  if (((col + sync + vid) & 0xff) !== d[o + 5] || col > 7 || sync > 3 || vid > 2) return null;
+  return { col, sync, vid };
 }
 function writeConfig(img) {
   if (!document.getElementById("cfgon").checked) return;
   const o = cfgOff(img.length);
-  if (o + 5 > img.length) return;
+  if (o + 6 > img.length) return;
   const col = +document.getElementById("cfgcol").value;
   const sync = +document.getElementById("cfgsync").value;
+  const vid = +document.getElementById("cfgvid").value;
   img[o] = 0x43; img[o + 1] = 0x46;
-  img[o + 2] = col; img[o + 3] = sync;
-  img[o + 4] = (col + sync) & 0xff;
+  img[o + 2] = col; img[o + 3] = sync; img[o + 4] = vid;
+  img[o + 5] = (col + sync + vid) & 0xff;
 }
 function syncCfgUI() {   // config persists on every cart size now
-  ["cfgon", "cfgcol", "cfgsync"].forEach(id => document.getElementById(id).disabled = false);
+  ["cfgon", "cfgcol", "cfgsync", "cfgvid"].forEach(id => document.getElementById(id).disabled = false);
 }
 // slots 0-2 live in bank 0, 3-5 in bank 1 (second 16K at 0x4000)
 function slotOffset(n) {
@@ -187,10 +193,11 @@ function loadSav(d, name) {
   if (cfg) {
     document.getElementById("cfgcol").value = cfg.col;
     document.getElementById("cfgsync").value = cfg.sync;
+    document.getElementById("cfgvid").value = cfg.vid;
   }
   syncCfgUI();
   note(`${name}: ${size}K image, ${found} song(s) found` +
-       (cfg ? `, config ${SCHEMES[cfg.col]}/${SYNCS[cfg.sync]}` : ""));
+       (cfg ? `, config ${SCHEMES[cfg.col]}/${SYNCS[cfg.sync]}/${VIDEOS[cfg.vid]}` : ""));
 }
 
 function addSong(blob, name) {
