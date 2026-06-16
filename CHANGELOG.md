@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.26 — unreleased
+## v0.26 — 2026-06-17
 
 ### Added
 - **FM preset editor** (`tools/fmpatch.html`). Drop a built `.sms` ROM and edit
