@@ -2,7 +2,7 @@
 **Design document v0.2 — 2026-06-11**
 
 Target: a single ROM that runs on real SMS hardware (via flashcart) and in emulators.
-Sound: SN76489 PSG only (including 4-bit PCM on it — see §10). CPU: Z80 @ 3.546893 MHz (PAL, default) / 3.579545 MHz (NTSC).
+Sound: SN76489 PSG (including 4-bit PCM on it — see §10), plus the optional SMS YM2413 FM Sound Unit (SMS-only — see the FM addendum). CPU: Z80 @ 3.546893 MHz (PAL, default) / 3.579545 MHz (NTSC).
 
 Changes in v0.2:
 - PAL **and** NTSC support; PAL is the default assumption, auto-detected at boot with user override (§5.1).
@@ -39,7 +39,7 @@ Post-v0.2 addenda (implemented):
 | Video timing | 50/60 Hz is fixed by the console's hardware (crystal + VDP); software cannot switch it. | "PAL/NTSC support" = the *timing engine* adapts (tick rate, BPM math, sample cadence), not the video output. Auto-detect + override, §5.1. |
 | ROM | Standard Sega mapper, header at 0x7FF0 ("TMR SEGA") required by export BIOS. | 128 KB ROM: 3 fixed/banked code+table pages, rest = sample pool banks. |
 
-Explicitly **out of scope**: FM (YM2413) and any other expansion audio, MIDI *output* (parked for v2). *(Game Gear stereo and a native GG build joined the scope post-v0.2 — §15.)*
+Explicitly **out of scope**: MIDI *output* (parked for v2) and expansion audio beyond the FM unit. *(Game Gear stereo + a native GG build, and **YM2413 FM via the SMS FM Sound Unit**, joined the scope post-v0.2 — §15 and the FM addendum below.)*
 
 ---
 

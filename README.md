@@ -3,9 +3,12 @@
 An LSDJ-inspired music tracker for the **Sega Master System** and **Game
 Gear**, written in pure Z80 assembly. Make music on real hardware (via
 flashcart) or in an emulator, using just the D-pad and two buttons. Sound is
-the SN76489 PSG only — three square channels and noise — plus 4-bit PCM
-samples and drawn wavetables via the volume-register DAC trick, a built-in
-tempo-synced echo, and Game Gear stereo.
+the SN76489 PSG — three square channels and noise — plus 4-bit PCM samples and
+drawn wavetables via the volume-register DAC trick, a built-in tempo-synced
+echo, and Game Gear stereo. On a Master System with the **FM Sound Unit** you
+also get YM2413 FM: melodic voices (15 ROM patches + 8 ROM-baked custom presets,
+with tables and per-note commands) and a rhythm-mode drum kit, sounding
+alongside the PSG (SMS only, off by default).
 
 One source tree builds two ROMs:
 

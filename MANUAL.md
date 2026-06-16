@@ -172,7 +172,9 @@ Each instrument has a **type**, set on the INSTR screen:
   picks a custom timbre: `OFF` uses the ROM **PROG** patch, `1`–`8` use one of
   8 ROM-baked presets (LEAD, EPNO, SBASS, BELL, BRASS, PAD, PLUCK, SINE) loaded
   into the chip's user patch. Only one custom timbre sounds at a time (the chip
-  has a single user patch), so the most recent triggered preset wins. SMS only.
+  has a single user patch), so the most recent triggered preset wins. Edit and
+  audition those 8 presets in `tools/fmpatch.html` (a browser tool) and reflash.
+  SMS only.
 - **FMDRM** — the YM2413's drum kit (rhythm mode). One instrument is the whole
   kit; the **note picks the drum** — C = bass drum, C♯ = snare, D = tom, D♯ =
   cymbal, E = hi-hat (and it repeats every 5 semitones, so any octave works).
