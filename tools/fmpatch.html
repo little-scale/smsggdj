@@ -45,6 +45,9 @@
   details.guide dt { font: 600 13px ui-monospace, monospace; color: #c9d1d9; }
   details.guide dd { margin: 0; color: #8b949e; }
   details.guide p { font-size: 13px; color: #8b949e; margin: 8px 0 4px; }
+  .play { background: #21262d; border: 1px solid #2d3742; border-radius: 6px;
+          color: #c9d1d9; font-size: 13px; padding: 4px 12px; cursor: pointer; }
+  .play.on { background: #1f6feb; border-color: #388bfd; color: #fff; }
 </style>
 </head>
 <body>
@@ -75,6 +78,10 @@ leaves your browser.</p>
   <b>SUS</b> sustained envelope (note holds at SL instead of decaying away) &middot;
   <b>KSR</b> key-scale rate (higher notes decay faster) &middot;
   <b>HALF</b> half-sine waveform for that operator (brighter, buzzier).</p>
+  <p class="dim">The <b>&#9654;</b> button on each preset auditions it with a
+  built-in 2-operator FM synth. It models the YM2413's envelopes, feedback,
+  multipliers and waveforms closely enough to hear what each control does, but
+  it is an approximation &mdash; the real chip is the final word.</p>
 </details>
 
 <div class="zone" id="zone">drop a .sms ROM here (or click)</div>
@@ -195,8 +202,12 @@ function render() {
       for (let k = 0; k < NAMELEN; k++) rom[nm + k] = t.charCodeAt(k) & 0x7F;
     });
     hdr.appendChild(name);
-    hdr.appendChild(Object.assign(document.createElement("span"),
-      { className: "dim", textContent: "preset name (5 chars)" }));
+    const pb = document.createElement("button");
+    pb.className = "play";
+    pb.textContent = "▶ audition";
+    pb.dataset.preset = n;
+    pb.addEventListener("click", () => audition(n, pb));
+    hdr.appendChild(pb);
     card.appendChild(hdr);
 
     const ops = document.createElement("div");
@@ -216,6 +227,7 @@ function render() {
 }
 
 function load(d, name) {
+  stopAudition();
   const off = findBlock(d);
   if (off < 0) { note(name + ": no FMPRST preset block found", true); return; }
   rom = d; romName = name;
@@ -230,6 +242,100 @@ function download() {
   a.href = URL.createObjectURL(new Blob([rom], { type: "application/octet-stream" }));
   a.download = romName.replace(/\.(sms|gg)$/i, "_fm.$1");
   a.click();
+}
+
+// ---- audition: a compact 2-operator FM voice approximating the YM2413 ----
+// modulator -> carrier FM with OPLL-ish ADSR (dB domain), feedback, the MUL
+// ratios, half-sine waveforms and AM/VIB. Close enough to hear each control;
+// not cycle-exact. Rendered to a buffer and played via Web Audio.
+let actx = null, playing = null;
+const MULT = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15];
+
+function envParams(ar, dr, sl, rr, egt) {
+  return {
+    aT: ar <= 0 ? Infinity : 6.0 / 2 ** ar,   // attack time (s): hi rate = fast
+    dT: dr <= 0 ? Infinity : 8.0 / 2 ** dr,    // decay time
+    rT: rr <= 0 ? Infinity : 8.0 / 2 ** rr,    // release time
+    sl: sl >= 15 ? 93 : sl * 3,                // sustain attenuation (dB)
+    ar, rr, egt
+  };
+}
+function envDb(p, t, keyOff) {                 // attenuation (dB) at time t
+  const on = tt => {
+    if (p.ar <= 0) return 96;                  // never opens -> silent
+    if (tt < p.aT) return 96 * (1 - tt / p.aT);// attack 96 -> 0 dB
+    const td = tt - p.aT;
+    if (td < p.dT) return Math.min(p.sl, p.sl * td / p.dT);   // decay 0 -> SL
+    if (p.egt) return p.sl;                    // sustained: hold at SL
+    if (p.rr <= 0) return p.sl;
+    return Math.min(96, p.sl + (96 - p.sl) * (td - p.dT) / p.rT);  // percussive fade
+  };
+  if (t <= keyOff) return on(t);
+  const a0 = on(keyOff);
+  if (p.rr <= 0) return a0;
+  return Math.min(96, a0 + (96 - a0) * (t - keyOff) / p.rT);  // release after key-off
+}
+const dbToGain = db => db >= 96 ? 0 : 10 ** (-db / 20);
+
+function renderVoice(b, sr) {
+  const mMul = MULT[b[0] & 15], cMul = MULT[b[1] & 15];
+  const mAm = b[0] >> 7 & 1, mVib = b[0] >> 6 & 1, mEgt = b[0] >> 5 & 1;
+  const cAm = b[1] >> 7 & 1, cVib = b[1] >> 6 & 1, cEgt = b[1] >> 5 & 1;
+  const mTL = b[2] & 0x3f;
+  const dm = b[3] >> 4 & 1, dc = b[3] >> 3 & 1, fb = b[3] & 7;
+  const mEnv = envParams(b[4] >> 4, b[4] & 15, b[6] >> 4, b[6] & 15, mEgt);
+  const cEnv = envParams(b[5] >> 4, b[5] & 15, b[7] >> 4, b[7] & 15, cEgt);
+
+  const dur = 1.8, keyOff = 1.2, n = Math.floor(dur * sr), buf = new Float32Array(n);
+  const f0 = 261.63;                           // audition pitch (C4)
+  const wM = 2 * Math.PI * f0 * mMul / sr, wC = 2 * Math.PI * f0 * cMul / sr;
+  const MOD_INDEX = 5.0, MASTER = 0.32;
+  let pm = 0, pc = 0, o1 = 0, o2 = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const vib = Math.sin(2 * Math.PI * 6.4 * t) * 0.006;            // ~6.4 Hz vibrato
+    const trem = (Math.sin(2 * Math.PI * 3.7 * t) * 0.5 + 0.5);     // ~3.7 Hz, 0..1 dB
+    const fbv = fb ? (o1 + o2) * 0.5 * fb * 0.5 : 0;
+    let mw = Math.sin(pm + fbv);
+    if (dm && mw < 0) mw = 0;
+    const mo = mw * dbToGain(envDb(mEnv, t, keyOff) + mTL * 0.75 + (mAm ? trem : 0));
+    o2 = o1; o1 = mo;
+    let cw = Math.sin(pc + mo * MOD_INDEX);
+    if (dc && cw < 0) cw = 0;
+    buf[i] = cw * dbToGain(envDb(cEnv, t, keyOff) + (cAm ? trem : 0)) * MASTER;
+    pm += wM * (1 + (mVib ? vib : 0));
+    pc += wC * (1 + (cVib ? vib : 0));
+  }
+  const fade = Math.min(256, n);               // de-click the tail
+  for (let i = 0; i < fade; i++) buf[n - 1 - i] *= i / fade;
+  return buf;
+}
+
+function stopAudition() {
+  if (!playing) return;
+  try { playing.src.stop(); } catch (e) {}
+  playing.btn.classList.remove("on");
+  playing.btn.textContent = "▶ audition";
+  playing = null;
+}
+
+function audition(n, btn) {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  actx.resume();
+  const wasThis = playing && playing.btn === btn;
+  stopAudition();
+  if (wasThis) return;                          // click again = stop
+  const p = patchOff + n * PBYTES;
+  const data = renderVoice(rom.slice(p, p + PBYTES), actx.sampleRate);
+  const ab = actx.createBuffer(1, data.length, actx.sampleRate);
+  ab.copyToChannel(data, 0);
+  const src = actx.createBufferSource();
+  src.buffer = ab;
+  src.connect(actx.destination);
+  src.onended = () => { if (playing && playing.src === src) stopAudition(); };
+  src.start();
+  btn.classList.add("on"); btn.textContent = "■ stop";
+  playing = { src, btn };
 }
 
 async function addFile(f) { load(new Uint8Array(await f.arrayBuffer()), f.name); }

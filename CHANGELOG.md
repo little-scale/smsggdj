@@ -9,7 +9,9 @@ The git history has the full detail; this is the curated summary.
 - **FM preset editor** (`tools/fmpatch.html`). Drop a built `.sms` ROM and edit
   its 8 custom FM presets in the browser — per-operator MUL/AR/DR/SL/RR/KSL/TL,
   feedback, waveforms, and the 5-char names — then download the patched ROM. It
-  finds the `FMPRST` marker block, so it survives ROM-layout changes. No toolchain.
+  finds the `FMPRST` marker block, so it survives ROM-layout changes. Each preset
+  has an **audition** button backed by a built-in 2-operator FM synth (Web Audio)
+  that approximates the YM2413 so you can hear edits without flashing. No toolchain.
 - **FM custom presets.** FM instruments gain a **PRST** field: `OFF` uses the
   ROM **PROG** patch (unchanged), `1`–`8` select one of 8 ROM-baked custom
   timbres (LEAD, EPNO, SBASS, BELL, BRASS, PAD, PLUCK, SINE) loaded into the

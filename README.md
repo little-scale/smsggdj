@@ -54,7 +54,8 @@ and press play.
 - **[tools/fmpatch.html](tools/fmpatch.html)** — drop a built `.sms` ROM and
   edit its 8 custom FM presets (the YM2413 user patches an FM instrument's
   **PRST** field selects): per-operator MUL/AR/DR/SL/RR/KSL/TL, feedback,
-  waveforms and names, then download the patched ROM. No toolchain.
+  waveforms and names, **audition** each with a built-in 2-op FM synth, then
+  download the patched ROM. No toolchain.
 - **[tools/als2smdj.html](tools/als2smdj.html)** — drop an Ableton Live Set
   (`.als`) and get a `.smdj` song: the first 3 MIDI tracks' Session clips become
   phrases/chains on a 16th-note grid (highest note wins, out-of-range folds in,
