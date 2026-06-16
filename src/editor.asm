@@ -668,6 +668,8 @@ ins_wskip_d:
   jr z, iwsd_smp
   call ins_is_fm
   jr z, iwsd_fm
+  call ins_is_fmdrum
+  jr z, iwsd_fmdrum
   call ins_is_wav
   ld a, e
   ret nz                     ; TONE/NOISE: no gap
@@ -726,12 +728,20 @@ iwsd_fm6:
 iwsd_fm10:
   ld a, 10
   ret
+iwsd_fmdrum:                 ; FMDRUM: INST TYPE VOL HLD(4)
+  ld a, e
+  cp 3
+  ret c                      ; 0,1,2 unchanged
+  ld a, 4                    ; 3 (spacer) -> 4 (HLD)
+  ret
 ins_wskip_u:
   ld e, a
   call ins_is_smp
   jr z, iwsu_smp
   call ins_is_fm
   jr z, iwsu_fm
+  call ins_is_fmdrum
+  jr z, iwsu_fmdrum
   call ins_is_wav
   ld a, e
   ret nz
@@ -788,6 +798,12 @@ iwsu_fm4:
 iwsu_fm6:
   ld a, 6
   ret
+iwsu_fmdrum:                 ; FMDRUM up: HLD(4) -> VOL(2) -> TYPE -> INST
+  ld a, e
+  cp 3
+  ret c                      ; 0,1,2 unchanged
+  ld a, 2                    ; 3 (spacer) -> 2 (VOL)
+  ret
 ins_is_wav:                  ; Z if the edited instrument is WAV (type 3)
   push de
   call ins_ptr
@@ -807,6 +823,13 @@ ins_is_fm:                   ; Z if the edited instrument is FM (type 4)
   call ins_ptr
   ld a, (hl)
   cp 4
+  pop de
+  ret
+ins_is_fmdrum:               ; Z if the edited instrument is FMDRUM (type 5)
+  push de
+  call ins_ptr
+  ld a, (hl)
+  cp 5
   pop de
   ret
 
@@ -840,6 +863,9 @@ ins_f2r:
   jr z, if2r_go
   cp 4
   ld hl, f2r_fm
+  jr z, if2r_go
+  cp 5
+  ld hl, f2r_fmdrum
   jr z, if2r_go
   ld hl, f2r_tone
 if2r_go:
@@ -897,7 +923,12 @@ ins_max_row:
   jr z, imr_wav              ; SMP shares the WAV form (field 12 = RATE)
   cp 4
   jr z, imr_wav              ; FM: field 12 = patch
+  cp 5
+  jr z, imr_fmdrum
   ld a, 11                   ; TONE short form
+  ret
+imr_fmdrum:
+  ld a, 4                    ; FMDRUM: last field = HLD
   ret
 imr_noise:
   ld a, 13                   ; NOISE: + MODE/RATE
@@ -1843,13 +1874,17 @@ ine_type:                    ; TONE/NOISE/SMP/WAV/FM (edge-gated)
   ret z
   ld a, (hl)
   inc a
-  cp 5
+  cp 6
   jr c, ine_tst
   xor a
 ine_tst:
   ld (hl), a
   cp 4                       ; switching to FM: seed ring HLD + a program
-  jr nz, ine_tsr
+  jr z, ine_seedfm
+  cp 5                       ; switching to FMDRUM: seed ring HLD
+  jr z, ine_seeddrum
+  jr ine_tsr
+ine_seedfm:
   push hl
   inc hl
   inc hl
@@ -1861,6 +1896,14 @@ ine_tst:
   jr nz, ine_tsfp
   ld (hl), 1
 ine_tsfp:
+  pop hl
+  jr ine_tsr
+ine_seeddrum:
+  push hl
+  inc hl
+  inc hl
+  inc hl
+  ld (hl), $0F               ; +3 HLD = F (ring per the chip drum envelope)
   pop hl
 ine_tsr:
   call ins_max_row
@@ -6183,6 +6226,9 @@ in_draw_row:
   cp 4
   ld hl, r2f_fm              ; FM: INST/TYPE/VOL/PATCH
   jr z, idr_map
+  cp 5
+  ld hl, r2f_fmdrum          ; FMDRUM: INST/TYPE/VOL/HLD
+  jr z, idr_map
   ld hl, r2f_tone
 idr_map:
   ld d, 0
@@ -6387,7 +6433,10 @@ idr_type:
   cp 3
   ld hl, str_wavt
   jr z, idr_p5
+  cp 4
   ld hl, str_fm
+  jr z, idr_p5
+  ld hl, str_fmdrum
 idr_p5:
   ld b, 5
   jp print_raw
@@ -6480,6 +6529,10 @@ r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/TSP/TBL/TBS/PROG
   .db 0, 1, 2, 4, 6, 10, 11, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_fm:                      ; field -> grid row (0,1,2,4,6,10,11,12 shown)
   .db 0, 1, 2, 0, 3, 0, 4, 0, 0, 0, 5, 6, 7
+r2f_fmdrum:                  ; FMDRUM kit: INST/TYPE/VOL/HLD (note picks drum)
+  .db 0, 1, 2, $FF, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_fmdrum:                  ; field -> grid row (0,1,2,4 shown)
+  .db 0, 1, 2, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0
 
 .ENDS
 
@@ -6507,6 +6560,7 @@ str_tone:   .db "TONE "
 str_smp:    .db "SMP  "
 str_wavt:   .db "WAV  "
 str_fm:     .db "FM   "
+str_fmdrum: .db "FMDRM"
 str_noise:  .db "NOISE"
 str_white:  .db "WHITE"
 str_perio:  .db "PERIO"

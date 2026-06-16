@@ -6,6 +6,13 @@ The git history has the full detail; this is the curated summary.
 ## v0.26 — unreleased
 
 ### Added
+- **FM drums (FMDRM)** — a new instrument type driving the YM2413's rhythm
+  mode: the chip's 5 fixed percussion voices (bass drum, snare, tom, cymbal,
+  hi-hat). It's a kit — one instrument, the **note picks the drum** (C/C♯/D/D♯/E
+  for BD/SD/TT/TC/HH, repeating every 5 semitones so any octave works). **VOL**
+  sets the level, **HLD** the length (`F` = ring). It rides on spare FM voices,
+  so it costs none of the 4 tracks and plays alongside melodic FM. Needs the FM
+  Sound Unit (**OPTIONS → FM**); SMS only.
 - **FM honours tables (TBL/TBS) and the `X` command.** An FM instrument can now
   run a table: its volume column rewrites the FM channel level live, and its
   pitch column arps the note by re-keying the FM voice. `X` (per-note volume)

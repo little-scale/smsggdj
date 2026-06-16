@@ -95,6 +95,9 @@ BANKS 8
   text_attr      db            ; $00 normal, $08 inverted (palette bit)
   note_ptr       dw            ; active region note table
   fm_note_ptr    dw            ; active region YM2413 F-num/block table
+  fm_rhythm      db            ; $0E shadow: bit5 rhythm enable | bits0-4 drum key-on
+  fm_drumv       ds 3          ; volume shadows for $36/$37/$38 (packed drum levels)
+  fm_dscr        ds 2          ; fm_drum_trig scratch (atten, vreg)
 .ENDS
 
 ; =============================================================
@@ -528,11 +531,39 @@ fm_init:
   ret z                      ; FM off: leave the unit (and the PSG) alone
   ld a, $01                  ; $F2: enable FM (sums with PSG on real HW /
   out (FM_CTRL), a           ;   SMSPlus; Emulicious muxes to FM-only)
-  jr fm_clear
+  call fm_clear              ; melody mode, all voices keyed off
+  ; rhythm mode: fixed drum pitches + silent levels, then enable. The
+  ; tracker only uses melodic FM channels 0-3, so channels 6-8 are free
+  ; for rhythm at no cost to the 4 tracks.
+  ld hl, fm_rhythm_tab
+  ld a, 9
+fri_loop:
+  ld c, (hl)
+  inc hl
+  ld b, (hl)
+  inc hl
+  push hl
+  push af
+  call fm_w
+  pop af
+  pop hl
+  dec a
+  jr nz, fri_loop
+  ld a, $0F                  ; volume shadows: silent (BD low / HH-SD / TT-CYM)
+  ld (fm_drumv+0), a
+  ld a, $FF
+  ld (fm_drumv+1), a
+  ld (fm_drumv+2), a
+  ld a, $20                  ; $0E: rhythm enable (bit5), all drum keys off
+  ld (fm_rhythm), a
+  ld c, $0E
+  ld b, a
+  jp fm_w
 ; FM-OFF: drop FM routing and key everything off
 fm_silence:
   xor a
   out (FM_CTRL), a
+  ld (fm_rhythm), a          ; a = 0: rhythm disabled in the shadow too
 fm_clear:                    ; melody mode + key off channels 0..8
   ld c, $0E                  ; rhythm control: 0 = melody mode
   ld b, $00
@@ -546,6 +577,108 @@ fmi_off:
   cp $29
   jr c, fmi_off
   ret
+
+; YM2413 rhythm-mode setup: (reg, value) pairs — fixed drum pitch
+; (F-num/block for channels 6/7/8) and silent starting levels.
+fm_rhythm_tab:
+  .db $16, $20, $26, $05     ; ch6 BD pitch
+  .db $17, $50, $27, $05     ; ch7 HH+SD pitch
+  .db $18, $C0, $28, $01     ; ch8 TT+CYM pitch
+  .db $36, $0F, $37, $FF, $38, $FF  ; all drum levels silent
+
+; --- FM drum tables: indexed by drum 0-4 (BD, SD, TT, TC, HH) ---
+fm_drum_bit:  .db $10, $08, $04, $02, $01   ; $0E key-on bit
+fm_drum_vreg: .db $36, $37, $38, $38, $37   ; volume register
+fm_drum_vhi:  .db $00, $00, $01, $00, $01   ; 1 = high nibble of that reg
+
+; Set a drum's level: merge the volume into the shared register's nibble
+; (via shadow, since the chip can't be read back) and write it. No re-key,
+; so the X command can re-level a hit. IN: e = drum 0-4, a = musical vol
+; 0-F. Preserves e. Clobbers A/B/C/D/HL.
+fm_drum_vol:
+  cpl
+  and $0F                    ; attenuation 0-F
+  ld (fm_dscr+0), a          ; stash atten
+  ld d, 0
+  ld hl, fm_drum_vreg
+  add hl, de
+  ld a, (hl)                 ; volume register
+  ld (fm_dscr+1), a
+  ld hl, fm_drum_vhi
+  add hl, de
+  ld c, (hl)                 ; nibble flag (1 = high)
+  ld a, (fm_dscr+1)          ; shadow ptr = fm_drumv + (vreg - $36)
+  sub $36
+  ld hl, fm_drumv
+  add a, l                   ; 8-bit add (keeps de=drum, c=nibble flag)
+  ld l, a
+  jr nc, fdt_sptr
+  inc h
+fdt_sptr:
+  ld a, (fm_dscr+0)          ; merge atten into the right nibble
+  bit 0, c
+  jr z, fdt_lo
+  rlca
+  rlca
+  rlca
+  rlca
+  ld b, a
+  ld a, (hl)
+  and $0F
+  or b
+  jr fdt_store
+fdt_lo:
+  ld b, a
+  ld a, (hl)
+  and $F0
+  or b
+fdt_store:
+  ld (hl), a                 ; updated level shadow
+  ld b, a
+  ld a, (fm_dscr+1)
+  ld c, a
+  jp fm_w                    ; write the volume register
+
+; Trigger an FM rhythm drum: set its level then pulse its $0E key-on bit
+; (off->on = attack). IN: e = drum index 0-4, a = musical volume 0-F.
+fm_drum_trig:
+  call fm_drum_vol           ; set the level (preserves e = drum)
+  ; key-on edge: clear the drum's bit, write $0E, set it, write again
+  ld hl, fm_drum_bit
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  ld e, a                    ; e = key-on bit mask (survives fm_w)
+  ld a, (fm_rhythm)
+  ld d, a
+  ld a, e
+  cpl
+  and d
+  ld (fm_rhythm), a
+  ld b, a
+  ld c, $0E
+  call fm_w                  ; key off (edge low)
+  ld a, (fm_rhythm)
+  or e
+  ld (fm_rhythm), a
+  ld b, a
+  ld c, $0E
+  jp fm_w                    ; key on (edge high)
+
+; Key off one rhythm drum (HLD expiry). IN: e = drum index 0-4.
+fm_drum_off:
+  ld hl, fm_drum_bit
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  cpl
+  ld e, a
+  ld a, (fm_rhythm)
+  and e
+  ld (fm_rhythm), a
+  ld b, a
+  ld c, $0E
+  jp fm_w
 ; write YM2413 reg C = value B, honouring the chip's address/data wait.
 ; Preserves DE/HL (and BC); clobbers A.
 fm_w:

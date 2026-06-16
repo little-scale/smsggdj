@@ -70,6 +70,7 @@
 .DEFINE STG_KILL    3          ; K command: count down then hard cut
 .DEFINE STG_IDLE    4          ; finished/silent
 .DEFINE STG_FMHOLD  5          ; FM note: count down then key off the FM voice
+.DEFINE STG_FMDRUMHOLD 6       ; FM drum: count down then key off the rhythm voice
 .DEFINE PRELISTEN_CAP 32       ; ticks: cap a forever-hold while stopped
 
 .DEFINE MODE_SONG   0
@@ -1373,8 +1374,16 @@ xv_ok:
   and $0F                    ; keep the stage; set the peak (high nibble)
   or d
   ld (ix+4), a
-  call chan_is_fm            ; FM voice? also push it to the FM volume reg
+  call chan_is_fm            ; FM voice? push it to the FM volume reg
+  jr z, xv_fm
+  call chan_is_fmdrum        ; FM drum? re-level the hit (no re-key)
   ret nz
+  ld a, e                    ; a = volume (e holds it from xv_ok)
+  push af
+  call tn_fd_drum            ; e = drum index from the note in ix+0
+  pop af
+  jp fm_drum_vol
+xv_fm:
   ld a, (cur_trig_ch)
   ld d, a
   ld a, e                    ; a = volume
@@ -1397,6 +1406,24 @@ chan_is_fm:
   pop de
   pop hl
   cp 4
+  ret
+; Z if the IX channel's current instrument is FMDRUM (type 5). Preserves regs.
+chan_is_fmdrum:
+  push hl
+  push de
+  ld a, (ix+1)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, instruments
+  add hl, de
+  ld a, (hl)
+  pop de
+  pop hl
+  cp 5
   ret
 xc_speed:                    ; S xx: sample playback speed (0-3)
   ld a, d
@@ -1664,6 +1691,10 @@ tn_tdone:
   cp 2                       ; SMP: the note picks the sample
   ld a, d                    ; slot - never transpose it
   jr z, tn_tnone
+  ld a, b
+  cp 5                       ; FMDRUM: the note picks the drum
+  ld a, d
+  jr z, tn_tnone
   ld a, (proj_tsp)
   add a, d                   ; instrument + global transpose
 tn_tnone:
@@ -1694,6 +1725,8 @@ tn_mods:
   jr z, tn_wav
   cp 4                       ; FM: YM2413 voice
   jp z, tn_fm
+  cp 5                       ; FMDRUM: YM2413 rhythm voice
+  jp z, tn_fmdrum
   cp 1                       ; NOISE instrument?
   ret nz
   ld a, c
@@ -1850,6 +1883,62 @@ tn_fm_ring:
   ld a, STG_IDLE
   ld (ix+4), a
   ret
+
+; FM rhythm drum: the kit is one instrument, the note picks the drum
+; (BD/SD/TT/TC/HH cycling every 5 semitones). No tables, no transpose.
+tn_fmdrum:
+  ld a, (fm_on)              ; FM disabled? play nothing
+  or a
+  jr nz, tn_fd_go
+  ld (ix+0), $FF
+  ld (ix+2), 0
+  ld a, STG_IDLE
+  ld (ix+4), a
+  ret
+tn_fd_go:
+  ld (ix+20), $FF            ; drums ignore tables (kit = note picks drum)
+  call tn_fd_drum            ; e = drum index 0-4 (from ix+0 note)
+  ld a, (ix+4)               ; VOL (AHD peak high nibble) -> musical 0-F
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  call fm_drum_trig          ; e = drum, a = vol; pulses the key-on edge
+  ld (ix+2), 0               ; mute the PSG host
+  ; HLD: F (or 0) = ring per the chip's drum envelope; 1-E = key-off
+  ; after nibble*2 ticks (ahd_process / STG_FMDRUMHOLD)
+  call ahd_hldval
+  or a
+  jr z, tn_fd_ring
+  cp $0F
+  jr z, tn_fd_ring
+  add a, a
+  ld (ix+3), a
+  ld a, STG_FMDRUMHOLD
+  ld (ix+4), a
+  ret
+tn_fd_ring:
+  ld a, STG_IDLE
+  ld (ix+4), a
+  ret
+; ix+0 note -> e = drum index 0-4 (note % 12 through the kit map)
+tn_fd_drum:
+  ld a, (ix+0)
+tn_fd_mod:
+  cp 12
+  jr c, tn_fd_modd
+  sub 12
+  jr tn_fd_mod
+tn_fd_modd:
+  ld e, a
+  ld d, 0
+  ld hl, fm_drum_map
+  add hl, de
+  ld e, (hl)
+  ret
+fm_drum_map:                 ; note % 12 -> BD/SD/TT/TC/HH (cycling)
+  .db 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1
 
 ; -------------------------------------------------------------
 ; A = note index -> DE = period with sweep + pitch mod applied,
@@ -2807,6 +2896,8 @@ ahd_process:
   jp z, ahd_kill
   cp STG_FMHOLD
   jp z, ahd_fmhold
+  cp STG_FMDRUMHOLD
+  jp z, ahd_fmdrumhold
   ret                        ; idle: hold current vol
 
 ; ---- attack: ramp 0 -> peak ----
@@ -2922,6 +3013,16 @@ ahd_fmhold:
   call fm_w
   pop bc
   ret
+
+; FM drum hold expired: key off the rhythm voice (recompute the drum
+; from the kept note in ix+0). Preserves c and ix.
+ahd_fmdrumhold:
+  dec (ix+3)
+  ret nz
+  ld a, STG_IDLE
+  ld (ix+4), a
+  call tn_fd_drum            ; e = drum index from ix+0
+  jp fm_drum_off
 
 ; helper: e = this note's peak volume (high nibble of the stage byte
 ; ix+4, snapshotted from the instrument at trigger; X overrides it)

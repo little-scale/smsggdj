@@ -169,6 +169,12 @@ Each instrument has a **type**, set on the INSTR screen:
   column rewrites the FM level live and its pitch column arps the note
   (re-keying only when the offset changes, so a flat table holds steady). The
   `X` (volume) and `Y` (program) commands also work on FM. SMS only.
+- **FMDRM** — the YM2413's drum kit (rhythm mode). One instrument is the whole
+  kit; the **note picks the drum** — C = bass drum, C♯ = snare, D = tom, D♯ =
+  cymbal, E = hi-hat (and it repeats every 5 semitones, so any octave works).
+  **VOL** sets the level and **HLD** the length (`F` = ring). It uses spare FM
+  voices, so it costs none of the 4 tracks. Needs the FM Sound Unit
+  (**OPTIONS → FM**); SMS only.
 
 Put an instrument's number next to a note in a PHRASE to play that note with
 that sound. Unedited instruments default to full volume with an instant attack
