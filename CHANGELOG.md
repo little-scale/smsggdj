@@ -5,6 +5,16 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.26 — unreleased
 
+### Changed
+- **PHRASE column spacing** — the instrument (`I`) and command columns sit one
+  tile right of the `NOTE` field on both SMS and Game Gear, so the header reads
+  `NOTE  I  CMD` with room to breathe.
+
+### Fixed
+- **WAV instruments: HLD is editable again.** The cursor was skipping the HLD
+  field (a leftover from the AHD rework moving WAV's length onto it), so it
+  showed but couldn't be changed.
+
 ## v0.25 — 2026-06-16
 
 ### Added

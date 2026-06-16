@@ -48,8 +48,8 @@
 .DEFINE MAP_ROW     4
 .DEFINE INS_LBL     4
 .DEFINE INS_VAL     10
-.DEFINE PH_INS_COL  8
-.DEFINE PH_CMD_COL  10
+.DEFINE PH_INS_COL  9        ; PHRASE columns shifted +1 to gap NOTE/I
+.DEFINE PH_CMD_COL  11
 .ENDIF
 
 .RAMSECTION "edvars" SLOT 3
@@ -669,18 +669,23 @@ ins_wskip_d:
   call ins_is_wav
   ld a, e
   ret nz                     ; TONE/NOISE: no gap
-  cp 3                       ; WAV fields 0,1,2,5,6,12: hop the gaps
+  cp 3                       ; WAV fields 0,1,2,4,6,12: hop the gaps
   ret c
+  cp 4
+  jr c, iwsd_w4              ; 3 -> 4 (HLD)
   cp 5
-  jr c, iwsd_w5              ; 3,4 -> 5
+  ret c                      ; 4
   cp 7
-  ret c                      ; 5,6
+  jr c, iwsd_w6              ; 5,6 -> 6 (TSP)
   cp 12
   ret nc                     ; 12
-  ld a, 12                   ; 7..11 -> 12
+  ld a, 12                   ; 7..11 -> 12 (WAVE)
   ret
-iwsd_w5:
-  ld a, 5
+iwsd_w4:
+  ld a, 4
+  ret
+iwsd_w6:
+  ld a, 6
   ret
 iwsd_smp:                    ; SMP path: INST TYPE TSP(6) RATE(12)
   ld a, e
@@ -704,16 +709,21 @@ ins_wskip_u:
   ret nz
   cp 3
   ret c
+  cp 4
+  jr c, iwsu_w2              ; 3 -> 2
   cp 5
-  jr c, iwsu_w2              ; 3,4 -> 2
+  ret c                      ; 4
   cp 7
-  ret c                      ; 5,6
+  jr c, iwsu_w4              ; 5,6 -> 4 (HLD)
   cp 12
   ret nc                     ; 12
-  ld a, 6                    ; 7..11 -> 6
+  ld a, 6                    ; 7..11 -> 6 (TSP)
   ret
 iwsu_w2:
   ld a, 2
+  ret
+iwsu_w4:
+  ld a, 4
   ret
 iwsu_smp:                    ; SMP up: RATE(12) TSP(6) TYPE INST
   ld a, e
