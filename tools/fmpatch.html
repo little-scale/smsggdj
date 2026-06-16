@@ -37,6 +37,14 @@
            border-radius: 7px; padding: 9px 18px; font-size: 14px; cursor: pointer; }
   button.primary { background: #238636; border-color: #2ea043; color: #fff; }
   button:disabled { opacity: .5; cursor: default; }
+  details.guide { background: #161c22; border: 1px solid #2d3742; border-radius: 10px;
+                  padding: 6px 14px; margin: 14px 0; }
+  details.guide summary { cursor: pointer; color: #58a6ff; font-weight: 600; padding: 4px 0; }
+  details.guide dl { display: grid; grid-template-columns: max-content 1fr;
+                     gap: 3px 12px; margin: 8px 0 4px; font-size: 13px; }
+  details.guide dt { font: 600 13px ui-monospace, monospace; color: #c9d1d9; }
+  details.guide dd { margin: 0; color: #8b949e; }
+  details.guide p { font-size: 13px; color: #8b949e; margin: 8px 0 4px; }
 </style>
 </head>
 <body>
@@ -47,6 +55,27 @@ preset is a 2-operator voice &mdash; a <b>modulator</b> feeding a <b>carrier</b>
 &mdash; plus feedback and a name. Download the patched ROM and load it in the
 tracker (or an emulator) to hear it; there's no FM audio in this page. Nothing
 leaves your browser.</p>
+
+<details class="guide" open>
+  <summary>what the parameters mean</summary>
+  <p>Each preset is a two-operator FM voice: the <b>carrier</b> is the operator
+  you actually hear, and the <b>modulator</b> bends the carrier's waveform to
+  create the timbre. The modulator's <b>TL</b> sets how strong that effect is.</p>
+  <dl>
+    <dt>MUL</dt><dd>frequency multiplier &mdash; the operator's pitch as a multiple of the note (1&times;, 2&times;&hellip;); mismatched mod/carrier ratios give richer/clangier tones</dd>
+    <dt>AR</dt><dd>attack rate &mdash; how fast the note reaches full level (15 = instant, 0 = never)</dd>
+    <dt>DR</dt><dd>decay rate &mdash; how fast it falls from the peak down to the sustain level</dd>
+    <dt>SL</dt><dd>sustain level &mdash; the level it holds at after decay (0 = loudest, 15 = quietest)</dd>
+    <dt>RR</dt><dd>release rate &mdash; how fast it fades once the note ends</dd>
+    <dt>TL</dt><dd>total level (modulator only) &mdash; modulation depth / brightness; <i>lower = brighter</i>, higher = closer to a pure sine</dd>
+    <dt>KSL</dt><dd>key-scale level &mdash; how much higher notes are attenuated</dd>
+    <dt>FB</dt><dd>feedback &mdash; the modulator feeding back into itself; adds harmonics/grit (0&ndash;7)</dd>
+  </dl>
+  <p>Switches: <b>AM</b> tremolo &middot; <b>VIB</b> vibrato &middot;
+  <b>SUS</b> sustained envelope (note holds at SL instead of decaying away) &middot;
+  <b>KSR</b> key-scale rate (higher notes decay faster) &middot;
+  <b>HALF</b> half-sine waveform for that operator (brighter, buzzier).</p>
+</details>
 
 <div class="zone" id="zone">drop a .sms ROM here (or click)</div>
 <input type="file" id="file" hidden>
