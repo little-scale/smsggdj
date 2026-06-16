@@ -10,8 +10,9 @@ The git history has the full detail; this is the curated summary.
   its 8 custom FM presets in the browser — per-operator MUL/AR/DR/SL/RR/KSL/TL,
   feedback, waveforms, and the 5-char names — then download the patched ROM. It
   finds the `FMPRST` marker block, so it survives ROM-layout changes. Each preset
-  has an **audition** button backed by a built-in 2-operator FM synth (Web Audio)
-  that approximates the YM2413 so you can hear edits without flashing. No toolchain.
+  has an **audition** button backed by a JS port of the **emu2413** YM2413 core
+  (Okazaki, MIT) — the same register-level model chip-music players use — so the
+  envelopes, feedback, modulation and waveforms match the chip. No toolchain.
 - **FM custom presets.** FM instruments gain a **PRST** field: `OFF` uses the
   ROM **PROG** patch (unchanged), `1`–`8` select one of 8 ROM-baked custom
   timbres (LEAD, EPNO, SBASS, BELL, BRASS, PAD, PLUCK, SINE) loaded into the

@@ -78,10 +78,12 @@ leaves your browser.</p>
   <b>SUS</b> sustained envelope (note holds at SL instead of decaying away) &middot;
   <b>KSR</b> key-scale rate (higher notes decay faster) &middot;
   <b>HALF</b> half-sine waveform for that operator (brighter, buzzier).</p>
-  <p class="dim">The <b>&#9654;</b> button on each preset auditions it with a
-  built-in 2-operator FM synth. It models the YM2413's envelopes, feedback,
-  multipliers and waveforms closely enough to hear what each control does, but
-  it is an approximation &mdash; the real chip is the final word.</p>
+  <p class="dim">The <b>&#9654;</b> button on each preset auditions it through a
+  JS port of the <b>emu2413</b> YM2413 core (Okazaki, MIT) &mdash; the same
+  register-level model used by chip-music players, so the envelopes, feedback,
+  modulation and waveforms match the real chip. (KSL, a per-note level trim, is
+  skipped because auditions play one fixed pitch; for the last word, the real
+  FM unit / Emulicious still wins.)</p>
 </details>
 
 <div class="zone" id="zone">drop a .sms ROM here (or click)</div>
@@ -244,69 +246,172 @@ function download() {
   a.click();
 }
 
-// ---- audition: a compact 2-operator FM voice approximating the YM2413 ----
-// modulator -> carrier FM with OPLL-ish ADSR (dB domain), feedback, the MUL
-// ratios, half-sine waveforms and AM/VIB. Close enough to hear each control;
-// not cycle-exact. Rendered to a buffer and played via Web Audio.
+// ---- audition: emu2413 OPLL core, ported to JS ----
+// Faithful register-level YM2413 model after emu2413 (Mitsutaka Okazaki, MIT;
+// github.com/digital-sound-antiques/emu2413): log-sin/exp operator output, the
+// chip's real envelope generator (concave attack + rate tables) and direct
+// modulator->carrier phase modulation (no fudged modulation index). We render
+// one 2-operator melodic channel from the 8 user-patch bytes at the chip's
+// native ~49.7 kHz and let Web Audio resample on playback. KSL (a per-note
+// level trim) is omitted since auditions play a single fixed pitch.
 let actx = null, playing = null;
-const MULT = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15];
+const CHIP_RATE = 49716;          // NTSC: clock 3579545 / 72
+const PG_WIDTH = 1024, DP_BITS = 19, DP_WIDTH = 1 << DP_BITS, DP_BASE = DP_BITS - 10;
+const EG_MUTE = 127, EG_MAX = EG_MUTE - 4;
+const DAMP = 0, ATTACK = 1, DECAY = 2, SUSTAIN = 3, RELEASE = 4;
+const ML_T = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30];
+const EG_STEP_T = [[0, 1, 0, 1, 0, 1, 0, 1], [0, 1, 0, 1, 1, 1, 0, 1],
+                   [0, 1, 1, 1, 0, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 1]];
+const PM_T = [[0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0, -1, 0],
+              [0, 1, 2, 1, 0, -1, -2, -1], [0, 1, 3, 1, 0, -1, -3, -1],
+              [0, 2, 4, 2, 0, -2, -4, -2], [0, 2, 5, 2, 0, -2, -5, -2],
+              [0, 3, 6, 3, 0, -3, -6, -3], [0, 3, 7, 3, 0, -3, -7, -3]];
+// exp (dB->linear) and log-sin tables, generated like emu2413's make*Table
+const EXP_T = new Int32Array(256);
+for (let x = 0; x < 256; x++) EXP_T[x] = Math.round((2 ** (x / 256) - 1) * 1024);
+const FULLSIN = new Int32Array(PG_WIDTH), HALFSIN = new Int32Array(PG_WIDTH);
+for (let x = 0; x < 256; x++)
+  FULLSIN[x] = Math.round(-Math.log2(Math.sin((x + 0.5) * Math.PI / 512)) * 256);
+for (let x = 0; x < 256; x++) FULLSIN[256 + x] = FULLSIN[255 - x];
+for (let x = 0; x < 512; x++) FULLSIN[512 + x] = 0x8000 | FULLSIN[x];
+for (let x = 0; x < 512; x++) HALFSIN[x] = FULLSIN[x];
+for (let x = 512; x < PG_WIDTH; x++) HALFSIN[x] = 0xfff;
+// AM (tremolo) table: 210-entry triangle, peak 13 (~4.8 dB) at ~3.7 Hz
+const AM_T = new Uint8Array(210);
+for (let i = 0; i < 210; i++) { const ph = i / 210; AM_T[i] = Math.round((ph < 0.5 ? ph * 2 : (1 - ph) * 2) * 13); }
 
-function envParams(ar, dr, sl, rr, egt) {
-  return {
-    aT: ar <= 0 ? Infinity : 6.0 / 2 ** ar,   // attack time (s): hi rate = fast
-    dT: dr <= 0 ? Infinity : 8.0 / 2 ** dr,    // decay time
-    rT: rr <= 0 ? Infinity : 8.0 / 2 ** rr,    // release time
-    sl: sl >= 15 ? 93 : sl * 3,                // sustain attenuation (dB)
-    ar, rr, egt
-  };
+function lookupExp(i) {
+  const t = EXP_T[(i & 0xff) ^ 0xff] + 1024;
+  const res = t >> ((i & 0x7f00) >> 8);
+  return ((i & 0x8000) ? ~res : res) << 1;
 }
-function envDb(p, t, keyOff) {                 // attenuation (dB) at time t
-  const on = tt => {
-    if (p.ar <= 0) return 96;                  // never opens -> silent
-    if (tt < p.aT) return 96 * (1 - tt / p.aT);// attack 96 -> 0 dB
-    const td = tt - p.aT;
-    if (td < p.dT) return Math.min(p.sl, p.sl * td / p.dT);   // decay 0 -> SL
-    if (p.egt) return p.sl;                    // sustained: hold at SL
-    if (p.rr <= 0) return p.sl;
-    return Math.min(96, p.sl + (96 - p.sl) * (td - p.dT) / p.rT);  // percussive fade
-  };
-  if (t <= keyOff) return on(t);
-  const a0 = on(keyOff);
-  if (p.rr <= 0) return a0;
-  return Math.min(96, a0 + (96 - a0) * (t - keyOff) / p.rT);  // release after key-off
+
+function makeSlot(carrier) {
+  return { pg_phase: 0, pg_out: 0, eg_state: RELEASE, eg_out: EG_MUTE, eg_shift: 0,
+           eg_rate_h: 0, eg_rate_l: 0, out0: 0, out1: 0, amv: 0, type: carrier ? 1 : 0,
+           AM: 0, PM: 0, EG: 0, KSR: 0, ML: 0, TL: 0, FB: 0, AR: 0, DR: 0, SL: 0, RR: 0,
+           wave: FULLSIN, fnum: 0, blk: 0, rks: 0, tll: 0 };
 }
-const dbToGain = db => db >= 96 ? 0 : 10 ** (-db / 20);
-
-function renderVoice(b, sr) {
-  const mMul = MULT[b[0] & 15], cMul = MULT[b[1] & 15];
-  const mAm = b[0] >> 7 & 1, mVib = b[0] >> 6 & 1, mEgt = b[0] >> 5 & 1;
-  const cAm = b[1] >> 7 & 1, cVib = b[1] >> 6 & 1, cEgt = b[1] >> 5 & 1;
-  const mTL = b[2] & 0x3f;
-  const dm = b[3] >> 4 & 1, dc = b[3] >> 3 & 1, fb = b[3] & 7;
-  const mEnv = envParams(b[4] >> 4, b[4] & 15, b[6] >> 4, b[6] & 15, mEgt);
-  const cEnv = envParams(b[5] >> 4, b[5] & 15, b[7] >> 4, b[7] & 15, cEgt);
-
-  const dur = 1.8, keyOff = 1.2, n = Math.floor(dur * sr), buf = new Float32Array(n);
-  const f0 = 261.63;                           // audition pitch (C4)
-  const wM = 2 * Math.PI * f0 * mMul / sr, wC = 2 * Math.PI * f0 * cMul / sr;
-  const MOD_INDEX = 5.0, MASTER = 0.32;
-  let pm = 0, pc = 0, o1 = 0, o2 = 0;
-  for (let i = 0; i < n; i++) {
-    const t = i / sr;
-    const vib = Math.sin(2 * Math.PI * 6.4 * t) * 0.006;            // ~6.4 Hz vibrato
-    const trem = (Math.sin(2 * Math.PI * 3.7 * t) * 0.5 + 0.5);     // ~3.7 Hz, 0..1 dB
-    const fbv = fb ? (o1 + o2) * 0.5 * fb * 0.5 : 0;
-    let mw = Math.sin(pm + fbv);
-    if (dm && mw < 0) mw = 0;
-    const mo = mw * dbToGain(envDb(mEnv, t, keyOff) + mTL * 0.75 + (mAm ? trem : 0));
-    o2 = o1; o1 = mo;
-    let cw = Math.sin(pc + mo * MOD_INDEX);
-    if (dc && cw < 0) cw = 0;
-    buf[i] = cw * dbToGain(envDb(cEnv, t, keyOff) + (cAm ? trem : 0)) * MASTER;
-    pm += wM * (1 + (mVib ? vib : 0));
-    pc += wC * (1 + (cVib ? vib : 0));
+function pRate(s) {
+  switch (s.eg_state) {
+    case ATTACK: return s.AR;
+    case DECAY: return s.DR;
+    case SUSTAIN: return s.EG ? 0 : s.RR;
+    case RELEASE: return s.EG ? s.RR : 7;
+    case DAMP: return 12;                       // DAMPER_RATE
+    default: return 0;
   }
-  const fade = Math.min(256, n);               // de-click the tail
+}
+function updateEg(s) {
+  const p = pRate(s);
+  if (p === 0) { s.eg_shift = 0; s.eg_rate_h = 0; s.eg_rate_l = 0; return; }
+  s.eg_rate_h = Math.min(15, p + (s.rks >> 2));
+  s.eg_rate_l = s.rks & 3;
+  if (s.eg_state === ATTACK) s.eg_shift = (s.eg_rate_h > 0 && s.eg_rate_h < 12) ? (13 - s.eg_rate_h) : 0;
+  else s.eg_shift = (s.eg_rate_h < 13) ? (13 - s.eg_rate_h) : 0;
+}
+function attackStep(s, c) {
+  switch (s.eg_rate_h) {
+    case 12: return 4 - EG_STEP_T[s.eg_rate_l][(c & 0xc) >> 1];
+    case 13: return 3 - EG_STEP_T[s.eg_rate_l][(c & 0xc) >> 1];
+    case 14: return 2 - EG_STEP_T[s.eg_rate_l][(c & 0xc) >> 1];
+    case 0: case 15: return 0;
+    default: return EG_STEP_T[s.eg_rate_l][(c >> s.eg_shift) & 7] ? 4 : 0;
+  }
+}
+function decayStep(s, c) {
+  switch (s.eg_rate_h) {
+    case 0: return 0;
+    case 13: return EG_STEP_T[s.eg_rate_l][((c & 0xc) >> 1) | (c & 1)];
+    case 14: return EG_STEP_T[s.eg_rate_l][(c & 0xc) >> 1] + 1;
+    case 15: return 2;
+    default: return EG_STEP_T[s.eg_rate_l][(c >> s.eg_shift) & 7];
+  }
+}
+function startEnv(s) {                          // DAMP done -> attack (or decay if AR maxed)
+  if (Math.min(15, s.AR + (s.rks >> 2)) === 15) { s.eg_state = DECAY; s.eg_out = 0; }
+  else s.eg_state = ATTACK;
+  updateEg(s);
+}
+function calcEnv(s, c, buddy) {
+  const mask = (1 << s.eg_shift) - 1;
+  if (s.eg_state === ATTACK) {
+    if (s.eg_out > 0 && s.eg_rate_h > 0 && (c & mask & ~3) === 0) {
+      const st = attackStep(s, c);
+      if (st > 0) s.eg_out = Math.max(0, s.eg_out - (s.eg_out >> st) - 1);
+    }
+  } else if (s.eg_rate_h > 0 && (c & mask) === 0) {
+    s.eg_out = Math.min(EG_MUTE, s.eg_out + decayStep(s, c));
+  }
+  switch (s.eg_state) {
+    case DAMP:
+      if (s.eg_out >= EG_MAX && (c & mask) === 0) {
+        startEnv(s);
+        if (s.type & 1) { s.pg_phase = 0; if (buddy) buddy.pg_phase = 0; }  // carrier syncs both
+      }
+      break;
+    case ATTACK: if (s.eg_out === 0) { s.eg_state = DECAY; updateEg(s); } break;
+    case DECAY: if ((s.eg_out >> 3) === s.SL) { s.eg_state = SUSTAIN; updateEg(s); } break;
+  }
+}
+function calcPhase(s, pmPhase) {
+  const pm = s.PM ? PM_T[(s.fnum >> 6) & 7][(pmPhase >> 10) & 7] : 0;
+  s.pg_phase = (s.pg_phase + ((((s.fnum & 0x1ff) * 2 + pm) * ML_T[s.ML]) << s.blk >> 2)) & (DP_WIDTH - 1);
+  s.pg_out = s.pg_phase >> DP_BASE;
+}
+function toLinear(h, s, am) {
+  if (s.eg_out > EG_MAX) return 0;
+  const att = Math.min(EG_MUTE, s.eg_out + s.tll + am) << 4;
+  return lookupExp(h + att);
+}
+function calcMod(s) {                           // modulator: phase-mod by own feedback
+  const fm = s.FB > 0 ? ((s.out1 + s.out0) >> (9 - s.FB)) : 0;
+  s.out1 = s.out0;
+  s.out0 = toLinear(s.wave[(s.pg_out + fm) & (PG_WIDTH - 1)], s, s.amv);
+  return s.out0;
+}
+function calcCar(s, fm) {                        // carrier: phase-mod by the modulator output
+  s.out1 = s.out0;
+  s.out0 = toLinear(s.wave[(s.pg_out + 2 * (fm >> 1)) & (PG_WIDTH - 1)], s, s.amv);
+  return s.out0;
+}
+function setNote(s, fnum, blk) {
+  s.fnum = fnum; s.blk = blk;
+  const fnum8 = (fnum >> 8) & 1;
+  s.rks = s.KSR ? ((blk << 1) | fnum8) : (blk >> 1);
+}
+
+function renderVoice(b) {
+  const mod = makeSlot(false), car = makeSlot(true);
+  mod.AM = b[0] >> 7 & 1; mod.PM = b[0] >> 6 & 1; mod.EG = b[0] >> 5 & 1; mod.KSR = b[0] >> 4 & 1; mod.ML = b[0] & 15;
+  car.AM = b[1] >> 7 & 1; car.PM = b[1] >> 6 & 1; car.EG = b[1] >> 5 & 1; car.KSR = b[1] >> 4 & 1; car.ML = b[1] & 15;
+  mod.TL = b[2] & 0x3f;                          // KSL (b[2]>>6, b[3]>>6) omitted: single-pitch audition
+  mod.FB = b[3] & 7;
+  mod.wave = (b[3] >> 4 & 1) ? HALFSIN : FULLSIN;
+  car.wave = (b[3] >> 3 & 1) ? HALFSIN : FULLSIN;
+  mod.AR = b[4] >> 4; mod.DR = b[4] & 15; car.AR = b[5] >> 4; car.DR = b[5] & 15;
+  mod.SL = b[6] >> 4; mod.RR = b[6] & 15; car.SL = b[7] >> 4; car.RR = b[7] & 15;
+  mod.tll = mod.TL << 1;                          // TL2EG; carrier level = channel volume (full)
+  const FNUM = 173, BLK = 4;                      // ~262 Hz (C4) at the chip rate
+  setNote(mod, FNUM, BLK); setNote(car, FNUM, BLK);
+  mod.eg_state = DAMP; updateEg(mod);             // key on
+  car.eg_state = DAMP; updateEg(car);
+
+  const dur = 1.8, n = Math.floor(dur * CHIP_RATE), buf = new Float32Array(n);
+  const keyOffN = Math.floor(1.2 * CHIP_RATE);
+  let egc = 0, pmPhase = 0, amPhase = 0;
+  for (let i = 0; i < n; i++) {
+    if (i === keyOffN) { car.eg_state = RELEASE; updateEg(car); }  // only carrier releases
+    pmPhase++; amPhase++;
+    const lfoAm = AM_T[(amPhase >> 6) % 210];
+    mod.amv = mod.AM ? lfoAm : 0; car.amv = car.AM ? lfoAm : 0;
+    calcPhase(mod, pmPhase); calcPhase(car, pmPhase);
+    calcEnv(mod, egc, null); calcEnv(car, egc, mod);
+    const mo = calcMod(mod);
+    buf[i] = calcCar(car, mo) / 4096 * 0.6;
+    egc++;
+  }
+  const fade = Math.min(256, n);                  // de-click the tail
   for (let i = 0; i < fade; i++) buf[n - 1 - i] *= i / fade;
   return buf;
 }
@@ -326,8 +431,8 @@ function audition(n, btn) {
   stopAudition();
   if (wasThis) return;                          // click again = stop
   const p = patchOff + n * PBYTES;
-  const data = renderVoice(rom.slice(p, p + PBYTES), actx.sampleRate);
-  const ab = actx.createBuffer(1, data.length, actx.sampleRate);
+  const data = renderVoice(rom.slice(p, p + PBYTES));
+  const ab = actx.createBuffer(1, data.length, CHIP_RATE);  // browser resamples on playback
   ab.copyToChannel(data, 0);
   const src = actx.createBufferSource();
   src.buffer = ab;
