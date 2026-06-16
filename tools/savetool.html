@@ -299,7 +299,7 @@ const VOFF = { wave:0x0000, phrase:0x0100, chain:0x0900, song:0x0D00,
                instr:0x0F00, table:0x1000, groove:0x1400 };
 const VCMD = "-KHACEFGNPTVWMDLROISBXY";
 const VCHROMA = ["C-","C#","D-","D#","E-","F-","F#","G-","G#","A-","A#","B-"];
-const VITYPE = ["TONE","NOISE","SMP","WAV"];
+const VITYPE = ["TONE","NOISE","SMP","WAV","FM","FMDRM"];
 const VRATE = ["norm","2x","half","4x"];
 const hx2 = v => v.toString(16).toUpperCase().padStart(2, "0");
 const hx1 = v => (v & 0xf).toString(16).toUpperCase();
@@ -373,6 +373,8 @@ function decodeView(blob, slot) {
     if (b[0] === 3) extra = "wave " + (b[4] & 7);
     else if (b[0] === 2) extra = "rate " + (VRATE[b[4] & 3] || b[4]);
     else if (b[0] === 1) extra = "noise " + hx2(b[4]);
+    else if (b[0] === 4) extra = "prog " + ((b[4] & 0xf) || 1);   // FM ROM patch 1-15
+    else if (b[0] === 5) extra = "drum kit (note picks)";          // FMDRUM rhythm voices
     ins += `<tr><td>${hx2(i)}</td><td>${ty}</td><td>vol ${hx1(b[1])}</td>`
          + `<td>atk ${hx1(atk)} dcy ${hx1(dcy)}</td><td>hld ${hld}</td>`
          + `<td>tsp ${vsig(b[8])}</td><td>swp ${hx2(b[5])}</td><td>vib ${hx2(b[6])}</td>`
