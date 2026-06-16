@@ -96,7 +96,13 @@ run: all                       # always rebuild both flavors
 run-gg: all
 	$(JAVA) -jar $(EMU) $(abspath $(GGROM))
 
+# build + print the version-stamped ROMs to attach to a GitHub release
+dist: all
+	@echo "release assets ($(VTAG)):"
+	@echo "  $(VROM)"
+	@echo "  $(VGGROM)"
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean run run-gg
+.PHONY: all clean run run-gg dist
