@@ -164,7 +164,11 @@ Each instrument has a **type**, set on the INSTR screen:
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 - **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit**; enable it in
   **OPTIONS → FM**). **PROG** picks one of the chip's 15 ROM patches, **VOL**
-  sets the level, **HLD** the length (`F` = ring). SMS only.
+  sets the level, **HLD** the length (`F` = ring). **TSP** transposes and a
+  **TBL**/**TBS** table drives it like any other voice — the table's volume
+  column rewrites the FM level live and its pitch column arps the note
+  (re-keying only when the offset changes, so a flat table holds steady). The
+  `X` (volume) and `Y` (program) commands also work on FM. SMS only.
 
 Put an instrument's number next to a note in a PHRASE to play that note with
 that sound. Unedited instruments default to full volume with an instant attack

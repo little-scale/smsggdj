@@ -239,8 +239,12 @@ Common params apply; the host channel's volume/envelope *gate* the wave (volume 
 | PROG | 1–15 | which YM2413 ROM patch (voice) |
 | VOL | 0–F | level (→ FM carrier attenuation) |
 | HLD | 0–F | note length: `F` = ring per the chip's hardware envelope, `1`–`E` = key-off after nibble×2 ticks |
+| TSP | ±  | transpose (instrument + global), applied before the F-number lookup |
+| TBL/TBS | — | table # / speed — FM honours tables (below) |
 
 Needs the SMS **FM Sound Unit** (ports `$F0`/`$F1`/`$F2`), enabled by **OPTIONS → FM** (persisted; default OFF). Pitch comes from a region F-number/block table (`maketables.py`, like the PSG note table). A track hosting an FM instrument plays on the FM channel of the same index and **silences its PSG voice**; the FM note uses the chip's own envelope (no per-tick engine work beyond the HLD key-off). `$F2` is a PSG/FM mux on the external unit (and Emulicious) but sums on the built-in FM hardware (and SMSPlus). The single user patch and rhythm-mode drums are not exposed yet (planned).
+
+**FM tables.** An FM instrument runs a table like any other voice. The table's **volume** column rewrites the FM channel level register (`$30` low nibble) live; the **pitch** column offsets the note and re-keys the FM voice — but only when the offset *changes* from the previous step, so a flat/blank table holds the note steady instead of retriggering every step (the chip key-on edge is what re-attacks). The trigger keeps the base note in the channel struct so the table arps relative to it. The `X` (volume) and `Y` (program) commands also resolve to the FM channel for FM voices.
 
 ---
 

@@ -1356,12 +1356,13 @@ exec_command:
   cp CMD_VOL
   jp z, xc_vol
   ret
-xc_vol:                      ; X xx: set this note's volume (AHD peak 0-F).
-  ld a, d                    ; takes effect when paired with a note (the
-  cp 16                      ; attack then ramps to it)
+xc_vol:                      ; X xx: set this note's volume (0-F). PSG: the
+  ld a, d                    ; AHD peak the attack ramps to. FM: live volume.
+  cp 16
   jr c, xv_ok
   ld a, 15
 xv_ok:
+  ld e, a                    ; e = volume 0-15
   rlca
   rlca
   rlca
@@ -1372,6 +1373,30 @@ xv_ok:
   and $0F                    ; keep the stage; set the peak (high nibble)
   or d
   ld (ix+4), a
+  call chan_is_fm            ; FM voice? also push it to the FM volume reg
+  ret nz
+  ld a, (cur_trig_ch)
+  ld d, a
+  ld a, e                    ; a = volume
+  ld e, d                    ; e = channel
+  jp fm_set_vol
+; Z if the IX channel's current instrument is FM (type 4). Preserves regs.
+chan_is_fm:
+  push hl
+  push de
+  ld a, (ix+1)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, instruments
+  add hl, de
+  ld a, (hl)
+  pop de
+  pop hl
+  cp 4
   ret
 xc_speed:                    ; S xx: sample playback speed (0-3)
   ld a, d
@@ -1785,8 +1810,8 @@ tn_fm_p:
   and $0F                    ; 15 - VOL
   or l
   ld l, a                    ; -> $30-reg (patch | attenuation)
-  ; silence the PSG host channel; FM plays on its own channel
-  ld (ix+0), $FF
+  ; mute the PSG host (vol 0); keep the note in ix+0 so a table can
+  ; re-key the FM voice for arps (the silent PSG period write dedups)
   ld (ix+2), 0
   ; write FM channel cur_trig_ch: key-off, patch|vol, F-num, key-on
   ld a, (cur_trig_ch)
@@ -2074,18 +2099,18 @@ cf_table:
   ; --- table: per-tick (TBS 1-F) or per-note (TBS 0) advance ---
   ld a, (ix+20)
   cp NUM_TABLES
-  jr nc, cf_env
+  jp nc, cf_env
   ld a, (ix+23)
   or a
   jr z, ct_note              ; TBS 0 = advance one row per triggered note
   dec (ix+22)                ; tick mode: a row every (ix+23) ticks
-  jr nz, cf_env
+  jp nz, cf_env
   ld (ix+22), a              ; reload speed counter (a = TBS)
   jr ct_apply
 ct_note:
   ld a, (ix+22)              ; note mode: only when a trigger armed us
   or a
-  jr z, cf_env
+  jp z, cf_env
   ld (ix+22), 0              ; disarm: exactly one row per note
 ct_apply:
   ld a, (ix+20)              ; row ptr = tables + tbl*64 + row*4
@@ -2105,6 +2130,8 @@ ct_apply:
   add hl, de
   ld de, tables
   add hl, de
+  call chan_is_fm
+  jr z, ct_fm_row            ; FM voice: route vol/pitch to the FM channel
   ld a, (hl)                 ; vol column ($FF = no change)
   cp $10
   jr nc, cf_tpitch
@@ -2114,6 +2141,50 @@ cf_tpitch:
   ld a, (hl)                 ; pitch column (signed semitones)
   ld (ix+24), a
   inc hl
+  jr ct_cmd
+ct_fm_row:                   ; FM: vol -> FM volume, pitch -> FM re-key (arp)
+  ld a, (hl)                 ; vol column ($FF = no change)
+  cp $10
+  jr nc, ctf_pitch
+  push hl
+  push bc
+  ld d, a
+  ld a, (cur_trig_ch)
+  ld e, a
+  ld a, d                    ; vol
+  call fm_set_vol
+  pop bc
+  pop hl
+ctf_pitch:
+  inc hl
+  ld a, (hl)                 ; pitch offset (signed)
+  ld d, a
+  ld a, (ix+24)
+  cp d                       ; unchanged since last step? don't re-key
+  jr z, ctf_skip             ;   (a flat/blank table must not retrigger)
+  ld a, d
+  ld (ix+24), a
+  push hl
+  push bc
+  add a, (ix+0)              ; base note + offset, clamp to 0..NOTE_COUNT-1
+  jp m, ctf_lo
+  cp NOTE_COUNT
+  jr c, ctf_hi
+  ld a, NOTE_COUNT-1
+  jr ctf_hi
+ctf_lo:
+  xor a
+ctf_hi:
+  ld d, a
+  ld a, (cur_trig_ch)
+  ld e, a
+  ld a, d                    ; note index
+  call fm_set_pitch
+  pop bc
+  pop hl
+ctf_skip:
+  inc hl
+ct_cmd:
   ld a, (hl)                 ; command column
   or a
   jr z, cf_tadv

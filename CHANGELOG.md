@@ -6,6 +6,12 @@ The git history has the full detail; this is the curated summary.
 ## v0.26 — unreleased
 
 ### Added
+- **FM honours tables (TBL/TBS) and the `X` command.** An FM instrument can now
+  run a table: its volume column rewrites the FM channel level live, and its
+  pitch column arps the note by re-keying the FM voice. `X` (per-note volume)
+  also works on FM voices. A flat/blank table holds the note steady — it
+  re-keys only when the pitch offset actually changes, so it no longer
+  retriggers every step.
 - **FM transpose + program command.** FM instruments now expose **TSP**
   (transpose), and the new **`Y`** command sets a note's FM program/patch
   (1–15), overriding the instrument's PROG one-shot (like `B` for wavetables).

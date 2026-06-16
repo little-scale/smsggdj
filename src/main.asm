@@ -562,6 +562,71 @@ fmw_loop:
   pop bc
   ret
 
+; write FM channel volume live (X command / table vol column).
+; IN: ix = channel struct, e = channel (0-3), a = musical volume (0-F).
+; Keeps the instrument's patch in the $30-reg high nibble.
+fm_set_vol:
+  cpl
+  and $0F                    ; attenuation = 15 - volume
+  ld d, a
+  push de                    ; save channel (e) + attenuation (d)
+  ld a, (ix+1)               ; instrument -> patch (+4)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, instruments+4
+  add hl, de
+  ld a, (hl)
+  pop de
+  and $0F
+  jr nz, fsv_p
+  inc a                      ; patch 0 -> 1
+fsv_p:
+  rlca
+  rlca
+  rlca
+  rlca                       ; patch << 4
+  or d                       ; | attenuation
+  ld b, a                    ; $30-reg data
+  ld a, e
+  add a, $30                 ; $30 + channel
+  ld c, a
+  jp fm_w
+
+; write FM channel pitch live, keeping the note keyed on (table arp /
+; pitch column). IN: ix, e = channel (0-3), a = note index (clamped).
+; Looks up F-number/block from the region table; key-on stays set.
+fm_set_pitch:
+  cp NOTE_COUNT
+  jr c, fsp_ok
+  ld a, NOTE_COUNT-1
+fsp_ok:
+  add a, a                   ; note * 2
+  ld l, a
+  ld h, 0
+  ld bc, (fm_note_ptr)
+  add hl, bc
+  ld a, (hl)                 ; F-number low ($10-reg)
+  ld d, a
+  inc hl
+  ld a, (hl)
+  or $30                     ; key-on ($10) | sustain ($20) | block | fnum8
+  push af                    ; save the $20-reg value
+  ld a, e
+  add a, $10                 ; $10 + channel
+  ld c, a
+  ld b, d
+  call fm_w                  ; F-number low
+  pop af
+  ld b, a                    ; $20-reg value
+  ld a, e
+  add a, $20                 ; $20 + channel
+  ld c, a
+  jp fm_w
+
 ; =============================================================
 ; transport
 ; =============================================================

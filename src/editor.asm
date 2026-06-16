@@ -702,7 +702,7 @@ iwsd_smp:                    ; SMP path: INST TYPE TSP(6) RATE(12)
 iwsd_s6:
   ld a, 6
   ret
-iwsd_fm:                     ; FM path: INST TYPE VOL HLD(4) TSP(6) PROG(12)
+iwsd_fm:                     ; FM: INST TYPE VOL HLD(4) TSP(6) TBL(10) TBS(11) PROG(12)
   ld a, e
   cp 3
   ret c                      ; 0,1,2 unchanged
@@ -714,15 +714,17 @@ iwsd_fm:                     ; FM path: INST TYPE VOL HLD(4) TSP(6) PROG(12)
   jr c, iwsd_fm6             ; 5 -> 6 (TSP)
   cp 7
   ret c                      ; 6 unchanged
-  cp 12
-  ret nc                     ; 12 unchanged
-  ld a, 12                   ; 7..11 -> 12 (PROG)
-  ret
+  cp 10
+  jr c, iwsd_fm10            ; 7,8,9 -> 10 (TBL)
+  ret                        ; 10,11,12 unchanged
 iwsd_fm4:
   ld a, 4
   ret
 iwsd_fm6:
   ld a, 6
+  ret
+iwsd_fm10:
+  ld a, 10
   ret
 ins_wskip_u:
   ld e, a
@@ -764,7 +766,7 @@ iwsu_smp:                    ; SMP up: RATE(12) TSP(6) TYPE INST
 iwsu_s1:
   ld a, 1
   ret
-iwsu_fm:                     ; FM up: PROG(12) TSP(6) HLD(4) VOL TYPE INST
+iwsu_fm:                     ; FM up: PROG TBS TBL TSP HLD VOL TYPE INST
   ld a, e
   cp 3
   ret c                      ; 0,1,2 unchanged
@@ -774,15 +776,17 @@ iwsu_fm:                     ; FM up: PROG(12) TSP(6) HLD(4) VOL TYPE INST
   ret c                      ; 4 unchanged
   cp 7
   jr c, iwsu_fm4             ; 5,6 -> 4 (HLD)
-  cp 12
-  ret nc                     ; 12 unchanged
-  ld a, 6                    ; 7..11 -> 6 (TSP)
-  ret
+  cp 10
+  jr c, iwsu_fm6             ; 7,8,9 -> 6 (TSP)
+  ret                        ; 10,11,12 unchanged
 iwsu_fm2:
   ld a, 2
   ret
 iwsu_fm4:
   ld a, 4
+  ret
+iwsu_fm6:
+  ld a, 6
   ret
 ins_is_wav:                  ; Z if the edited instrument is WAV (type 3)
   push de
@@ -6472,10 +6476,10 @@ r2f_smp:                     ; grid row -> field (INST/TYPE/TSP/RATE)
   .db 0, 1, $FF, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_smp:                     ; field -> grid row (TSP=6 shown; 2-5,7-11 skipped)
   .db 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4
-r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/TSP/PROG (field 12 = patch)
-  .db 0, 1, 2, 4, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_fm:                      ; field -> grid row (only 0,1,2,4,6,12 shown)
-  .db 0, 1, 2, 0, 3, 0, 4, 0, 0, 0, 0, 0, 5
+r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/TSP/TBL/TBS/PROG
+  .db 0, 1, 2, 4, 6, 10, 11, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_fm:                      ; field -> grid row (0,1,2,4,6,10,11,12 shown)
+  .db 0, 1, 2, 0, 3, 0, 4, 0, 0, 0, 5, 6, 7
 
 .ENDS
 
