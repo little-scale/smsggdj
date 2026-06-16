@@ -6616,10 +6616,10 @@ r2f_smp:                     ; grid row -> field (INST/TYPE/TSP/RATE)
   .db 0, 1, $FF, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_smp:                     ; field -> grid row (TSP=6 shown; 2-5,7-11 skipped)
   .db 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4
-r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/TSP/TBL/TBS/PROG/PRST
-  .db 0, 1, 2, 4, 6, 10, 11, 12, 14, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_fm:                      ; field -> grid row (0,1,2,4,6,10,11,12,14 shown)
-  .db 0, 1, 2, 0, 3, 0, 4, 0, 0, 0, 5, 6, 7, 0, 8
+r2f_fm:                      ; FM, grouped: INST/TYPE/VOL/HLD | TSP | TBL/TBS | PROG/PRST
+  .db 0, 1, 2, 4, $FF, 6, $FF, 10, 11, $FF, 12, 14, $FF, $FF, $FF, $FF
+f2r_fm:                      ; field -> grid row (spacers after HLD, TSP, TBS)
+  .db 0, 1, 2, 0, 3, 0, 5, 0, 0, 0, 7, 8, 10, 0, 11
 r2f_fmdrum:                  ; FMDRUM kit: INST/TYPE/VOL/HLD (note picks drum)
   .db 0, 1, 2, $FF, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_fmdrum:                  ; field -> grid row (0,1,2,4 shown)
