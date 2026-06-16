@@ -189,6 +189,8 @@ init:
   call load_palette
   ld a, SYNC_OFF             ; defaults config_load may override; set
   ld (sync_mode), a          ;   before it now that it runs pre-splash
+  ld a, $FF
+  ld (fm_ovr), a             ; one-shot FM program override starts clear
   call load_font
   call sram_detect           ; restore persisted OPTIONS (colour, sync,
   call config_load           ;   video) before the splash, so it renders

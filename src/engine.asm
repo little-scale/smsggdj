@@ -57,7 +57,8 @@
 .DEFINE CMD_SPEED   19         ; S: sample speed (0 norm, 1 2x, 2 half)
 .DEFINE CMD_WSET    20         ; B: set this note's wavetable (0-7)
 .DEFINE CMD_VOL     21         ; X: set this note's volume (AHD peak 0-F)
-.DEFINE CMD_COUNT   22
+.DEFINE CMD_FMPROG  22         ; Y: set this note's FM program (patch 1-15)
+.DEFINE CMD_COUNT   23
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -117,6 +118,7 @@
   echo_head    db            ; ring write index (0-63)
   echo_ring    dsb 64*4      ; T1 hist: period lo, hi, atten, note
   wav_ovr      db            ; B cmd: one-shot wave # ($FF = none)
+  fm_ovr       db            ; Y cmd: one-shot FM program ($FF = none)
   proj_tsp     db            ; global transpose, signed semitones
   live_q       dsb 4         ; queued song row per track ($FF -)
   sram_ok      db            ; cart SRAM detected at boot
@@ -149,6 +151,7 @@ engine_play:
   ld (hop_pending), a
   ld a, $FF
   ld (wav_ovr), a
+  ld (fm_ovr), a
   pop af
   ld a, $FF
   ld (cur_row), a            ; first tick advances to row 0
@@ -1173,6 +1176,8 @@ pr_nok:
   jr z, prn_iter
   cp CMD_WSET
   jr z, prn_wset
+  cp CMD_FMPROG
+  jr z, prn_fmprog
 prn_norm:
   ld (ix+0), b
   push hl
@@ -1185,6 +1190,10 @@ prn_wset:                    ; set this note's wavetable, then trigger
   ld a, d
   and $07
   ld (wav_ovr), a
+  jr prn_norm
+prn_fmprog:                  ; set this note's FM program, then trigger
+  ld a, d
+  ld (fm_ovr), a
   jr prn_norm
 prn_delay:
   ld a, d
@@ -1278,6 +1287,8 @@ pr_cmd:
   cp CMD_WAIT
   jr z, prc_wait
   cp CMD_WSET
+  jr z, pr_next              ; applied in the trigger peek above
+  cp CMD_FMPROG
   jr z, pr_next              ; applied in the trigger peek above
   call exec_command          ; channel-scope
   jp pr_next
@@ -1747,6 +1758,14 @@ tn_fm_go:
   ld a, (hl)
   or $30                     ; key-on ($10) | sustain ($20) | block | fnum8
   ld d, a                    ; -> $20-reg
+  ld a, (fm_ovr)             ; Y command overrides the program for this note
+  inc a
+  jr z, tn_fm_inst           ; $FF -> no override, use the instrument's patch
+  ld a, (fm_ovr)
+  ld c, a
+  ld a, $FF
+  ld (fm_ovr), a             ; one-shot: consume the override
+tn_fm_inst:
   ld a, c                    ; patch (1-15); 0 would be the user patch
   and $0F
   jr nz, tn_fm_p

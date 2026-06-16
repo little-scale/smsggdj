@@ -6,6 +6,9 @@ The git history has the full detail; this is the curated summary.
 ## v0.26 — unreleased
 
 ### Added
+- **FM transpose + program command.** FM instruments now expose **TSP**
+  (transpose), and the new **`Y`** command sets a note's FM program/patch
+  (1–15), overriding the instrument's PROG one-shot (like `B` for wavetables).
 - **FM synthesis (YM2413 / SMS FM Sound Unit)** — a new **FM** instrument type
   (5th type) plays the chip's 15 ROM patches. Pick a **PROG** (patch 1–15) and
   **VOL**; notes play in tune from a region F-number table on the FM channel

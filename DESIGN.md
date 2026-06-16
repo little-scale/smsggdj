@@ -290,6 +290,7 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `V xy` | Vibrato | speed x, depth y | one-shot vibrato override |
 | `W xx` | Wait-skip | ticks | shorten this row to xx ticks (shuffle fills) |
 | `X xx` | volume | level 0–F | set this note's volume (the AHD peak); pair with a note — the attack ramps to it. Accents a single note (the only per-note volume control after `E` became ATK/DCY) |
+| `Y xx` | FM program | patch 1–15 | set this note's FM program/patch, overriding the FM instrument's PROG (one-shot, like `B` for wavetables) |
 
 Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2. `B` (wave-bank select) is new — no LSDJ equivalent.
 
