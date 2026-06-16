@@ -5,6 +5,23 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.27 — unreleased
 
+### Changed
+- **LIVE chain swaps now quantize to the next bar.** Queueing a chain on the SONG
+  screen in LIVE mode lands on the next 16-row phrase boundary, regardless of the
+  current chain's length (previously it waited for the whole chain to finish). All
+  tracks keep their row counters running while silent, so a chain queued onto a
+  stopped track starts bar-aligned with the playing tracks.
+- **LIVE mode starts silent.** Triggering from a stopped state in LIVE no longer
+  fires the whole song — the clock starts with every track silent and only the
+  cell you trigger plays, so you build the mix one track at a time.
+
+### Fixed
+- **`H` (hop) is now per-channel.** Ending a phrase early with `H` affected *all*
+  tracks because the row counter was shared. Each track now keeps its own
+  phrase-row position, so `H` ends only the phrase it's written on — tracks can
+  run independent phrase lengths against the shared tempo/groove. (Tempo `T`,
+  groove `G` and wait `W` remain global.)
+
 ## v0.26 — 2026-06-17
 
 ### Added

@@ -175,7 +175,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 
 **Song-column semantics** (LSDJ-style, settled post-v0.2): starting playback, each track enters at the first populated cell at or below the start row — a column with nothing there does not play. An **empty cell ends the column**: the track immediately loops to the column's top (its first populated cell). A populated cell holding an **empty chain** is one deliberate rest row. Columns loop independently — equal spans stay locked, unequal spans are polymetric.
 
-**LIVE mode** (PROJECT → `PLAY: SONG/LIVE`, implemented post-v0.2): the song grid becomes a bank of loops — each track's chain repeats instead of advancing down the song. On the SONG screen while playing, the transport gesture (2H+1) *queues* the cell under the cursor onto its track; the swap lands when that track's current chain finishes (LSDJ-style quantize), shown by a triangle marker beside the queued cell. Queueing an empty cell is a quantized track stop; a queued chain on a silent track starts at the next phrase boundary. the transport gesture on the cell that is *already playing* kills that track instantly (starting the playing chain = stopping it); **PAUSE is the global stop**. Tracks at different chain lengths run polymetrically, exactly as in song mode.
+**LIVE mode** (PROJECT → `PLAY: SONG/LIVE`, implemented post-v0.2): the song grid becomes a bank of loops — each track's chain repeats instead of advancing down the song. On the SONG screen while playing, the transport gesture (2H+1) *queues* the cell under the cursor onto its track; the swap lands on the **next phrase boundary** (the next 16-row bar, regardless of where in the chain it was — quantized to the bar, not to chain-end), shown by a triangle marker beside the queued cell. Queueing an empty cell is a quantized track stop; a queued chain on a silent track also starts on the next phrase boundary. (All tracks keep their row counters running even while silent, so queued starts stay bar-aligned with the playing tracks.) the transport gesture on the cell that is *already playing* kills that track instantly (starting the playing chain = stopping it); **PAUSE is the global stop**. Starting LIVE from a stopped state begins the clock with **every track silent** — the first gesture triggers only the cell under the cursor, so the mix is built one track at a time (not the whole song). Tracks at different chain lengths run polymetrically, exactly as in song mode.
 
 ---
 
@@ -283,8 +283,8 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `D xx` | Delay | ticks | delay note trigger |
 | `E xy` | Envelope | ATK x, DCY y | re-slope the AHD ramps live (HLD and the current stage are untouched) |
 | `F xx` | Finetune | signed | detune in period units |
-| `G xx` | Groove | groove # | switch groove from this row (this track) |
-| `H xx` | Hop | position | PHRASE: end phrase / jump to song row; TABLE: loop |
+| `G xx` | Groove | groove # | switch the (global) groove from this row |
+| `H xx` | Hop | — | PHRASE: end **this track's** phrase now (per-channel; param ignored); TABLE: loop |
 | `K xx` | Kill | ticks | note cut after xx ticks (00 = instant; also aborts samples) |
 | `L xx` | sLide | speed | tone portamento toward this row's note |
 | `M xy` | aMp mod | speed x, depth y | tremolo override (LSDJ's M is master volume, which the PSG lacks — letter reused) |
@@ -306,7 +306,7 @@ Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its L
 
 ## 9. Timing: grooves
 
-Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). Groove is global by default; `G` sets per-track grooves for polyrhythms.
+Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). The groove is the **global** tempo/swing clock; `G` switches which groove is active from a row. (Per-track grooves are a future addition — currently `G`, `T` and `W` are global; only `H` is per-channel, ending a single track's phrase early so tracks can run independent phrase lengths.)
 
 The groove is the single musical clock: tempo *is* the groove (ticks/row at the fixed 50/60 Hz frame rate), so there is no separate tempo store. The PROJECT **TMPO** field is a live readout derived from the active groove and steps it one tick at a time — i.e. it walks the achievable BPM rungs (NTSC flat groove: 60, 75, 90, 100, 112, 128, 150, 180, 225…), shifting every groove entry together so swing is preserved, never flattened. The `T` command still does direct BPM→groove entry mid-song (it flattens, by design — an explicit "set this tempo now"). Anything that should track the beat is expressed in rows against this grid (e.g. echo taps); only the sample/wave DAC feed uses raw frame-ticks. In sync-IN mode the engine **locks to a flat 6-tick row** (24 PPQN) and ignores the song's stored groove, so the song stays beat-aligned with the master at any tempo regardless of its groove (1 wire clock = 1 tick; groove 6 = 16th-note rows). The stored groove is untouched — it returns when SYNC leaves IN; `W` is also ignored while following. See §11.3.
 

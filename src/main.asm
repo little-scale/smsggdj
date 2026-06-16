@@ -861,6 +861,25 @@ tp_stop:
   call engine_stop
   jr tp_dirty
 tp_start:
+  ; LIVE on the SONG screen: start the clock with every track silent, then
+  ; trigger only the cell under the cursor (don't fire the whole song)
+  ld a, (play_mode)
+  or a
+  jr z, tp_start_song
+  ld a, (scr_mode)
+  or a                       ; SCR_SONG = 0
+  jr nz, tp_start_song
+  ld a, MODE_SONG
+  call engine_play           ; LIVE: engine_play leaves all tracks silent
+  ld a, (hdr_cur)
+  or a
+  jr nz, tp_dirty            ; header gesture: just the silent clock
+  ld a, (song_col)
+  ld c, a
+  ld a, (song_cur)
+  call live_queue            ; arm only this track
+  jr tp_dirty
+tp_start_song:
   ld a, (scr_mode)           ; transport context (design doc 3):
   cp SCR_INSTR               ; SONG/CHAIN/PHRASE play themselves,
   jr c, tp_go                ; INSTR/TABLE loop the phrase for

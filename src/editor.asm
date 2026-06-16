@@ -4904,7 +4904,16 @@ playhead_update:
   ld a, (cur_phrase)
   cp c
   jr nz, pu_ph_set
-  ld a, (cur_row)
+  push hl                    ; playhead = this track's own row (per-channel)
+  push de
+  ld a, (ed_track)
+  ld e, a
+  ld d, 0
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)
+  pop de
+  pop hl
   ld b, a
 pu_ph_set:
   ld a, (drawn_a)

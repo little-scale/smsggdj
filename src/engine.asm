@@ -91,14 +91,15 @@
 .RAMSECTION "engvars" SLOT 3
   play_state   db
   eng_mode     db
-  cur_row      db            ; phrase row, shared by all tracks
+  cur_row      db            ; row currently being processed (scratch)
+  chan_row     dsb 4         ; per-channel within-phrase row (independent hop)
   groove_cnt   db
   groove_pos   db
   mute_flags   db            ; bits 0-3
   eng_start    db            ; song row playback began on
   eng_len      db            ; song rows until the wrap to row 0
   groove_sel   db            ; active groove
-  hop_pending  db            ; H command: force phrase boundary
+  chan_hop     dsb 4         ; per-channel H: force this track's phrase boundary
   cur_trig_ch  db            ; channel being processed (for WAV)
   sync_mode    db            ; SYNC_* (0 = OUT, the default)
   sync_cnt     db            ; master tick counter / pulse divider
@@ -149,13 +150,19 @@ engine_play:
   ld (eng_mode), a
   push af
   xor a
-  ld (hop_pending), a
+  ld (chan_hop+0), a         ; per-channel hop flags clear
+  ld (chan_hop+1), a
+  ld (chan_hop+2), a
+  ld (chan_hop+3), a
   ld a, $FF
   ld (wav_ovr), a
   ld (fm_ovr), a
   pop af
-  ld a, $FF
-  ld (cur_row), a            ; first tick advances to row 0
+  ld a, $FF                  ; per-channel rows: first tick advances each to row 0
+  ld (chan_row+0), a
+  ld (chan_row+1), a
+  ld (chan_row+2), a
+  ld (chan_row+3), a
   ld a, 1
   ld (groove_cnt), a
   xor a
@@ -234,6 +241,9 @@ ep_phr:
   ld a, (cur_phrase)
   ld (ix+10), a
 ep_songstart:
+  ld a, (play_mode)          ; LIVE: every track starts silent; the
+  or a                       ;   performer triggers chains one at a time
+  jr nz, eps_off
   ; LSDJ start: the track begins at the first populated cell at
   ; or below the start row; a column with nothing there at all
   ; does not play
@@ -535,21 +545,8 @@ et_gwrap:
 et_gstore:
   ld (groove_pos), a
 
-  ; advance row; at phrase boundaries walk chains/song
-  ld a, (cur_row)
-  inc a
-  and $0F
-  ld (cur_row), a
-  or a
-  call z, advance_positions
-  call process_row
-  ld a, (hop_pending)        ; H: next tick crosses the boundary
-  or a
-  jr z, et_fx
-  xor a
-  ld (hop_pending), a
-  ld a, $0F
-  ld (cur_row), a
+  ; advance + process every track at its own row (per-channel hop)
+  call step_channels
 et_fx:
   call channels_fx
   jp echo_pass
@@ -826,21 +823,62 @@ groove_base:
 
 ; -------------------------------------------------------------
 ; phrase boundary: move every active track to its next phrase
-advance_positions:
+; once per row-tick: for each active channel, advance its own row (and its
+; chain/phrase position at its own boundary, or early on a pending hop), then
+; process that channel's row. The groove clock stays global; only the row
+; position is per-channel, so H ends only the track it's written on.
+step_channels:
   ld ix, chst
   ld c, 0
-ap_loop:
-  ld a, (ix+6)
+sc_loop:
+  ld a, c
+  ld (cur_trig_ch), a
+  ; advance this channel's row EVERY tick (active or not) so all tracks track
+  ; the beat: a silent track re-armed in LIVE then still starts bar-aligned.
+  ld d, 0
+  ld e, c
+  ld hl, chan_hop
+  add hl, de
+  ld a, (hl)
   or a
-  jr z, ap_next
-  call advance_track
-ap_next:
+  jr z, sc_adv
+  ld (hl), 0                 ; pending hop: force this track's boundary now
+  ld hl, chan_row
+  add hl, de
+  ld (hl), 0
+  jr sc_bound
+sc_adv:
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)
+  inc a
+  and $0F
+  ld (hl), a
+  jr z, sc_bound             ; row wrapped -> phrase boundary
+  ld a, (ix+6)               ; mid-phrase: process only if active
+  or a
+  jp z, sc_next
+  jr sc_setrow
+sc_bound:
+  ld a, (ix+6)               ; boundary: only active tracks load + process
+  or a
+  jp z, sc_next
+  call advance_track         ; walk this track's chain/song (or take a queue)
+sc_setrow:
+  ld d, 0                    ; cur_row = this channel's row (advance_track
+  ld e, c                    ;   clobbers DE, so recompute the index)
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)
+  ld (cur_row), a
+  call process_chan
+sc_next:
   ld de, 32
   add ix, de
   inc c
   ld a, c
   cp 4
-  jr c, ap_loop
+  jp c, sc_loop
   ret
 
 advance_track:
@@ -880,6 +918,21 @@ at_cset:
 
   ; ---- song mode ----
 at_song:
+  ld a, (play_mode)          ; LIVE: a queued chain lands at the next phrase
+  or a                       ;   boundary (next bar), not at chain-end
+  jr z, ats_norm
+  ld hl, live_q
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  jr z, ats_norm             ; nothing queued: normal advance / chain loop
+  ld (ix+7), a               ; take the queued song row now
+  ld (hl), $FF
+  call mark_vis_a            ; clear its queued marker (A = the row)
+  jp at_load
+ats_norm:
   ld a, (ix+8)
   cp $FF
   jr z, at_load              ; first boundary: load current row
@@ -1094,13 +1147,10 @@ chain_entry:
 
 ; -------------------------------------------------------------
 ; read the new row on all active tracks
-process_row:
-  ld ix, chst
-  ld c, 0
-pr_loop:
-  ld a, c
-  ld (cur_trig_ch), a
-  ld a, (ix+6)
+; process one channel's current row (ix = channel, cur_row + cur_trig_ch set
+; by step_channels). Preserves C/IX for the caller's loop.
+process_chan:
+  ld a, (ix+6)               ; advance_track may have silenced an empty chain
   or a
   jp z, pr_next
   ld a, (ix+10)
@@ -1301,8 +1351,12 @@ prc_grv:
   ld (groove_pos), a
   jp pr_next
 prc_hop:
-  ld a, 1
-  ld (hop_pending), a
+  ld a, (cur_trig_ch)        ; H ends only this track's phrase (next tick)
+  ld e, a
+  ld d, 0
+  ld hl, chan_hop
+  add hl, de
+  ld (hl), 1
   jp pr_next
 prc_wait:
   ld a, (sync_mode)          ; W shortens a row; that fights the SYNC IN
@@ -1318,12 +1372,6 @@ prc_wst:
 prc_tpo:
   call set_tempo
 pr_next:
-  ld de, 32
-  add ix, de
-  inc c
-  ld a, c
-  cp 4
-  jp c, pr_loop
   ret
 
 ; -------------------------------------------------------------

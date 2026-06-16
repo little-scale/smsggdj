@@ -293,7 +293,7 @@ take a two-digit parameter `xy`.
 | `E` | Envelope | Re-slope the AHD ramps live: `Exy` sets ATK = x, DCY = y (hold is left alone) |
 | `F` | Finetune | Detune slightly |
 | `G` | Groove | Switch groove from this row (this track) |
-| `H` | Hop | PHRASE: end / jump. TABLE: loop |
+| `H` | Hop | PHRASE: end this track's phrase now (only this channel). TABLE: loop |
 | `I` | Iteration | An 8-bit play mask over **this phrase's play count**: on the Nth play of the phrase the note sounds if bit (N mod 8) is set. `IFF` = always, `I00` = never, `I55`/`IAA` = odd/even plays, `I0F` = first four of eight, `IF0` = last four. Lets one phrase vary across its repeats without cloning |
 | `K` | Kill | Cut the note after xy ticks (`K00` = instant; also stops samples) |
 | `L` | Slide | Glide (portamento) to this note |
