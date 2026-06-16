@@ -51,6 +51,10 @@ and press play.
 - **[tools/palette.html](tools/palette.html)** — drop a built ROM and recolour
   its 8 UI palettes (0–7): pick a background + foreground for each (the pickers
   snap to the 64 hardware colours), then download the patched ROM. No toolchain.
+- **[tools/fmpatch.html](tools/fmpatch.html)** — drop a built `.sms` ROM and
+  edit its 8 custom FM presets (the YM2413 user patches an FM instrument's
+  **PRST** field selects): per-operator MUL/AR/DR/SL/RR/KSL/TL, feedback,
+  waveforms and names, then download the patched ROM. No toolchain.
 - **[tools/als2smdj.html](tools/als2smdj.html)** — drop an Ableton Live Set
   (`.als`) and get a `.smdj` song: the first 3 MIDI tracks' Session clips become
   phrases/chains on a 16th-note grid (highest note wins, out-of-range folds in,
@@ -87,6 +91,7 @@ tools/      Python build tools + the browser apps:
               patcher.html      browser sample patcher
               savetool.html     browser song/save manager
               palette.html      browser UI-palette recolourer
+              fmpatch.html      browser FM custom-preset editor
 samples/    sample sources; samples/pool.bin (if present) is the baked bank
 art/        the logo art
 ```

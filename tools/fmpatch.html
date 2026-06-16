@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMSGGDJ FM preset patcher</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 880px; margin: 32px auto;
+         padding: 0 18px; background: #0d1117; color: #c9d1d9; }
+  h1 { font-size: 22px; } h1 span { color: #58a6ff; }
+  .dim { color: #8b949e; } .bad { color: #f85149; }
+  a { color: #58a6ff; }
+  .zone { border: 2px dashed #2d3742; border-radius: 12px; padding: 26px;
+          text-align: center; color: #8b949e; cursor: pointer; margin: 14px 0; }
+  .zone.armed { border-color: #58a6ff; color: #c9d1d9; }
+  .pre { background: #161c22; border: 1px solid #2d3742; border-radius: 10px;
+         padding: 12px 14px; margin: 10px 0; }
+  .pre .hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .pre .num { font: 600 18px ui-monospace, monospace; color: #58a6ff; width: 22px; }
+  .pre .name { font: 600 15px ui-monospace, monospace; text-transform: uppercase;
+               width: 90px; background: #0d1117; color: #c9d1d9; border: 1px solid #2d3742;
+               border-radius: 6px; padding: 5px 8px; letter-spacing: 1px; }
+  .ops { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .op { background: #0d1117; border: 1px solid #20262d; border-radius: 8px; padding: 8px 10px; }
+  .op h3 { margin: 0 0 6px; font-size: 13px; color: #58a6ff; font-weight: 600; }
+  .ctl { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 13px; }
+  .ctl label { width: 34px; color: #8b949e; }
+  .ctl input[type=range] { flex: 1; }
+  .ctl .v { width: 22px; text-align: right; font: 600 13px ui-monospace, monospace; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12px; }
+  .toggles label { color: #8b949e; display: flex; align-items: center; gap: 4px; }
+  .shared { display: flex; gap: 22px; margin-top: 8px; padding-top: 8px;
+            border-top: 1px solid #20262d; }
+  .shared .ctl { flex: 1; }
+  button { background: #21262d; color: #c9d1d9; border: 1px solid #2d3742;
+           border-radius: 7px; padding: 9px 18px; font-size: 14px; cursor: pointer; }
+  button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<h1><span>SMSGGDJ</span> FM preset patcher</h1>
+<p class="dim">Drop a built <b>.sms</b> ROM to edit its 8 custom FM presets (the
+YM2413 user patches selected by an FM instrument's <b>PRST</b> field). Each
+preset is a 2-operator voice &mdash; a <b>modulator</b> feeding a <b>carrier</b>
+&mdash; plus feedback and a name. Download the patched ROM and load it in the
+tracker (or an emulator) to hear it; there's no FM audio in this page. Nothing
+leaves your browser.</p>
+
+<div class="zone" id="zone">drop a .sms ROM here (or click)</div>
+<input type="file" id="file" hidden>
+
+<div id="presets"></div>
+
+<div style="margin-top:14px">
+  <button class="primary" id="dl" disabled>download patched ROM</button>
+  <span class="dim" id="note"></span>
+</div>
+
+<script>
+"use strict";
+// FMPRST block: "FMPRST" + version(1) + count(8), then 8x8 patch bytes
+// (YM2413 user-patch regs $00-$07), then 8x5 display names.
+const MAGIC = [0x46, 0x4D, 0x50, 0x52, 0x53, 0x54];   // "FMPRST"
+const NPRE = 8, PBYTES = 8, NAMELEN = 5;
+let rom = null, patchOff = -1, nameOff = -1, romName = "smsggdj.sms";
+
+function findBlock(d) {
+  outer:
+  for (let i = 0; i < d.length - (8 + NPRE * PBYTES + NPRE * NAMELEN); i++) {
+    for (let j = 0; j < MAGIC.length; j++) if (d[i + j] !== MAGIC[j]) continue outer;
+    if (d[i + 6] !== 0x01 || d[i + 7] !== NPRE) continue;   // version + count
+    return i;
+  }
+  return -1;
+}
+
+function note(msg, bad) {
+  const el = document.getElementById("note");
+  el.textContent = msg; el.className = bad ? "bad" : "dim";
+}
+
+// a labelled slider bound to a bit-field (shift, mask) of rom[idx]
+function slider(label, idx, shift, mask) {
+  const max = mask;
+  const wrap = document.createElement("div");
+  wrap.className = "ctl";
+  wrap.innerHTML = `<label>${label}</label>` +
+    `<input type="range" min="0" max="${max}" step="1">` +
+    `<span class="v"></span>`;
+  const r = wrap.querySelector("input"), v = wrap.querySelector(".v");
+  const cur = () => (rom[idx] >> shift) & mask;
+  const sync = () => { r.value = cur(); v.textContent = cur(); };
+  r.addEventListener("input", () => {
+    rom[idx] = (rom[idx] & ~(mask << shift)) | ((+r.value & mask) << shift);
+    v.textContent = cur();
+  });
+  sync();
+  return wrap;
+}
+
+// a checkbox bound to one bit of rom[idx]
+function toggle(label, idx, bit) {
+  const wrap = document.createElement("label");
+  const c = document.createElement("input");
+  c.type = "checkbox";
+  c.checked = (rom[idx] >> bit) & 1;
+  c.addEventListener("change", () => {
+    if (c.checked) rom[idx] |= (1 << bit); else rom[idx] &= ~(1 << bit);
+  });
+  wrap.appendChild(c);
+  wrap.appendChild(document.createTextNode(label));
+  return wrap;
+}
+
+// one operator column (modulator or carrier). multReg holds AM/VIB/EGT/KSR/MUL;
+// klTlReg holds KSL (+ TL on the modulator); adReg = AR|DR; slrrReg = SL|RR;
+// waveReg/waveBit = the half-sine waveform bit for this operator.
+function opColumn(title, multReg, klTlReg, adReg, slrrReg, waveReg, waveBit, isMod) {
+  const col = document.createElement("div");
+  col.className = "op";
+  const h = document.createElement("h3");
+  h.textContent = title;
+  col.appendChild(h);
+  col.appendChild(slider("MUL", multReg, 0, 0x0F));
+  col.appendChild(slider("AR", adReg, 4, 0x0F));
+  col.appendChild(slider("DR", adReg, 0, 0x0F));
+  col.appendChild(slider("SL", slrrReg, 4, 0x0F));
+  col.appendChild(slider("RR", slrrReg, 0, 0x0F));
+  col.appendChild(slider("KSL", klTlReg, 6, 0x03));
+  if (isMod) col.appendChild(slider("TL", klTlReg, 0, 0x3F));   // mod output level
+  const tg = document.createElement("div");
+  tg.className = "toggles";
+  tg.appendChild(toggle("AM", multReg, 7));
+  tg.appendChild(toggle("VIB", multReg, 6));
+  tg.appendChild(toggle("SUS", multReg, 5));   // EG-TYP: sustained
+  tg.appendChild(toggle("KSR", multReg, 4));
+  tg.appendChild(toggle("HALF", waveReg, waveBit));   // half-sine waveform
+  col.appendChild(tg);
+  return col;
+}
+
+function render() {
+  const box = document.getElementById("presets");
+  box.innerHTML = "";
+  for (let n = 0; n < NPRE; n++) {
+    const p = patchOff + n * PBYTES;        // regs $00..$07
+    const nm = nameOff + n * NAMELEN;
+    // reg map: 0 mod-multi, 1 car-multi, 2 mod KSL|TL, 3 car-KSL|DM|DC|FB,
+    //          4 mod AR|DR, 5 car AR|DR, 6 mod SL|RR, 7 car SL|RR
+    const card = document.createElement("div");
+    card.className = "pre";
+
+    const hdr = document.createElement("div");
+    hdr.className = "hdr";
+    hdr.innerHTML = `<span class="num">${n + 1}</span>`;
+    const name = document.createElement("input");
+    name.className = "name";
+    name.maxLength = NAMELEN;
+    let s = "";
+    for (let k = 0; k < NAMELEN; k++) s += String.fromCharCode(rom[nm + k]);
+    name.value = s.replace(/\s+$/, "");
+    name.addEventListener("input", () => {
+      const t = name.value.toUpperCase().slice(0, NAMELEN).padEnd(NAMELEN, " ");
+      for (let k = 0; k < NAMELEN; k++) rom[nm + k] = t.charCodeAt(k) & 0x7F;
+    });
+    hdr.appendChild(name);
+    hdr.appendChild(Object.assign(document.createElement("span"),
+      { className: "dim", textContent: "preset name (5 chars)" }));
+    card.appendChild(hdr);
+
+    const ops = document.createElement("div");
+    ops.className = "ops";
+    ops.appendChild(opColumn("modulator", p + 0, p + 2, p + 4, p + 6, p + 3, 4, true));
+    ops.appendChild(opColumn("carrier", p + 1, p + 3, p + 5, p + 7, p + 3, 3, false));
+    card.appendChild(ops);
+
+    const sh = document.createElement("div");
+    sh.className = "shared";
+    sh.appendChild(slider("FB", p + 3, 0, 0x07));   // modulator feedback
+    card.appendChild(sh);
+
+    box.appendChild(card);
+  }
+  document.getElementById("dl").disabled = false;
+}
+
+function load(d, name) {
+  const off = findBlock(d);
+  if (off < 0) { note(name + ": no FMPRST preset block found", true); return; }
+  rom = d; romName = name;
+  patchOff = off + 8;
+  nameOff = patchOff + NPRE * PBYTES;
+  note(name + `: presets at 0x${patchOff.toString(16)}, names at 0x${nameOff.toString(16)}`);
+  render();
+}
+
+function download() {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([rom], { type: "application/octet-stream" }));
+  a.download = romName.replace(/\.(sms|gg)$/i, "_fm.$1");
+  a.click();
+}
+
+async function addFile(f) { load(new Uint8Array(await f.arrayBuffer()), f.name); }
+
+const zone = document.getElementById("zone"), inp = document.getElementById("file");
+zone.onclick = () => inp.click();
+inp.onchange = () => { if (inp.files[0]) addFile(inp.files[0]); inp.value = ""; };
+zone.ondragover = e => { e.preventDefault(); zone.classList.add("armed"); };
+zone.ondragleave = () => zone.classList.remove("armed");
+zone.ondrop = e => { e.preventDefault(); zone.classList.remove("armed");
+                     if (e.dataTransfer.files[0]) addFile(e.dataTransfer.files[0]); };
+document.getElementById("dl").onclick = download;
+</script>
+</body>
+</html>
