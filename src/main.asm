@@ -98,6 +98,7 @@ BANKS 8
   fm_rhythm      db            ; $0E shadow: bit5 rhythm enable | bits0-4 drum key-on
   fm_drumv       ds 3          ; volume shadows for $36/$37/$38 (packed drum levels)
   fm_dscr        ds 2          ; fm_drum_trig scratch (atten, vreg)
+  fm_user_preset db            ; custom patch currently in $00-$07 ($FF = none)
 .ENDS
 
 ; =============================================================
@@ -554,11 +555,41 @@ fri_loop:
   ld a, $FF
   ld (fm_drumv+1), a
   ld (fm_drumv+2), a
+  ld a, $FF                  ; no custom patch loaded yet
+  ld (fm_user_preset), a
   ld a, $20                  ; $0E: rhythm enable (bit5), all drum keys off
   ld (fm_rhythm), a
   ld c, $0E
   ld b, a
   jp fm_w
+
+; Load custom FM preset A (0-7) into the YM2413 user patch ($00-$07),
+; but only if it isn't already there (one user patch, global).
+; IN: a = preset index. Preserves DE; clobbers A/B/C/HL.
+fm_load_preset:
+  ld hl, fm_user_preset
+  cp (hl)
+  ret z                      ; already loaded
+  ld (hl), a                 ; remember it
+  ld l, a                    ; hl = fm_presets + a*8
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld bc, fm_presets
+  add hl, bc
+  ld c, $00                  ; user-patch registers $00..$07
+flp_loop:
+  ld b, (hl)                 ; value
+  push hl
+  call fm_w                  ; reg c, value b (preserves de)
+  pop hl
+  inc hl
+  inc c
+  ld a, c
+  cp $08
+  jr c, flp_loop
+  ret
 ; FM-OFF: drop FM routing and key everything off
 fm_silence:
   xor a
@@ -703,25 +734,37 @@ fm_set_vol:
   and $0F                    ; attenuation = 15 - volume
   ld d, a
   push de                    ; save channel (e) + attenuation (d)
-  ld a, (ix+1)               ; instrument -> patch (+4)
+  ld a, (ix+1)               ; hl = instrument record base
   ld l, a
   ld h, 0
   add hl, hl
   add hl, hl
   add hl, hl
   add hl, hl
-  ld de, instruments+4
+  ld de, instruments
   add hl, de
-  ld a, (hl)
-  pop de
+  push hl                    ; record base
+  ld de, 11
+  add hl, de
+  ld a, (hl)                 ; +11: 0 = ROM patch, 1-8 = custom (patch 0)
+  pop hl
+  or a
+  jr nz, fsv_cust
+  ld de, 4
+  add hl, de
+  ld a, (hl)                 ; +4 ROM patch
   and $0F
   jr nz, fsv_p
   inc a                      ; patch 0 -> 1
+  jr fsv_p
+fsv_cust:
+  xor a                      ; custom preset -> patch 0 (user patch)
 fsv_p:
   rlca
   rlca
   rlca
   rlca                       ; patch << 4
+  pop de                     ; d = atten, e = channel
   or d                       ; | attenuation
   ld b, a                    ; $30-reg data
   ld a, e

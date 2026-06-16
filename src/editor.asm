@@ -718,7 +718,10 @@ iwsd_fm:                     ; FM: INST TYPE VOL HLD(4) TSP(6) TBL(10) TBS(11) P
   ret c                      ; 6 unchanged
   cp 10
   jr c, iwsd_fm10            ; 7,8,9 -> 10 (TBL)
-  ret                        ; 10,11,12 unchanged
+  cp 13
+  ret c                      ; 10,11,12 unchanged
+  ld a, 14                   ; 13 (spacer) -> 14 (PRESET)
+  ret
 iwsd_fm4:
   ld a, 4
   ret
@@ -788,7 +791,10 @@ iwsu_fm:                     ; FM up: PROG TBS TBL TSP HLD VOL TYPE INST
   jr c, iwsu_fm4             ; 5,6 -> 4 (HLD)
   cp 10
   jr c, iwsu_fm6             ; 7,8,9 -> 6 (TSP)
-  ret                        ; 10,11,12 unchanged
+  cp 13
+  ret c                      ; 10,11,12 unchanged
+  ld a, 12                   ; 13 (spacer) -> 12 (PROG)
+  ret
 iwsu_fm2:
   ld a, 2
   ret
@@ -922,10 +928,13 @@ ins_max_row:
   cp 2
   jr z, imr_wav              ; SMP shares the WAV form (field 12 = RATE)
   cp 4
-  jr z, imr_wav              ; FM: field 12 = patch
+  jr z, imr_fm               ; FM: + PROG (12) + PRESET (14)
   cp 5
   jr z, imr_fmdrum
   ld a, 11                   ; TONE short form
+  ret
+imr_fm:
+  ld a, 14                   ; FM: last field = PRESET
   ret
 imr_fmdrum:
   ld a, 4                    ; FMDRUM: last field = HLD
@@ -1626,6 +1635,8 @@ inp_edit:
   jp z, ine_tbs
   cp 12
   jp z, ine_f11
+  cp 14
+  jp z, ine_preset
   jp ine_rate
 
 ; INST: which instrument the form edits (L/R +-1, U/D +-4)
@@ -1737,6 +1748,31 @@ if11s_dn:
   jp p, if11s_st
   ld a, 3
 if11s_st:
+  ld (hl), a
+  jp ine_mark
+
+; PRESET (FM, +11): OFF (0) <-> custom preset 1..8
+ine_preset:
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  ld c, a
+  ld de, 11
+  add hl, de                 ; hl -> +11
+  ld a, c
+  and PAD_RIGHT|PAD_UP
+  ld a, (hl)
+  jr z, ipr_dn
+  inc a
+  cp 9
+  jr c, ipr_st
+  xor a                      ; wrap 8 -> OFF
+  jr ipr_st
+ipr_dn:
+  dec a
+  jp p, ipr_st
+  ld a, 8                    ; wrap OFF -> 8
+ipr_st:
   ld (hl), a
   jp ine_mark
 
@@ -6338,6 +6374,8 @@ idr_addr:
   jp z, idr_tbs
   cp 12
   jp z, idr_f11
+  cp 14
+  jp z, idr_preset
   jp idr_rate
 idr_inst:
   ld a, (cur_instr)
@@ -6360,6 +6398,27 @@ idrf_fm:                     ; FM patch 1-15 (instrument +4 low nibble)
   ld a, (hl)
   and $0F
   jp print_hex_nib
+idr_preset:                  ; FM custom preset: OFF (0) or a 5-char name
+  ld de, 11
+  add hl, de
+  ld a, (hl)
+  or a
+  jr nz, idp_name
+  ld hl, str_prst_off
+  ld b, 5
+  jp print_raw
+idp_name:
+  dec a                      ; preset index 0-7 -> name (5 chars each)
+  ld d, a
+  add a, a
+  add a, a
+  add a, d                   ; * 5
+  ld e, a
+  ld d, 0
+  ld hl, fm_preset_names
+  add hl, de
+  ld b, 5
+  jp print_raw
 idrf_wav:
   ld de, 4
   add hl, de
@@ -6500,6 +6559,38 @@ idr_rate:
 
 .ENDS
 
+; -------------------------------------------------------------
+; FM custom presets: a self-describing, marker-delimited block so a
+; browser editor can find and rewrite it (like palette.html / the sample
+; pool). Header "FMPRST" + version + count, then 8 YM2413 user-patch
+; records (8 regs $00-$07 each), then 8 five-char display names. The
+; engine reads fm_presets (stride 8); the editor reads fm_preset_names
+; (stride 5). Values are a starting palette, tunable here or in the tool.
+.BANK 1 SLOT 1
+.SECTION "FMPresets" FREE
+fm_preset_blk:
+  .db "FMPRST", $01, 8        ; magic, format version, preset count
+fm_presets:                    ; 8 x 8 bytes = regs $00..$07 (mod/car MULT,
+  .db $21,$21,$0E,$07,$F8,$F7,$13,$13   ; 0 LEAD   KSL/TL, FB/wave, AR/DR, SL/RR)
+  .db $13,$11,$1A,$00,$F2,$F4,$25,$26   ; 1 EPNO
+  .db $31,$61,$0C,$00,$F8,$F8,$28,$29   ; 2 SBASS
+  .db $01,$01,$16,$03,$F4,$F2,$13,$14   ; 3 BELL
+  .db $21,$22,$1C,$07,$84,$64,$13,$13   ; 4 BRASS
+  .db $25,$21,$24,$02,$53,$53,$53,$53   ; 5 PAD
+  .db $01,$21,$18,$06,$F8,$F6,$47,$47   ; 6 PLUCK
+  .db $21,$21,$3F,$00,$F0,$F0,$0F,$0F   ; 7 SINE
+fm_preset_names:               ; 8 x 5 chars (display + web editor labels)
+  .db "LEAD "
+  .db "EPNO "
+  .db "SBASS"
+  .db "BELL "
+  .db "BRASS"
+  .db "PAD  "
+  .db "PLUCK"
+  .db "SINE "
+str_prst_off: .db "OFF  "      ; PRESET = OFF readout (not part of the block)
+.ENDS
+
 ; form-map tables are cold data: park in bank 1 (read cross-bank).
 .BANK 1 SLOT 1
 .SECTION "InsForm" FREE
@@ -6525,10 +6616,10 @@ r2f_smp:                     ; grid row -> field (INST/TYPE/TSP/RATE)
   .db 0, 1, $FF, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_smp:                     ; field -> grid row (TSP=6 shown; 2-5,7-11 skipped)
   .db 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4
-r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/TSP/TBL/TBS/PROG
-  .db 0, 1, 2, 4, 6, 10, 11, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_fm:                      ; field -> grid row (0,1,2,4,6,10,11,12 shown)
-  .db 0, 1, 2, 0, 3, 0, 4, 0, 0, 0, 5, 6, 7
+r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/TSP/TBL/TBS/PROG/PRST
+  .db 0, 1, 2, 4, 6, 10, 11, 12, 14, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_fm:                      ; field -> grid row (0,1,2,4,6,10,11,12,14 shown)
+  .db 0, 1, 2, 0, 3, 0, 4, 0, 0, 0, 5, 6, 7, 0, 8
 r2f_fmdrum:                  ; FMDRUM kit: INST/TYPE/VOL/HLD (note picks drum)
   .db 0, 1, 2, $FF, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_fmdrum:                  ; field -> grid row (0,1,2,4 shown)
@@ -6556,6 +6647,7 @@ ins_lbls:
   .db "TBS ", 0
   .db "MODE", 0
   .db "RATE", 0
+  .db "PRST", 0              ; field 14: FM custom-preset selector
 str_tone:   .db "TONE "
 str_smp:    .db "SMP  "
 str_wavt:   .db "WAV  "

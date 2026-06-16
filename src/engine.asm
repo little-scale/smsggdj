@@ -1818,11 +1818,33 @@ tn_fm_go:
   ld d, a                    ; -> $20-reg
   ld a, (fm_ovr)             ; Y command overrides the program for this note
   inc a
-  jr z, tn_fm_inst           ; $FF -> no override, use the instrument's patch
+  jr z, tn_fm_noovr          ; $FF -> no override
   ld a, (fm_ovr)
   ld c, a
   ld a, $FF
   ld (fm_ovr), a             ; one-shot: consume the override
+  jr tn_fm_inst              ; Y forces a ROM patch (ignores any preset)
+tn_fm_noovr:
+  ; FM preset is instrument byte +11 -- read the instrument record, NOT
+  ; ix+11 (ix is the channel struct here; its +11 is the chain number).
+  push de                    ; keep d=$20-reg, e=F-num low
+  ld a, (ix+1)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, instruments+11
+  add hl, de
+  ld a, (hl)                 ; +11: 0 = ROM patch, 1-8 = custom timbre
+  pop de
+  or a
+  jr z, tn_fm_inst
+  dec a                      ; preset index 0-7
+  call fm_load_preset        ; load $00-$07 if it changed (preserves de)
+  xor a                      ; patch 0 = the user (custom) patch
+  jr tn_fm_p
 tn_fm_inst:
   ld a, c                    ; patch (1-15); 0 would be the user patch
   and $0F

@@ -168,7 +168,11 @@ Each instrument has a **type**, set on the INSTR screen:
   **TBL**/**TBS** table drives it like any other voice — the table's volume
   column rewrites the FM level live and its pitch column arps the note
   (re-keying only when the offset changes, so a flat table holds steady). The
-  `X` (volume) and `Y` (program) commands also work on FM. SMS only.
+  `X` (volume) and `Y` (program) commands also work on FM. A **PRST** field
+  picks a custom timbre: `OFF` uses the ROM **PROG** patch, `1`–`8` use one of
+  8 ROM-baked presets (LEAD, EPNO, SBASS, BELL, BRASS, PAD, PLUCK, SINE) loaded
+  into the chip's user patch. Only one custom timbre sounds at a time (the chip
+  has a single user patch), so the most recent triggered preset wins. SMS only.
 - **FMDRM** — the YM2413's drum kit (rhythm mode). One instrument is the whole
   kit; the **note picks the drum** — C = bass drum, C♯ = snare, D = tom, D♯ =
   cymbal, E = hi-hat (and it repeats every 5 semitones, so any octave works).

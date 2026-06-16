@@ -6,6 +6,13 @@ The git history has the full detail; this is the curated summary.
 ## v0.26 — unreleased
 
 ### Added
+- **FM custom presets.** FM instruments gain a **PRST** field: `OFF` uses the
+  ROM **PROG** patch (unchanged), `1`–`8` select one of 8 ROM-baked custom
+  timbres (LEAD, EPNO, SBASS, BELL, BRASS, PAD, PLUCK, SINE) loaded into the
+  YM2413's user patch. Because the chip has a single user patch, only one
+  custom timbre sounds at a time (most recent trigger wins); `Y` still forces a
+  ROM patch. The presets live in a marker-delimited ROM block (`FMPRST`) so a
+  browser tool can rewrite them; the baked values are a tunable starting set.
 - **FM drums (FMDRM)** — a new instrument type driving the YM2413's rhythm
   mode: the chip's 5 fixed percussion voices (bass drum, snare, tom, cymbal,
   hi-hat). It's a kit — one instrument, the **note picks the drum** (C/C♯/D/D♯/E
