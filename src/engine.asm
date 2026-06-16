@@ -68,6 +68,7 @@
 .DEFINE STG_DCY     2          ; ramp peak -> 0 at DCY rate
 .DEFINE STG_KILL    3          ; K command: count down then hard cut
 .DEFINE STG_IDLE    4          ; finished/silent
+.DEFINE STG_FMHOLD  5          ; FM note: count down then key off the FM voice
 .DEFINE PRELISTEN_CAP 32       ; ticks: cap a forever-hold while stopped
 
 .DEFINE MODE_SONG   0
@@ -1440,7 +1441,12 @@ xc_kill:
   ld (ix+2), 0               ; K00: cut now
   ld (ix+4), STG_IDLE        ; envelope done
   ld a, (cur_trig_ch)
-  jp smp_kill_owned          ; K00 also cuts the sample
+  call smp_kill_owned        ; K00 also cuts the sample
+  ld a, (cur_trig_ch)        ; ...and keys off the FM channel (harmless
+  add a, $20                 ;   if this track isn't an FM voice)
+  ld c, a
+  ld b, 0
+  jp fm_w
 xc_klater:
   ld (ix+3), a               ; Kxx: count down xx ticks...
   ld (ix+4), STG_KILL        ; ...then hard cut (overrides the AHD)
@@ -1650,6 +1656,8 @@ tn_mods:
   jr z, tn_smp
   cp 3                       ; WAV: wavetable through the DAC
   jr z, tn_wav
+  cp 4                       ; FM: YM2413 voice
+  jp z, tn_fm
   cp 1                       ; NOISE instrument?
   ret nz
   ld a, c
@@ -1711,6 +1719,92 @@ tnw_go:
   ; running: they gate the wave (vol 0 stops it)
   ld (ix+0), $FF
   ld (ix+20), $FF            ; waves don't run tables
+  ret
+
+; FM (YM2413): key the note onto this track's FM channel (0-3).
+; c = instrument +4 = ROM patch (1-15). Volume = instrument VOL (the
+; AHD peak in ix+4 hi nibble) -> attenuation. F-number/block from the
+; region table. The PSG host channel is silenced (FM has its own HW
+; envelope; no per-tick engine work).
+tn_fm:
+  ld a, (fm_on)              ; FM disabled in OPTIONS? play nothing
+  or a
+  jr nz, tn_fm_go
+  ld (ix+0), $FF             ; silence the PSG host either way
+  ld (ix+2), 0
+  ld a, STG_IDLE
+  ld (ix+4), a
+  ret
+tn_fm_go:
+  ld a, (ix+0)               ; note -> F-number low (e) + $20 pitch bits (d)
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, (fm_note_ptr)
+  add hl, de
+  ld e, (hl)                 ; F-number low ($10-reg)
+  inc hl
+  ld a, (hl)
+  or $30                     ; key-on ($10) | sustain ($20) | block | fnum8
+  ld d, a                    ; -> $20-reg
+  ld a, c                    ; patch (1-15); 0 would be the user patch
+  and $0F
+  jr nz, tn_fm_p
+  inc a                      ; force patch 1 if unset
+tn_fm_p:
+  rlca
+  rlca
+  rlca
+  rlca                       ; patch << 4
+  ld l, a
+  ld a, (ix+4)               ; VOL (AHD peak, high nibble) -> attenuation
+  rrca
+  rrca
+  rrca
+  rrca
+  cpl
+  and $0F                    ; 15 - VOL
+  or l
+  ld l, a                    ; -> $30-reg (patch | attenuation)
+  ; silence the PSG host channel; FM plays on its own channel
+  ld (ix+0), $FF
+  ld (ix+2), 0
+  ; write FM channel cur_trig_ch: key-off, patch|vol, F-num, key-on
+  ld a, (cur_trig_ch)
+  add a, $20
+  ld c, a
+  ld b, 0
+  call fm_w                  ; key off (retrigger); preserves d/e/l
+  ld a, (cur_trig_ch)
+  add a, $30
+  ld c, a
+  ld b, l
+  call fm_w                  ; patch | attenuation
+  ld a, (cur_trig_ch)
+  add a, $10
+  ld c, a
+  ld b, e
+  call fm_w                  ; F-number low
+  ld a, (cur_trig_ch)
+  add a, $20
+  ld c, a
+  ld b, d
+  call fm_w                  ; key-on | sustain | block | fnum8
+  ; HLD: F (or 0) = ring per the FM patch envelope; 1-E = auto key-off
+  ; after nibble*2 ticks (handled by ahd_process / STG_FMHOLD)
+  call ahd_hldval            ; a = instrument HLD nibble
+  or a
+  jr z, tn_fm_ring
+  cp $0F
+  jr z, tn_fm_ring
+  add a, a                   ; nibble * 2 = hold ticks
+  ld (ix+3), a
+  ld a, STG_FMHOLD
+  ld (ix+4), a
+  ret
+tn_fm_ring:
+  ld a, STG_IDLE
+  ld (ix+4), a
   ret
 
 ; -------------------------------------------------------------
@@ -2271,8 +2365,13 @@ config_save:                 ; called by song_save (SRAM already on)
   ld a, (vid_sel)
   ld (hl), a
   add a, b
+  ld b, a
   inc hl
-  ld (hl), a                 ; checksum = pal+sync+vid
+  ld a, (fm_on)
+  ld (hl), a
+  add a, b
+  inc hl
+  ld (hl), a                 ; checksum = pal+sync+vid+fm
   ret
 
 config_load:                 ; boot: restore OPTIONS if a valid block exists
@@ -2296,10 +2395,13 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   inc hl
   ld e, (hl)                 ; vid_sel
   inc hl
+  ld d, (hl)                 ; fm_on
+  inc hl
   ld a, c
   add a, b
   add a, e
-  cp (hl)                    ; checksum match? (pal+sync+vid)
+  add a, d
+  cp (hl)                    ; checksum match? (pal+sync+vid+fm)
   jr nz, cfgl_done
   ld a, c
   cp 8                       ; pal_sel 0-7?
@@ -2308,6 +2410,9 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   ld a, b
   and 3                      ; sync_mode 0-3
   ld (sync_mode), a
+  ld a, d
+  and 1                      ; fm_on 0/1
+  ld (fm_on), a
   ld a, e
   cp 3                       ; vid_sel 0-2? (else keep AUTO)
   jr nc, cfgl_done
@@ -2610,6 +2715,8 @@ ahd_process:
   jp z, ahd_dcy
   cp STG_KILL
   jp z, ahd_kill
+  cp STG_FMHOLD
+  jp z, ahd_fmhold
   ret                        ; idle: hold current vol
 
 ; ---- attack: ramp 0 -> peak ----
@@ -2710,6 +2817,21 @@ ahd_kill:
   dec (ix+3)
   ret nz
   jr ahd_cut
+
+; ---- FM note hold: count down, then key off the FM channel (= c) ----
+ahd_fmhold:
+  dec (ix+3)
+  ret nz
+  ld a, STG_IDLE
+  ld (ix+4), a
+  push bc
+  ld a, c
+  add a, $20                 ; $20 + channel = key-off register
+  ld c, a
+  ld b, 0
+  call fm_w
+  pop bc
+  ret
 
 ; helper: e = this note's peak volume (high nibble of the stage byte
 ; ix+4, snapshotted from the instrument at trigger; X overrides it)

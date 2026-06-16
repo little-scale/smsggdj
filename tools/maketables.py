@@ -80,6 +80,25 @@ def main():
             inc = min(65535, round(f * 8192.0 / feed))
             lines.append("  .dw %5d  ; %s" % (inc, NAMES[m % 12] + str(m // 12 - 1)))
 
+    # YM2413 FM note table (SMS FM unit). F-number (9-bit) + block
+    # (octave), block chosen so fnum lands in [256,511] for the most
+    # precision. Per note, 2 bytes: byte 0 = fnum low 8 ($10-reg);
+    # byte 1 = block<<1 | fnum-bit8 (the $20-reg pitch bits; the engine
+    # ORs in key-on / sustain at trigger). Fsam = clock / 72.
+    for label, clk in (("fm_note_pal", CLK_PAL), ("fm_note_ntsc", CLK_NTSC)):
+        lines.append("%s:" % label)
+        fsam = clk / 72.0
+        for m in notes:
+            f = 440.0 * 2.0 ** ((m - 69) / 12.0)
+            for block in range(8):
+                fnum = round(f * 524288.0 / (fsam * (2.0 ** block)))
+                if fnum <= 511:
+                    break
+            fnum = max(0, min(511, fnum))
+            b1 = (block << 1) | ((fnum >> 8) & 1)
+            lines.append("  .db $%02X, $%02X  ; %s"
+                         % (fnum & 0xFF, b1, NAMES[m % 12] + str(m // 12 - 1)))
+
     # preset waveforms: 32 steps, stored as ready-to-OUT bytes
     # ($D0 | attenuation, attenuation = 15 - drawn value).
     # First four are the boot defaults; all eight stamp via the

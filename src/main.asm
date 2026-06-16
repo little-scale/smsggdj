@@ -27,6 +27,9 @@ BANKS 8
 .DEFINE VDP_CTRL    $BF
 .DEFINE VDP_VCNT    $7E
 .DEFINE IO_PORT_A   $DC
+.DEFINE FM_ADDR     $F0          ; YM2413 FM unit: register address latch
+.DEFINE FM_DATA     $F1          ;   data write
+.DEFINE FM_CTRL     $F2          ;   audio control / detect
 
 .DEFINE NT_WADDR    $7800        ; name table $3800 | $4000 (write)
 
@@ -85,11 +88,13 @@ BANKS 8
   pal_sel        db           ; colour scheme (pal_presets index)
   vid_sel        db           ; VIDEO choice: 0 AUTO, 1 PAL, 2 NTSC
   region_detected db          ; region from boot detection (1 = PAL)
+  fm_on          db           ; OPTIONS FM toggle: 0 off, 1 on (persisted)
   start_prev     db           ; GG START level last frame
   region_timer   db           ; frames left on the boot region line
   ints_on        db           ; init done: helpers may EI
   text_attr      db            ; $00 normal, $08 inverted (palette bit)
   note_ptr       dw            ; active region note table
+  fm_note_ptr    dw            ; active region YM2413 F-num/block table
 .ENDS
 
 ; =============================================================
@@ -265,6 +270,7 @@ init_paint:
   ld a, 1
   ld (ints_on), a
   ei
+  call fm_init               ; ready the YM2413 FM unit (if present)
 
 ; =============================================================
 ; main loop
@@ -501,6 +507,57 @@ ar_set:
   ld (winc_ptr), de
   ld a, b
   ld (smp_vbcnt), a
+  ld hl, fm_note_ntsc        ; FM note table by region
+  ld a, (region_pal)
+  or a
+  jr z, ar_fm
+  ld hl, fm_note_pal
+ar_fm:
+  ld (fm_note_ptr), hl
+  ret
+
+; =============================================================
+; YM2413 FM Sound Unit (SMS FM add-on / Japanese built-in)
+; =============================================================
+; boot / FM-ON: enable FM audio (if the OPTIONS toggle is on) and clear
+fm_init:
+  ld a, (fm_on)
+  or a
+  ret z                      ; FM off: leave the unit (and the PSG) alone
+  ld a, $01                  ; $F2: enable FM (sums with PSG on real HW /
+  out (FM_CTRL), a           ;   SMSPlus; Emulicious muxes to FM-only)
+  jr fm_clear
+; FM-OFF: drop FM routing and key everything off
+fm_silence:
+  xor a
+  out (FM_CTRL), a
+fm_clear:                    ; melody mode + key off channels 0..8
+  ld c, $0E                  ; rhythm control: 0 = melody mode
+  ld b, $00
+  call fm_w
+  ld c, $20                  ; key off channels 0..8 ($20..$28 = 0)
+fmi_off:
+  ld b, $00
+  call fm_w
+  inc c
+  ld a, c
+  cp $29
+  jr c, fmi_off
+  ret
+; write YM2413 reg C = value B, honouring the chip's address/data wait.
+; Preserves DE/HL (and BC); clobbers A.
+fm_w:
+  ld a, c
+  out (FM_ADDR), a
+  call fm_wwait
+  ld a, b
+  out (FM_DATA), a
+fm_wwait:
+  push bc
+  ld b, 12
+fmw_loop:
+  djnz fmw_loop              ; ~30 us busy delay
+  pop bc
   ret
 
 ; =============================================================

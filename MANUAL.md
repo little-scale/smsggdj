@@ -162,6 +162,9 @@ Each instrument has a **type**, set on the INSTR screen:
   bass).
 - **SMP** — plays a **sample** from the ROM's sample bank (drums, vocals…). A **RATE** field plays it at NORM / 2× / HALF speed (the `S` command overrides per note).
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
+- **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit**; enable it in
+  **OPTIONS → FM**). **PROG** picks one of the chip's 15 ROM patches, **VOL**
+  sets the level, **HLD** the length (`F` = ring). SMS only.
 
 Put an instrument's number next to a note in a PHRASE to play that note with
 that sound. Unedited instruments default to full volume with an instant attack
@@ -368,6 +371,9 @@ Settings that belong to the *machine*, not the song:
   (saved when you save a song).
   Changes apply instantly.
 - **CLONE** — SLIM or DEEP, how chain cloning works (see *Cloning*).
+- **FM** — `OFF`/`ON`: enable the YM2413 FM Sound Unit (for FM instruments).
+  On hardware with the FM unit (or SMSPlus) FM plays alongside the PSG; some
+  emulators route the single output to FM instead. Default OFF. SMS only.
 
 ---
 

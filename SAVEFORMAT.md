@@ -71,10 +71,11 @@ slot count and `.sav` size.
 **OPTIONS config block** (colour scheme, sync mode, video) lives outside the
 song slots, written by the ROM at CPU `$BF60` and read at boot. That's file
 offset `$3F60` on a 16/32 KB image (the free tail past slot 2); on an 8 KB cart
-the window mirrors, so it lands at `$1F60` (past slot 0). 6 bytes: `'C' 'F'
-pal_sel sync_mode vid_sel checksum` (checksum = `pal_sel + sync_mode + vid_sel`
-& `$FF`). `vid_sel` is the VIDEO choice: `0` AUTO (follow region detection),
-`1` PAL, `2` NTSC. It's saved whenever you save a song, and `savetool.html` can
+the window mirrors, so it lands at `$1F60` (past slot 0). 7 bytes: `'C' 'F'
+pal_sel sync_mode vid_sel fm_on checksum` (checksum = `pal_sel + sync_mode +
+vid_sel + fm_on` & `$FF`). `vid_sel` is the VIDEO choice: `0` AUTO (follow
+region detection), `1` PAL, `2` NTSC; `fm_on` is the FM unit toggle (`0` off,
+`1` on). It's saved whenever you save a song, and `savetool.html` can
 read/write it (the **config** controls).
 
 A slot is valid when the magic matches **and** the checksum verifies;

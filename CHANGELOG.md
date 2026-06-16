@@ -5,6 +5,16 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.26 — unreleased
 
+### Added
+- **FM synthesis (YM2413 / SMS FM Sound Unit)** — a new **FM** instrument type
+  (5th type) plays the chip's 15 ROM patches. Pick a **PROG** (patch 1–15) and
+  **VOL**; notes play in tune from a region F-number table on the FM channel
+  matching the track. **HLD** sets the note length (`F` = ring per the patch
+  envelope; `1`–`E` = auto key-off). Enable it with **OPTIONS → FM: ON**
+  (persisted) — FM sums with the PSG on the built-in/FM-unit hardware and
+  SMSPlus; emulators that mux `$F2` (e.g. Emulicious) play FM in place of PSG.
+  Default OFF, so PSG-only songs are unaffected. SMS only.
+
 ### Changed
 - **PHRASE column spacing** — the instrument (`I`) and command columns sit one
   tile right of the `NOTE` field on both SMS and Game Gear, so the header reads

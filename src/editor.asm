@@ -666,6 +666,8 @@ ins_wskip_d:
   ld e, a                    ; E = candidate field (ins_is_* keep DE)
   call ins_is_smp
   jr z, iwsd_smp
+  call ins_is_fm
+  jr z, iwsd_fm
   call ins_is_wav
   ld a, e
   ret nz                     ; TONE/NOISE: no gap
@@ -700,10 +702,27 @@ iwsd_smp:                    ; SMP path: INST TYPE TSP(6) RATE(12)
 iwsd_s6:
   ld a, 6
   ret
+iwsd_fm:                     ; FM path: INST TYPE VOL HLD(4) PROG(12)
+  ld a, e
+  cp 3
+  ret c                      ; 0,1,2 unchanged
+  cp 4
+  jr c, iwsd_fm4             ; 3 -> 4 (HLD)
+  cp 5
+  ret c                      ; 4 unchanged
+  cp 12
+  ret nc                     ; 12 unchanged
+  ld a, 12                   ; 5..11 -> 12 (PROG)
+  ret
+iwsd_fm4:
+  ld a, 4
+  ret
 ins_wskip_u:
   ld e, a
   call ins_is_smp
   jr z, iwsu_smp
+  call ins_is_fm
+  jr z, iwsu_fm
   call ins_is_wav
   ld a, e
   ret nz
@@ -738,6 +757,21 @@ iwsu_smp:                    ; SMP up: RATE(12) TSP(6) TYPE INST
 iwsu_s1:
   ld a, 1
   ret
+iwsu_fm:                     ; FM up: PROG(12) HLD(4) VOL TYPE INST
+  ld a, e
+  cp 3
+  ret c                      ; 0,1,2 unchanged
+  cp 4
+  jr c, iwsu_fm2             ; 3 -> 2 (VOL)
+  cp 5
+  ret c                      ; 4 unchanged
+  cp 12
+  ret nc                     ; 12 unchanged
+  ld a, 4                    ; 5..11 -> 4 (HLD)
+  ret
+iwsu_fm2:
+  ld a, 2
+  ret
 ins_is_wav:                  ; Z if the edited instrument is WAV (type 3)
   push de
   call ins_ptr
@@ -750,6 +784,13 @@ ins_is_smp:                  ; Z if the edited instrument is SMP (type 2)
   call ins_ptr
   ld a, (hl)
   cp 2
+  pop de
+  ret
+ins_is_fm:                   ; Z if the edited instrument is FM (type 4)
+  push de
+  call ins_ptr
+  ld a, (hl)
+  cp 4
   pop de
   ret
 
@@ -780,6 +821,9 @@ ins_f2r:
   jr z, if2r_go
   cp 2
   ld hl, f2r_smp
+  jr z, if2r_go
+  cp 4
+  ld hl, f2r_fm
   jr z, if2r_go
   ld hl, f2r_tone
 if2r_go:
@@ -835,6 +879,8 @@ ins_max_row:
   jr z, imr_wav
   cp 2
   jr z, imr_wav              ; SMP shares the WAV form (field 12 = RATE)
+  cp 4
+  jr z, imr_wav              ; FM: field 12 = patch
   ld a, 11                   ; TONE short form
   ret
 imr_noise:
@@ -1562,7 +1608,7 @@ ini_st:
   ld (label_dirty), a
   jp mark_all_dirty
 
-ine_f11:                     ; NOISE: mode; WAV: wave 0-7; SMP: rate
+ine_f11:                     ; NOISE: mode; WAV: wave 0-7; SMP: rate; FM: patch
   push hl
   call ins_ptr
   ld a, (hl)
@@ -1571,7 +1617,39 @@ ine_f11:                     ; NOISE: mode; WAV: wave 0-7; SMP: rate
   jr z, if11_wav
   cp 2
   jr z, if11_smp
+  cp 4
+  jr z, if11_fm
   jp ine_mode
+if11_fm:                     ; FM ROM patch 1-15 (instrument +4)
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  ld c, a
+  ld de, 4
+  add hl, de
+  ld a, (hl)
+  and $0F
+  jr nz, if11f_have
+  inc a                      ; treat unset (0) as patch 1
+if11f_have:
+  ld b, a
+  ld a, c
+  and PAD_RIGHT|PAD_UP
+  jr z, if11f_dn
+  ld a, b                    ; up: +1, wrap 15 -> 1
+  inc a
+  cp 16
+  jr c, if11f_st
+  ld a, 1
+  jr if11f_st
+if11f_dn:
+  ld a, b                    ; down: -1, wrap 1 -> 15
+  dec a
+  jr nz, if11f_st
+  ld a, 15
+if11f_st:
+  ld (hl), a
+  jp ine_mark
 if11_wav:
   ld a, (pad_edge)
   and $0F
@@ -1743,17 +1821,32 @@ inb_st:
   ld (hl), d
   jp ine_mark
 
-ine_type:                    ; TONE/NOISE/SMP/WAV (edge-gated)
+ine_type:                    ; TONE/NOISE/SMP/WAV/FM (edge-gated)
   ld a, (pad_edge)
   and $0F
   ret z
   ld a, (hl)
   inc a
-  cp 4
+  cp 5
   jr c, ine_tst
   xor a
 ine_tst:
   ld (hl), a
+  cp 4                       ; switching to FM: seed ring HLD + a program
+  jr nz, ine_tsr
+  push hl
+  inc hl
+  inc hl
+  inc hl
+  ld (hl), $0F               ; +3 HLD = F (ring per FM patch)
+  inc hl
+  ld a, (hl)                 ; +4 PROG: default 1 if unset
+  and $0F
+  jr nz, ine_tsfp
+  ld (hl), 1
+ine_tsfp:
+  pop hl
+ine_tsr:
   call ins_max_row
   ld b, a
   ld a, (ins_row)
@@ -2256,6 +2349,7 @@ wvd_next:
 str_wave:   .db "WAVE", 0
 str_wavlbl: .db "WAVE", 0
 str_spdlbl: .db "RATE", 0
+str_fmlbl:  .db "PROG", 0
 str_smpspd: .db "NORM2X  HALF4X  "
 str_blank7: .db "       ", 0
 str_sp1:    .db " ", 0
@@ -2549,7 +2643,7 @@ cm_set:
   bit 1, c                   ; down
   jr z, cs_up
   ld a, (stg_row)
-  cp 4
+  cp 5
   jr nc, cs_up
   call stg_mark_field
   inc a
@@ -2593,7 +2687,25 @@ stp_edit:
   jp z, stp_colr
   cp 4
   jp z, stp_clone
+  cp 5
+  jp z, stp_fm
   ret
+stp_fm:                      ; 1 + L/R toggles the FM unit OFF/ON
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (fm_on)
+  xor 1
+  ld (fm_on), a
+  or a
+  jr z, spf_off
+  call fm_init               ; ON: enable $F2 + clear (fm_init checks fm_on)
+  jr spf_mk
+spf_off:
+  call fm_silence            ; OFF: drop FM routing + key everything off
+spf_mk:
+  ld a, 5
+  jp stg_mark_field
 .IFNDEF TARGET_GG
 stp_video:                   ; 1 + L/R cycles AUTO / PAL / NTSC
   ld a, (ed_rep)
@@ -2700,7 +2812,15 @@ std_addr:
   jp z, prd_sync
   cp 3
   jp z, prd_colr
-  ; field 4 = CLONE
+  cp 4
+  jr z, prd_clone
+  ld a, (fm_on)              ; field 5 = FM toggle
+  or a
+  ld hl, str_fmoff
+  jr z, prd_cl4
+  ld hl, str_fmon
+  jr prd_cl4
+prd_clone:                   ; field 4 = CLONE
   ld a, (clone_deep)
   or a
   ld hl, str_slim
@@ -2711,9 +2831,9 @@ prd_cl4:
   jp print_raw
 
 stg_f2r:
-  .db 0, 1, 3, 5, 7
+  .db 0, 1, 3, 5, 7, 9
 stg_r2f:
-  .db 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .db 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF, $FF, $FF
 
 prj_f2r:
   .db 0, 1, 2, 4, 6, 8, 10, 11
@@ -5760,8 +5880,11 @@ stg_lbls:
   .db "SYNC", 0
   .db "COLR", 0
   .db "CLON", 0
+  .db "FM  ", 0
 str_slim:   .db "SLIM"
 str_deep:   .db "DEEP"
+str_fmoff:  .db "OFF "
+str_fmon:   .db "ON  "
 str_syncm:
   .db "OUT   "
   .db "PULSE "
@@ -6041,6 +6164,9 @@ in_draw_row:
   cp 2
   ld hl, r2f_smp             ; SMP: only INST/TYPE/TBL/TBS/RATE
   jr z, idr_map
+  cp 4
+  ld hl, r2f_fm              ; FM: INST/TYPE/VOL/PATCH
+  jr z, idr_map
   ld hl, r2f_tone
 idr_map:
   ld d, 0
@@ -6066,6 +6192,8 @@ idr_map:
   jr z, idrl_wav
   cp 2
   jr z, idrl_smp
+  cp 4
+  jr z, idrl_fm
   ld a, 12                   ; NOISE field 12: ins_lbls[12]
   jr idr_lblidx
 idrl_wav:
@@ -6073,6 +6201,9 @@ idrl_wav:
   jr idr_lblgo
 idrl_smp:
   ld hl, str_spdlbl
+  jr idr_lblgo
+idrl_fm:
+  ld hl, str_fmlbl
   jr idr_lblgo
 idr_lblidx:
   ld d, a
@@ -6158,7 +6289,15 @@ idr_f11:
   jr z, idrf_wav
   cp 2
   jr z, idrf_smp
+  cp 4
+  jr z, idrf_fm
   jp idr_mode
+idrf_fm:                     ; FM patch 1-15 (instrument +4 low nibble)
+  ld de, 4
+  add hl, de
+  ld a, (hl)
+  and $0F
+  jp print_hex_nib
 idrf_wav:
   ld de, 4
   add hl, de
@@ -6229,7 +6368,10 @@ idr_type:
   cp 2
   ld hl, str_smp
   jr z, idr_p5
+  cp 3
   ld hl, str_wavt
+  jr z, idr_p5
+  ld hl, str_fm
 idr_p5:
   ld b, 5
   jp print_raw
@@ -6318,10 +6460,16 @@ r2f_smp:                     ; grid row -> field (INST/TYPE/TSP/RATE)
   .db 0, 1, $FF, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_smp:                     ; field -> grid row (TSP=6 shown; 2-5,7-11 skipped)
   .db 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4
+r2f_fm:                      ; FM: INST/TYPE/VOL/HLD/PROG (field 12 = patch)
+  .db 0, 1, 2, 4, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_fm:                      ; field -> grid row (only 0,1,2,4,12 shown)
+  .db 0, 1, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4
 
 .ENDS
 
-.BANK 0 SLOT 0
+; cold instrument labels/strings: park in bank 1 (read cross-bank) to
+; keep bank 0 from overflowing as the form grows.
+.BANK 1 SLOT 1
 .SECTION "InsData" FREE
 
 ins_lbls:
@@ -6342,6 +6490,7 @@ ins_lbls:
 str_tone:   .db "TONE "
 str_smp:    .db "SMP  "
 str_wavt:   .db "WAV  "
+str_fm:     .db "FM   "
 str_noise:  .db "NOISE"
 str_white:  .db "WHITE"
 str_perio:  .db "PERIO"
@@ -6444,7 +6593,7 @@ cmd_chars:
 
 .ENDS
 
-.BANK 0 SLOT 0
+.BANK 1 SLOT 1
 .SECTION "EdData" FREE
 
 str_song:        .db "SONG", 0

@@ -233,6 +233,15 @@ Notes on SMP: playback rate is fixed (§10.4); pitched sample playback via phase
 
 Common params apply; the host channel's volume/envelope *gate* the wave (volume 0 stops it) rather than scaling the DAC, so a WAV instrument only uses **HLD** as its length (ATK/DCY are inaudible through the gate). The note column is pitched normally — wavetables are melodic instruments.
 
+### FM (YM2413) — post-v0.2 addendum (SMS only)
+| Param | Range | Meaning |
+|---|---|---|
+| PROG | 1–15 | which YM2413 ROM patch (voice) |
+| VOL | 0–F | level (→ FM carrier attenuation) |
+| HLD | 0–F | note length: `F` = ring per the chip's hardware envelope, `1`–`E` = key-off after nibble×2 ticks |
+
+Needs the SMS **FM Sound Unit** (ports `$F0`/`$F1`/`$F2`), enabled by **OPTIONS → FM** (persisted; default OFF). Pitch comes from a region F-number/block table (`maketables.py`, like the PSG note table). A track hosting an FM instrument plays on the FM channel of the same index and **silences its PSG voice**; the FM note uses the chip's own envelope (no per-tick engine work beyond the HLD key-off). `$F2` is a PSG/FM mux on the external unit (and Emulicious) but sums on the built-in FM hardware (and SMSPlus). The single user patch and rhythm-mode drums are not exposed yet (planned).
+
 ---
 
 ## 7. Tables (macro sequencer)
