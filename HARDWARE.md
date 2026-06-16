@@ -137,6 +137,10 @@ TR↔TL crossover works unconfigured (the unused line floats high).
   (don't tap pin-5 +5 V — WiFi peaks risk sagging the console rail). Select
   `SYNC: IN` on the tracker; it then follows Live's tempo and transport.
   Hardware-verified on a PAL SMS1.
+- **Ableton Link in — no hardware**: for testing/performing without the bridge,
+  [ares-link-sync](https://github.com/little-scale/ares-link-sync) (an ares
+  emulator fork) joins a Link session and presents the same 2-bit counter on the
+  emulated controller port — select `SYNC: IN` and it follows Live in software.
 
 ### Caveats
 

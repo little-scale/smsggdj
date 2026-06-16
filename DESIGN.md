@@ -440,6 +440,8 @@ drives the counter into port 2 via open-drain GPIOs. SMSGGDJ in `SYNC: IN` then
 follows Live's tempo and transport. Verified on real PAL SMS1 hardware; wiring
 in HARDWARE.md. It relies on the flat-groove-6 lock above to stay aligned.
 
+The emulator-side counterpart is **[ares-link-sync](https://github.com/little-scale/ares-link-sync)** — a fork of the **ares** emulator that joins a Link session and presents the same 2-bit counter on the emulated controller port (frame-PLL'd to the Link timeline, bar-quantized launch), so a song in `SYNC: IN` follows Live with no hardware bridge. Same counter contract, same flat-groove-6 lock.
+
 ### 11.5 MIDI (future)
 
 A MIDI adapter now reduces to: receive MIDI clock/start/stop, drive the same
