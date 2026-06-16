@@ -16,6 +16,11 @@ make run      # launch the SMS ROM in Emulicious (bundled in tools/emulicious/)
 make clean
 ```
 
+`make` also emits **version-stamped copies** for distribution —
+`build/smsggdj_<ver>.sms` / `.gg` (e.g. `smsggdj_v0_27.sms`), where the tag is
+derived from `str_version` in `src/main.asm` (dots→`_`, lowercased, no spaces).
+The canonical `smsggdj.sms` / `.gg` names stay put for `make run` and tooling.
+
 Build flags (passed to `wla-z80` via the Makefile): `TARGET_GG` selects the
 Game Gear flavor (below). The build boots to a blank song; the baked-in demo
 song is loadable from the PROJECT screen (DEMO, a two-press confirm —

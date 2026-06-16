@@ -4,7 +4,17 @@ BUILD := build
 ROM   := $(BUILD)/smsggdj.sms
 GGROM := $(BUILD)/smsggdj.gg
 
-all: $(ROM) $(GGROM)
+# Versioned copies for distribution: str_version ("V0.27") -> a filename-safe
+# tag with no spaces or dots, e.g. build/smsggdj_v0_27.sms. The canonical names
+# above stay stable for `make run` and the tooling.
+VTAG  := $(shell sed -n 's/^str_version:.*"\([^"]*\)".*/\1/p' src/main.asm | tr -d ' ' | tr '.' '_' | tr 'A-Z' 'a-z')
+ifeq ($(strip $(VTAG)),)
+VTAG  := dev
+endif
+VROM   := $(BUILD)/smsggdj_$(VTAG).sms
+VGGROM := $(BUILD)/smsggdj_$(VTAG).gg
+
+all: $(ROM) $(GGROM) $(VROM) $(VGGROM)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -68,6 +78,14 @@ $(ROM): $(BUILD)/main.o $(BUILD)/linkfile
 
 $(GGROM): $(BUILD)/main-gg.o $(BUILD)/linkfile-gg
 	$(LINK) -v $(BUILD)/linkfile-gg $@
+
+# version-stamped copies (re-made whenever the canonical ROM changes; a release
+# version bump in str_version yields a new filename automatically)
+$(VROM): $(ROM)
+	cp -f $< $@
+
+$(VGGROM): $(GGROM)
+	cp -f $< $@
 
 JAVA := /opt/homebrew/opt/openjdk/bin/java
 EMU  := tools/emulicious/Emulicious.jar
