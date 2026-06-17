@@ -5,6 +5,13 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.28 — unreleased
 
+### Fixed
+- **WAV instruments no longer mute the noise channel.** A wavetable on a tone
+  channel used to silence the noise voice for as long as it played; now noise
+  plays alongside a wave (as it already did with samples), so you can layer a
+  WAV lead/pad with a noise hat/snare. Pitched (rate-3) noise still falls back
+  to a fixed rate while the wave's DAC owns tone 3.
+
 ## v0.27 — 2026-06-17
 
 ### Changed

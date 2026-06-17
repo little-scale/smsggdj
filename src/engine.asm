@@ -2478,17 +2478,11 @@ cf_adv:
   ld a, c
   cp 4
   jp c, cf_loop
-  ; wavetables are melodic: the noise channel stays silent for
-  ; exactly as long as one plays (samples leave noise audible).
-  ; Belt and braces: shadow, sent state and the chip itself.
-  ld a, (smp_mode)
-  cp 2
-  ret nz
-  ld a, $0F
-  ld (psg_vols+3), a
-  ld (psg_vols_sent+3), a
-  ld a, $FF                  ; noise attenuation: silent
-  out (PSG_PORT), a
+  ; wavetables no longer claim the noise channel: like samples, the
+  ; noise voice plays normally alongside a wave (its own volume gate
+  ; handles silence). Only *pitched* (rate-3) noise needs care - it is
+  ; hardwired to T3's period, so cf_npitch falls it back to a fixed
+  ; rate while the DAC owns T3 (the wave feed writes only T3's volume).
   ret
 
 ; =============================================================
