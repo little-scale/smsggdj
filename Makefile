@@ -62,7 +62,7 @@ endif
 # uncommitted changes), baked into the boot splash so a stale flash is obvious
 # at a glance. Recomputed every build, but only rewritten (forcing a relink)
 # when it actually changes.
-BUILDID := $(shell h=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); git diff-index --quiet HEAD -- 2>/dev/null || h="$$h+"; printf '%s' "$$h")
+BUILDID := $(shell h=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); git diff-index --quiet HEAD -- 2>/dev/null || h="$$h+"; printf '%s' "$$h" | tr 'a-z' 'A-Z')
 
 $(BUILD)/buildid.inc: FORCE | $(BUILD)
 	@printf '.BANK 1 SLOT 1\n.SECTION "BuildID" FREE\nstr_buildid: .db "%s", 0\n.ENDS\n' '$(BUILDID)' > $@.tmp
