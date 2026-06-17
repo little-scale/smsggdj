@@ -10,6 +10,8 @@ also get YM2413 FM: melodic voices (15 ROM patches + 8 ROM-baked custom presets,
 with tables and per-note commands) and a rhythm-mode drum kit, sounding
 alongside the PSG (SMS only, off by default).
 
+> 📺 **[Video tutorials](https://www.youtube.com/playlist?list=PLf0JfRVkMERq5UKv2p6lkpVskXwkyfFCt)** — a growing playlist walking through how to use SMSGGDJ.
+
 One source tree builds two ROMs:
 
 - **`smsggdj.sms`** — Master System (full screen).
