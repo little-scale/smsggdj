@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.28 — unreleased
+## v0.28 — 2026-06-17
 
 ### Changed
 - **WAV note length now follows HLD.** A wavetable used to trail on at full level
