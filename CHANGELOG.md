@@ -3,9 +3,12 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.27 — unreleased
+## v0.27 — 2026-06-17
 
 ### Changed
+- **Version-stamped builds.** Release ROMs are named `smsggdj_<ver>.sms` / `.gg`,
+  and the boot splash shows the git build hash beneath the version — so a stale
+  flash is obvious at a glance.
 - **LIVE chain swaps now quantize to the next bar.** Queueing a chain on the SONG
   screen in LIVE mode lands on the next 16-row phrase boundary, regardless of the
   current chain's length (previously it waited for the whole chain to finish). All
