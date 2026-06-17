@@ -5,6 +5,12 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.28 — unreleased
 
+### Changed
+- **WAV note length now follows HLD.** A wavetable used to trail on at full level
+  through its (hidden, uneditable) decay, so HLD barely changed the length. WAV
+  now plays for exactly the hold then cuts — HLD `1`–`E` set the length, `F`
+  rings. New WAV instruments default to **HLD 6**.
+
 ### Fixed
 - **WAV instruments no longer mute the noise channel.** A wavetable on a tone
   channel used to silence the noise voice for as long as it played; now noise

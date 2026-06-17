@@ -1832,8 +1832,12 @@ tnw_go:
   ld (wav_owner), a
   ld a, (ix+0)               ; transposes already baked in at
   call wav_play              ; trigger (instrument + global)
-  ; host channel synthesizes nothing, but its volume/length keep
-  ; running: they gate the wave (vol 0 stops it)
+  ; host channel synthesizes nothing, but its volume gates the wave
+  ; (vol 0 stops it). The gate doesn't scale the wave, so ATK/DCY are
+  ; inaudible -- and a non-zero DCY would just trail the wave on at full
+  ; level past HLD. Clear the cached ATK|DCY so the envelope is instant
+  ; on -> hold (HLD) -> instant cut: HLD alone is the wave's length.
+  ld (ix+5), 0
   ld (ix+0), $FF
   ld (ix+20), $FF            ; waves don't run tables
   ret

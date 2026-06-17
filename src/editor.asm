@@ -1915,10 +1915,20 @@ ine_type:                    ; TONE/NOISE/SMP/WAV/FM (edge-gated)
   xor a
 ine_tst:
   ld (hl), a
+  cp 3                       ; switching to WAV: default HLD = 6
+  jr z, ine_seedwav
   cp 4                       ; switching to FM: seed ring HLD + a program
   jr z, ine_seedfm
   cp 5                       ; switching to FMDRUM: seed ring HLD
   jr z, ine_seeddrum
+  jr ine_tsr
+ine_seedwav:
+  push hl
+  inc hl
+  inc hl
+  inc hl
+  ld (hl), 6                 ; +3 HLD = 6 (WAV note-length default)
+  pop hl
   jr ine_tsr
 ine_seedfm:
   push hl
