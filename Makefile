@@ -58,8 +58,19 @@ $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsggdj_sample.py $(wildcard samples/
 	python3 tools/smsggdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 endif
 
+# Build stamp: short git hash (with a trailing + if the working tree has
+# uncommitted changes), baked into the boot splash so a stale flash is obvious
+# at a glance. Recomputed every build, but only rewritten (forcing a relink)
+# when it actually changes.
+BUILDID := $(shell h=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); git diff-index --quiet HEAD -- 2>/dev/null || h="$$h+"; printf '%s' "$$h")
+
+$(BUILD)/buildid.inc: FORCE | $(BUILD)
+	@printf '.BANK 1 SLOT 1\n.SECTION "BuildID" FREE\nstr_buildid: .db "%s", 0\n.ENDS\n' '$(BUILDID)' > $@.tmp
+	@cmp -s $@.tmp $@ 2>/dev/null || mv -f $@.tmp $@
+	@rm -f $@.tmp
+
 SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm
-GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/demo_echo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc
+GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/demo_echo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc
 
 $(BUILD)/main.o: $(SRCS) $(GEN) | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm
@@ -105,4 +116,6 @@ dist: all
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all clean run run-gg dist
+FORCE:
+
+.PHONY: all clean run run-gg dist FORCE
