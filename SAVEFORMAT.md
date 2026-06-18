@@ -18,6 +18,19 @@ plain memory image with **no container or byte-order tricks**, so it is
 fully exportable/importable — `tools/savetool.py` works directly on it, and
 `savetool.html` reads it by content (extension-agnostic: `.sav`, `.srm`, …).
 
+**Uncompressed by design.** A song is a flat, verbatim copy of the live RAM
+block (offsets below) — not a compressed stream. This is a deliberate trade:
+the format stays trivially parseable, which is exactly what lets the tools
+(`savetool.py`/`savetool.html`, the `als2smdj.html` Ableton converter) read and
+write songs by fixed offsets with no codec on either side. The cost is that the
+phrase/chain/instrument/table/groove pools are **fixed-size** (sized to the slot
+budget — see Layout), since every entry costs bytes whether used or not, so the
+counts are smaller than LSDJ's. **Compression (e.g. RLE) is the lever** if those
+pools ever need to grow — at the price of a decoder in every tool that touches a
+save. But the small, fixed pools are an **embraced constraint**, in keeping with
+the project's spirit (four voices, two buttons, a flat save) — not a limitation
+waiting to be removed. The flat format is a feature.
+
 ## Layout
 
 The 16 KB SRAM window holds up to **3 song slots** at a stride of
