@@ -38,10 +38,23 @@ unreachable by a bottom-side-only contact.
 7↔7, 8↔8. SMSGGDJ's SYNC IN reads counter bit 0 as TR AND TL, so straight and
 crossed cables both work (DESIGN.md §11).
 
-Measured so far (from macro photo, **verify with calipers before fab**):
-contact field outer span 12.75 mm, inner 11.7 mm, contact width 1.4 mm →
-pitch ≈ (11.7 − 1.4) / 4 ≈ **2.575 mm, i.e. probably standard 2.54 mm**.
-Still needed: **pitch (confirm), tongue contact depth, bottom-gap height**.
+Measured from a calibrated macro photo of one 5-contact row
+(**verify with calipers before fab**):
+
+| dimension | value | what it is |
+|-----------|-------|-----------|
+| contact **pitch** | **≈ 1.9 mm** | adjacent-contact spacing, **measured directly** (left edge to left edge) |
+| contact width | **1.4 mm** | one gold contact |
+| gap between contacts | ≈ 0.5 mm | pitch − width |
+| connector outer width | 12.75 mm | black housing, contact-field face |
+| inner cavity width | 11.7 mm | recessed opening (the 5 contacts, ≈ 9 mm of gold, sit centred in this) |
+
+The **1.9 mm pitch supersedes the earlier `(11.7 − 1.4)/4 ≈ 2.54 mm` guess** —
+that derivation mistook the 11.7 mm *inner-cavity* span for the contact-pattern
+span. Five 1.4 mm contacts on a 1.9 mm pitch span ≈ 9 mm of gold, leaving ≈ 1.35 mm
+margin each side inside the 11.7 mm cavity, which reconciles all four numbers.
+**Caliper-confirm 1.9 mm before committing PCB fingers.** Still needed: **tongue
+contact depth, bottom-gap height**.
 
 ## EXT paddle PCB (planned)
 
