@@ -5,6 +5,12 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.30 — unreleased
 
+### Changed
+- **Screen-map navigation wraps at the edges.** Holding 2 and stepping off the
+  right of the main row (SONG·CHAIN·PHRASE·INSTR·TABLE) now wraps to SONG, off the
+  left wraps to TABLE; and each vertical column rounds top↔bottom (OPTIONS↕SONG,
+  PROJECT·CHAIN·GROOVE, WAVE·INSTR·ECHO) instead of stopping dead at an edge.
+
 ## v0.29 — 2026-06-19
 
 ### Fixed

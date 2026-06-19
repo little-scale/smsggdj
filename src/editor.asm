@@ -274,8 +274,10 @@ ei_nav:
 ; screen map: 2 held + L/R
 ; =============================================================
 screen_nav:
-  ; map: PROJECT above CHAIN, GROOVE below CHAIN, WAVE above
-  ; INSTR; horizontal row is SONG CHAIN PHRASE INSTR TABLE
+  ; map: OPTIONS above SONG; PROJECT/GROOVE above/below CHAIN;
+  ; WAVE/ECHO above/below INSTR; middle row is
+  ; SONG CHAIN PHRASE INSTR TABLE. Edges wrap: L/R round the
+  ; middle row, U/D round each column.
   ld a, (scr_mode)
   or a
   jr z, sn_song
@@ -296,15 +298,15 @@ screen_nav:
   cp SCR_TABLE
   jp z, sn_selt
   jp sn_lr
-sn_song:                     ; OPTIONS sits above SONG
+sn_song:                     ; OPTIONS above SONG; up/down both reach it (col wrap)
   ld a, (pad_edge)
-  and PAD_UP
+  and PAD_UP|PAD_DOWN
   jp z, sn_lr
   ld a, SCR_SET
   jp sn_switch
-sn_set:                      ; down to SONG, right to PROJECT
+sn_set:                      ; OPTIONS: up/down -> SONG (col wrap), right -> PROJECT
   ld a, (pad_edge)
-  and PAD_DOWN
+  and PAD_UP|PAD_DOWN
   jr z, sn_set_r
   ld a, 0                    ; SCR_SONG
   jp sn_switch
@@ -323,8 +325,14 @@ sn_proj:
 sn_proj_d:
   ld a, (pad_edge)
   and PAD_DOWN
+  jr z, sn_proj_u
+  ld a, SCR_CHAIN            ; down to CHAIN
+  jp sn_switch
+sn_proj_u:
+  ld a, (pad_edge)
+  and PAD_UP
   ret z
-  ld a, SCR_CHAIN            ; back down to CHAIN
+  ld a, SCR_GROOVE           ; up wraps to GROOVE (bottom of column)
   jp sn_switch
 sn_chain:
   ld a, (pad_edge)
@@ -338,11 +346,17 @@ sn_chdn:
   jp z, sn_lr
   ld a, SCR_GROOVE
   jp sn_switch
-sn_groove:                   ; 2+up exits, 2+L/R selects groove
+sn_groove:                   ; up -> CHAIN, down wraps to PROJECT, 2+L/R selects groove
   ld a, (pad_edge)
   and PAD_UP
-  jr z, sn_gsel
+  jr z, sn_grv_d
   ld a, SCR_CHAIN
+  jp sn_switch
+sn_grv_d:
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jr z, sn_gsel
+  ld a, SCR_PROJ             ; down wraps to PROJECT (top of column)
   jp sn_switch
 sn_gsel:
   ld a, (pad_edge)
@@ -373,17 +387,29 @@ sni_dn:
   jp z, sn_lr
   ld a, SCR_ECHO
   jp sn_switch
-sn_echo:                     ; 2+up returns to INSTR
+sn_echo:                     ; up -> INSTR, down wraps to WAVE (col wrap)
   ld a, (pad_edge)
   and PAD_UP
-  ret z
+  jr z, sn_echo_d
   ld a, SCR_INSTR
   jp sn_switch
-sn_wave:                     ; 2+down exits, 2+L/R selects wave
+sn_echo_d:
   ld a, (pad_edge)
   and PAD_DOWN
-  jr z, sn_wsel
+  ret z
+  ld a, SCR_WAVE             ; down wraps to WAVE (top of column)
+  jp sn_switch
+sn_wave:                     ; down -> INSTR, up wraps to ECHO, 2+L/R selects wave
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jr z, sn_wave_u
   ld a, SCR_INSTR
+  jp sn_switch
+sn_wave_u:
+  ld a, (pad_edge)
+  and PAD_UP
+  jr z, sn_wsel
+  ld a, SCR_ECHO             ; up wraps to ECHO (bottom of column)
   jp sn_switch
 sn_wsel:
   ld a, (pad_edge)
@@ -425,10 +451,13 @@ sn_lr:
   ret z
   and PAD_RIGHT
   jr nz, sn_right
-  ; ---- left: ... -> CHAIN -> SONG ----
+  ; ---- left: TABLE..CHAIN -> SONG; SONG wraps to TABLE ----
   ld a, (scr_mode)
   or a
-  ret z
+  jr nz, sn_left_dec
+  ld a, SCR_TABLE            ; SONG (left edge) wraps to TABLE
+  jp sn_switch
+sn_left_dec:
   dec a
   jr sn_switch
 sn_right:
@@ -440,7 +469,10 @@ sn_right:
   cp SCR_INSTR
   jr z, sn_totable
   cp SCR_CHAIN
-  ret nz
+  jr z, sn_right_chain
+  ld a, SCR_SONG            ; TABLE (right edge) wraps to SONG
+  jp sn_switch
+sn_right_chain:
   ; CHAIN -> PHRASE: phrase under cursor
   ld a, (chn_row)
   ld e, a
