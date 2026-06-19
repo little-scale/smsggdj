@@ -1904,15 +1904,22 @@ inb_st:
   ld (hl), d
   jp ine_mark
 
-ine_type:                    ; TONE/NOISE/SMP/WAV/FM (edge-gated)
+ine_type:                    ; TONE/NOISE/SMP/WAV/FM/FMDRUM (L/R both ways)
   ld a, (pad_edge)
   and $0F
   ret z
+  and PAD_RIGHT|PAD_UP
   ld a, (hl)
-  inc a
+  jr z, ine_typd             ; left/down -> previous type
+  inc a                      ; right/up -> next type
   cp 6
   jr c, ine_tst
-  xor a
+  xor a                      ; wrap 5 -> 0
+  jr ine_tst
+ine_typd:
+  dec a                      ; previous type
+  jp p, ine_tst
+  ld a, 5                    ; wrap 0 -> 5 (FMDRUM)
 ine_tst:
   ld (hl), a
   cp 3                       ; switching to WAV: default HLD = 6
@@ -2091,21 +2098,28 @@ ine_mode:                    ; WHITE <-> PERIODIC (edge-gated)
   ld (hl), a
   jp ine_mark
 
-ine_rate:                    ; 512 -> 1K -> 2K -> PITCH (edge)
+ine_rate:                    ; 512 -> 1K -> 2K -> PITCH (L/R both ways)
   ld a, (pad_edge)
   and $0F
   ret z
+  and PAD_RIGHT|PAD_UP
   inc hl
   inc hl
   inc hl
-  inc hl
-  ld a, (hl)
-  and $FC
-  ld d, a
-  ld a, (hl)
-  inc a
-  and $03
-  or d
+  inc hl                     ; hl -> noise control byte (+4)
+  ld d, (hl)                 ; D = current byte (keeps the mode bit)
+  ld a, d
+  jr z, ine_rdn              ; left/down -> previous rate
+  inc a                      ; right/up -> next rate
+  jr ine_rst
+ine_rdn:
+  dec a                      ; previous rate
+ine_rst:
+  and $03                    ; wrap within 0..3
+  ld e, a
+  ld a, d
+  and $FC                    ; preserve upper bits (noise mode)
+  or e
   ld (hl), a
 ine_mark:
   ld a, (ins_row)

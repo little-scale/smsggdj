@@ -3,7 +3,13 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.29 — unreleased
+## v0.29 — 2026-06-19
+
+### Fixed
+- **INSTR TYPE and noise RATE now adjust both ways.** Holding 2 and tapping
+  Left/Right (or Up/Down) on the instrument **TYPE** row, or a noise instrument's
+  **RATE** row, only ever cycled forward. Both fields now step **back with
+  2+Left/Down** and **forward with 2+Right/Up**, matching every other field.
 
 ## v0.28 — 2026-06-17
 
