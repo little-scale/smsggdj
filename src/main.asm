@@ -918,7 +918,7 @@ draw_frame_counter:
   ret                        ; no room in the 20-column window
 .ENDIF
   ld b, 0
-  ld c, 27
+  ld c, 26
   call nt_addr_hl
   call vdp_set_addr
   ld a, (frame+1)
