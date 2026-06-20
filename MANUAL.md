@@ -87,6 +87,8 @@ Hold **2** and press the D-pad to move around this map:
                      [ GROOVE ]            [ ECHO ]
 ```
 
+Navigation stops at the edges of the map — it doesn't wrap around.
+
 - **SONG** — the arrangement: which chains play on each of the 4 tracks.
 - **CHAIN** — a list of phrases (with transpose), played in order.
 - **PHRASE** — 16 steps of notes, instruments and commands. The heart of it.

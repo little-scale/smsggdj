@@ -117,6 +117,12 @@ Screen map (navigated with 2+D-pad):
 
 (OPTIONS and PROJECT link left/right along the top row.)
 
+**Edges do not wrap.** Stepping past the right of TABLE, the left of SONG, or
+the top/bottom of a column does nothing — navigation stops at the edge. Edge
+wrap-around was tried and removed in v0.30 dev: the hard stops keep the
+irregular map legible (you can feel where the edges are), and its sparse
+top/bottom rows don't form clean cycles to wrap around anyway.
+
 The map is drawn as a mini-indicator in the top-right of each screen
 (SMS: far-right margin; GG: the free right columns, on every screen but
 SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
