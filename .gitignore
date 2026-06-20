@@ -3,3 +3,5 @@ tools/emulicious/
 .DS_Store
 samples/*.preview.wav
 *.preview.wav
+tools/__pycache__/
+*.pyc

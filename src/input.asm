@@ -1,5 +1,8 @@
 ; =============================================================
-; SMSDJ - input: raw / edge / repeat (DAS) for pad 1
+; SMSGGDJ - controller input
+;
+; Reads pad 1, derives edge presses, and synthesizes LSDJ-style
+; DAS repeat events for held directions.
 ; =============================================================
 
 .SECTION "Input" FREE

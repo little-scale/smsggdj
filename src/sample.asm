@@ -1,5 +1,5 @@
 ; =============================================================
-; SMSDJ - 4-bit PCM sample playback (design doc section 10)
+; SMSGGDJ - PCM and wavetable DAC playback
 ;
 ; The Sega PSG quirk: tone period 1 stops the flip-flop and the
 ; channel outputs a DC level equal to its volume - the volume
