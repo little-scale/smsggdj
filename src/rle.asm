@@ -635,8 +635,11 @@ rle_song_delete:
   add hl, de
   ld a, SRAM_BANK0
   ld ($FFFC), a
-  xor a
-  ld (hl), a                           ; valid = 0
+  ld b, SD4_DIRENT                     ; clear the whole entry (valid + name + ...)
+rsd_clr:
+  ld (hl), 0
+  inc hl
+  djnz rsd_clr
   ret
 
 ; rle_name_default: song_name = 8 spaces (for a fresh/loaded-demo song).
