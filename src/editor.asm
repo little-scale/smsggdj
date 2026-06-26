@@ -7037,12 +7037,13 @@ cmf_done:
   ld a, (files_row)
   jp mark_dirty_a
 
-; fe_edit: FILES "1 held + dpad" (do_edit). up/down cycle the letter at the cursor.
+; fe_edit: FILES "1 held + dpad" (do_edit). up/down cycle the letter at the
+; cursor through fe_charset (blank, A-Z, specials, 0-9).
 fe_edit:
   ld a, (ed_rep)
   and PAD_UP|PAD_DOWN
   ret z
-  ld b, a                    ; B = direction
+  ld b, a                    ; B = direction (bit0 up, bit1 down)
   ld a, (files_row)
   ld e, a
   call fl_entry              ; HL = entry, preserves E
@@ -7052,31 +7053,53 @@ fe_edit:
   ld e, a
   ld d, 0
   add hl, de                 ; HL = char ptr (SRAM)
+  push hl
   ld a, (hl)
-  cp $20
-  jr c, fe_seta
-  cp $5B
-  jr nc, fe_seta
-  bit 0, b                   ; up
-  jr z, fe_dn
-  inc a                      ; next, wrap Z -> space
-  cp $5B
-  jr c, fe_put
-  ld a, $20
-  jr fe_put
-fe_dn:
-  dec a                      ; prev, wrap space -> Z
-  cp $20
-  jr nc, fe_put
-  ld a, $5A
-  jr fe_put
-fe_seta:
-  ld a, $41                  ; empty/garbage -> 'A'
-fe_put:
+  ld c, a                    ; C = current char
+  ld hl, fe_charset          ; find its index in the charset
+  ld d, 0
+fee_find:
+  ld a, (hl)
+  cp c
+  jr z, fee_found
+  inc hl
+  inc d
+  ld a, d
+  cp FE_CHARLEN
+  jr c, fee_find
+  ld d, 0                    ; not in the set -> blank (index 0)
+fee_found:
+  bit 0, b                   ; up = next, down = prev (wrap)
+  jr z, fee_dn
+  ld a, d
+  inc a
+  cp FE_CHARLEN
+  jr c, fee_set
+  xor a
+  jr fee_set
+fee_dn:
+  ld a, d
+  or a
+  jr nz, fee_decn
+  ld a, FE_CHARLEN
+fee_decn:
+  dec a
+fee_set:
+  ld e, a                    ; char = fe_charset[index]
+  ld d, 0
+  ld hl, fe_charset
+  add hl, de
+  ld a, (hl)
+  pop hl                     ; char ptr
   ld (hl), a
   ld a, (files_row)
   jp mark_dirty_a
 
 str_files:   .db "FILES", 0
+; name charset, in cycle order: blank, A-Z, specials, 0-9
+fe_charset:
+  .db " ABCDEFGHIJKLMNOPQRSTUVWXYZ-_.!?#:+=*/@()<>0123456789"
+fe_charset_end:
+.DEFINE FE_CHARLEN fe_charset_end - fe_charset
 
 .ENDS
