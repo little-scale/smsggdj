@@ -72,7 +72,10 @@
   prj_row      db
   stg_row      db            ; SETTINGS cursor field
   ech_row      db            ; ECHO cursor field
-  files_row    db            ; FILES cursor (0..FILES_SLOTS-1)
+  files_row    db            ; FILES slot cursor (0..FILES_SLOTS-1)
+  name_col     db            ; FILES name-edit cursor (0..7)
+  fmenu        db            ; FILES action menu: 0 = slots, 1 = menu open
+  fmsel        db            ; FILES menu selection (0..3 = SAVE/LOAD/DELETE/NEW)
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
   prj_slot     db            ; save slot 0..sram_slots-1
@@ -1186,7 +1189,7 @@ do_edit:
   cp SCR_ECHO
   jp z, ep_edit
   cp SCR_FILES
-  ret z
+  jp z, fe_edit
   cp SCR_WAVE
   jp z, wvp_edit
   ; ---- SONG: edit chain number ----
@@ -6870,11 +6873,13 @@ track_names:
 .BANK 1 SLOT 1
 .SECTION "Files" FREE
 
-files_enter:                 ; entering FILES: stop, map SRAM over the pool
+files_enter:                 ; entering FILES: stop, map SRAM, ensure a directory
   call engine_stop
   call smp_abort
-  ld a, $08                  ; SRAM enable, bank 0
-  ld ($FFFC), a
+  call rle_dir_ensure        ; init the SMDJ4 directory on a fresh cart (maps SRAM)
+  xor a
+  ld (name_col), a
+  ld (fmenu), a
   ret
 
 files_leave:                 ; leaving FILES: restore the pool mapping
@@ -6888,32 +6893,8 @@ dl_files:                    ; header label
   ld hl, str_files
   jp print_at
 
-; fl_draw_row: E = visible row = slot. Renders slot# + name/dashes.
-fl_draw_row:
-  ld a, e
-  cp FILES_SLOTS
-  ret nc                     ; only the slot rows exist
-  xor a                      ; highlight the cursor row
-  ld (text_attr), a
-  ld a, (files_row)
-  cp e
-  jr nz, fld_norm
-  ld a, $08
-  ld (text_attr), a
-fld_norm:
-  push de                    ; slot number at col 1
-  ld a, e
-  add a, GRID_ROW
-  ld b, a
-  ld c, 1
-  call nt_addr_hl
-  call vdp_set_addr
-  pop de
-  push de
-  ld a, e
-  call print_hex_a
-  pop de
-  push de                    ; entry = $8000 + SD4_SUPER + E*32
+; fl_entry: E = slot -> HL = directory entry ptr (SRAM). Preserves DE.
+fl_entry:
   ld a, e
   ld l, a
   ld h, 0
@@ -6921,46 +6902,121 @@ fld_norm:
   add hl, hl
   add hl, hl
   add hl, hl
-  add hl, hl
+  add hl, hl                 ; E*32
+  push de
   ld de, $8000 + SD4_SUPER
   add hl, de
   pop de
-  ld a, (hl)
-  cp $A5
-  jr z, fld_used
-  ld a, e                    ; empty -> dashes at col 4
+  ret
+
+; fl_set: B=row, C=col -> set VDP write address there. Preserves DE.
+fl_set:
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ret
+
+; fl_draw_row: E = visible row = slot. slot# + used dot + 8-char name,
+; with the name-edit cursor inverted on the highlighted slot.
+fl_draw_row:
+  ld a, e
+  cp FILES_SLOTS
+  ret nc
+  xor a
+  ld (text_attr), a
+  ld a, e                    ; slot number at col 1
   add a, GRID_ROW
   ld b, a
-  ld c, 4
-  ld hl, str_dashes8
-  jp print_at
-fld_used:
-  push hl                    ; name (entry+16, 8 chars) at col 4
+  ld c, 1
+  call fl_set
+  ld a, e
+  push de
+  call print_hex_a
+  pop de
+  call fl_entry              ; used dot at col 4: '*' / ' '
+  ld a, (hl)
+  cp $A5
+  ld a, $2A
+  jr z, fld_dot
+  ld a, $20
+fld_dot:
+  push af
   ld a, e
   add a, GRID_ROW
   ld b, a
   ld c, 4
-  call nt_addr_hl
-  call vdp_set_addr
-  pop hl
-  ld de, 16
-  add hl, de
-  ld b, 8
-fld_nm:
-  ld a, (hl)
-  push hl
-  push bc
+  call fl_set
+  pop af
+  push de
   call print_char
-  pop bc
+  pop de
+  ld a, e                    ; name (8 chars) at col 6
+  add a, GRID_ROW
+  ld b, a
+  ld c, 6
+  call fl_set
+  call fl_entry
+  push de
+  ld de, 16
+  add hl, de                 ; HL = name ptr
+  pop de
+  ld b, 8                    ; count
+  ld c, 0                    ; position
+fld_nm:
+  xor a                      ; invert the name cursor on the active slot
+  ld (text_attr), a
+  ld a, (files_row)
+  cp e
+  jr nz, fld_na
+  ld a, (name_col)
+  cp c
+  jr nz, fld_na
+  ld a, $08
+  ld (text_attr), a
+fld_na:
+  ld a, (hl)
+  cp $20
+  jr nc, fld_pr
+  ld a, $20                  ; non-printable -> space
+fld_pr:
+  push bc
+  push de
+  push hl
+  call print_char
   pop hl
+  pop de
+  pop bc
   inc hl
+  inc c
   djnz fld_nm
   ret
 
-cm_files:                    ; FILES cursor up/down (C = pad bits)
+; cm_files: up/down = slot cursor; left/right = name cursor (wraps 0..7).
+cm_files:
+  ld a, c
+  and PAD_LEFT|PAD_RIGHT
+  jr z, cmf_slot
+  bit 3, c                   ; right
+  jr z, cmf_left
+  ld a, (name_col)
+  inc a
+  and $07
+  ld (name_col), a
+cmf_left:
+  bit 2, c                   ; left
+  jr z, cmf_nm
+  ld a, (name_col)
+  dec a
+  and $07
+  ld (name_col), a
+cmf_nm:
+  ld a, (files_row)
+  jp mark_dirty_a            ; repaint (name cursor moved)
+cmf_slot:
   push bc
   ld a, (files_row)
-  call mark_dirty_a          ; repaint the old cursor row
+  call mark_dirty_a
   pop bc
   bit 1, c                   ; down
   jr z, cmf_up
@@ -6979,9 +7035,48 @@ cmf_up:
   ld (files_row), a
 cmf_done:
   ld a, (files_row)
-  jp mark_dirty_a            ; repaint the new cursor row
+  jp mark_dirty_a
+
+; fe_edit: FILES "1 held + dpad" (do_edit). up/down cycle the letter at the cursor.
+fe_edit:
+  ld a, (ed_rep)
+  and PAD_UP|PAD_DOWN
+  ret z
+  ld b, a                    ; B = direction
+  ld a, (files_row)
+  ld e, a
+  call fl_entry              ; HL = entry, preserves E
+  ld de, 16
+  add hl, de
+  ld a, (name_col)
+  ld e, a
+  ld d, 0
+  add hl, de                 ; HL = char ptr (SRAM)
+  ld a, (hl)
+  cp $20
+  jr c, fe_seta
+  cp $5B
+  jr nc, fe_seta
+  bit 0, b                   ; up
+  jr z, fe_dn
+  inc a                      ; next, wrap Z -> space
+  cp $5B
+  jr c, fe_put
+  ld a, $20
+  jr fe_put
+fe_dn:
+  dec a                      ; prev, wrap space -> Z
+  cp $20
+  jr nc, fe_put
+  ld a, $5A
+  jr fe_put
+fe_seta:
+  ld a, $41                  ; empty/garbage -> 'A'
+fe_put:
+  ld (hl), a
+  ld a, (files_row)
+  jp mark_dirty_a
 
 str_files:   .db "FILES", 0
-str_dashes8: .db "--------", 0
 
 .ENDS
