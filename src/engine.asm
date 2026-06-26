@@ -2717,7 +2717,8 @@ ss_l:
   jr nz, ss_l
   ret
 
-; save the song; prj_stat: 1 saved / 3 no sram
+; save the song; prj_stat: 1 saved / 3 no sram or SRAM full.
+; SMDJ4: RLE-pack into the directory/heap (src/rle.asm) instead of a fixed slot.
 song_save:
   ld a, (sram_ok)
   or a
@@ -2728,49 +2729,20 @@ song_save:
 sv_go:
   call engine_stop
   call smp_abort             ; SRAM is about to cover the pool
-  ld a, $08
-  ld ($FFFC), a
-  call sram_slot_base
-  push hl
-  ld de, 16
-  add hl, de
-  ex de, hl                  ; DE = slot data area
-  ld hl, wave_ram
-  ld bc, SAVE_SIZE
-  ldir
-  pop hl
-  push hl
-  ld de, 16
-  add hl, de
-  call sram_sum
-  pop hl
-  push hl
-  ld bc, 5
-  add hl, bc
-  ld (hl), e                 ; checksum
-  inc hl
-  ld (hl), d
-  pop hl
-  ld (hl), 'S'
-  inc hl
-  ld (hl), 'M'
-  inc hl
-  ld (hl), 'D'
-  inc hl
-  ld (hl), 'J'
-  inc hl
-  ld (hl), '3'               ; HL = slot base + 4
-  inc hl
-  inc hl
-  inc hl                     ; + 7: echo settings (reserved area)
-  ex de, hl
-  ld hl, echo_mode
-  ld bc, 8                   ; mode,tap1,tap2,red1,red2,stereo,tsp1,tsp2
-  ldir
+  call rle_dir_ensure        ; init the SMDJ4 directory on a fresh cart
+  ld a, (prj_slot)
+  call rle_song_save         ; Z = saved, NZ = SRAM full
+  jr nz, sv_full
   call config_save           ; persist OPTIONS (colour, sync) in bank 0
   xor a
   ld ($FFFC), a
   ld a, 1
+  ld (prj_stat), a
+  ret
+sv_full:
+  xor a
+  ld ($FFFC), a
+  ld a, 3
   ld (prj_stat), a
   ret
 
@@ -2785,61 +2757,10 @@ song_load:
 ld_go:
   call engine_stop
   call smp_abort             ; SRAM is about to cover the pool
-  ld a, $08
-  ld ($FFFC), a
-  call sram_slot_base
-  ld a, (hl)
-  cp 'S'
+  ld a, (prj_slot)
+  call rle_song_load         ; Z = loaded, NZ = empty slot / bad checksum
   jr nz, ld_bad
-  inc hl
-  ld a, (hl)
-  cp 'M'
-  jr nz, ld_bad
-  inc hl
-  ld a, (hl)
-  cp 'D'
-  jr nz, ld_bad
-  inc hl
-  ld a, (hl)
-  cp 'J'
-  jr nz, ld_bad
-  inc hl
-  ld a, (hl)
-  cp '3'
-  jr nz, ld_bad
-  call sram_slot_base
-  push hl
-  ld de, 16
-  add hl, de
-  call sram_sum
-  pop hl
-  push de
-  ld de, 5
-  add hl, de
-  ld e, (hl)
-  inc hl
-  ld d, (hl)
-  pop bc                     ; computed sum
-  ld h, d
-  ld l, e
-  or a
-  sbc hl, bc
-  ld a, h
-  or l
-  jr nz, ld_bad
-  call sram_slot_base
-  ld de, 16
-  add hl, de
-  ld de, wave_ram
-  ld bc, SAVE_SIZE
-  ldir
-  call sram_slot_base        ; echo settings from reserved area
-  ld de, 7
-  add hl, de
-  ld de, echo_mode
-  ld bc, 8
-  ldir
-  call echo_sanitize         ; old saves had random reserved bytes
+  call echo_sanitize         ; clamp any stray echo values
   xor a
   ld ($FFFC), a
   ld a, 2

@@ -443,6 +443,18 @@ rdi_clr:
   jr nz, rdi_clr
   ret
 
+; rle_dir_ensure: init the directory if the cart isn't already an SMDJ4 image.
+rle_dir_ensure:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld a, ($8000)
+  cp 'S'
+  jp nz, rle_dir_init
+  ld a, ($8004)
+  cp '4'
+  ret z
+  jp rle_dir_init
+
 ; rle_heap_end -> HL (= rle_heapmax) = max(SD4_HEAP + off + len) over valid
 ; entries, else SD4_HEAP. Reads the directory (bank 0).
 rle_heap_end:
