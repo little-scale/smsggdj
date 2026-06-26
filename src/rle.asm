@@ -414,8 +414,9 @@ rss_go:
   ld b, 16
   ld c, 12
   call print_at
+  call display_on            ; splash left the display OFF + screen wiped
 rss_freeze:
-  jr rss_freeze              ; stay on the splash with the result
+  jr rss_freeze              ; freeze on the result (interrupts already off)
 
 rle_selftest:
   ld hl, rle_test_vec        ; pack the vector
