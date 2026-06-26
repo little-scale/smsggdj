@@ -28,6 +28,7 @@
   rss_bloblen dw        ; M2 save: blob length
   rss_raw     db        ; M2 save: store-raw flag
   rle_heapmax dw        ; M2 save: computed heap_end (logical)
+  song_name   dsb 8     ; current song's 8-char name (metadata, not in the block)
 .IFDEF RLE_SELFTEST
   rle_test_pk  dsb 80   ; codec self-test (make selftest): packed buffer
   rle_test_un  dsb 60   ; codec self-test: unpacked buffer (15 units)
@@ -314,9 +315,9 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
 ; passes) before trusting. No-straddle: a blob lives in one bank.
 ; ============================================================
 .DEFINE SD4_SUPER   32
-.DEFINE SD4_DIRENT  16               ; valid,raw,off2,len2,cksum2, then 8 echo bytes
+.DEFINE SD4_DIRENT  32               ; +0 valid,raw,off2,len2,cksum2  +8 echo8  +16 name8  +24 rsvd8
 .DEFINE SD4_DIRN    32
-.DEFINE SD4_HEAP    544              ; SD4_SUPER + SD4_DIRENT*SD4_DIRN
+.DEFINE SD4_HEAP    1056             ; SD4_SUPER + SD4_DIRENT*SD4_DIRN
 .DEFINE SD4_UNITS   SAVE_SIZE/4
 .DEFINE SRAM_WIN    $8000
 .DEFINE SRAM_BANK0  $08              ; $FFFC: SRAM enable + bank 0
@@ -347,8 +348,9 @@ rsm_b0:
 ; rle_song_load: A = slot (0..SD4_DIRN-1). Decompresses into wave_ram.
 ; Returns Z = loaded & checksum-ok, NZ = empty slot / bad checksum.
 rle_song_load:
-  ld l, a                              ; entry = SRAM_WIN + SD4_SUPER + slot*16
+  ld l, a                              ; entry = SRAM_WIN + SD4_SUPER + slot*32
   ld h, 0
+  add hl, hl
   add hl, hl
   add hl, hl
   add hl, hl
@@ -382,6 +384,9 @@ rle_song_load:
   ld de, echo_mode
   ld bc, 8
   ldir                                 ; restore echo (bank 0, entry mapped)
+  ld de, song_name                     ; +16: name (8 bytes)
+  ld bc, 8
+  ldir
   ld hl, (rle_heapmax)                 ; logical blob offset = SD4_HEAP + heap_off
   ld de, SD4_HEAP
   add hl, de
@@ -572,7 +577,8 @@ rss_entry:
   add hl, hl
   add hl, hl
   add hl, hl
-  add hl, hl                           ; slot*16
+  add hl, hl
+  add hl, hl                           ; slot*32
   ld de, SRAM_WIN + SD4_SUPER
   add hl, de                           ; HL = entry ptr
   ld (hl), $A5
@@ -605,7 +611,10 @@ rss_entry:
   ld e, l
   ld hl, echo_mode
   ld bc, 8
-  ldir                                 ; echo_mode -> entry+8..+15
+  ldir                                 ; echo_mode -> entry+8..+15 (DE -> +16)
+  ld hl, song_name                     ; +16: name (8 bytes)
+  ld bc, 8
+  ldir                                 ; song_name -> entry+16..+23
   xor a                                ; Z = saved
   ret
 rss_full:
@@ -674,6 +683,13 @@ rle_dirtest:
   ld (echo_mode), a
   ld a, $5A
   ld (echo_mode+1), a
+  ld hl, song_name           ; seed the name = "AAAAAAAA"
+  ld a, $41
+  ld b, 8
+rdt_nseed:
+  ld (hl), a
+  inc hl
+  djnz rdt_nseed
   ld hl, wave_ram
   call sram_sum
   ld (rdt_cksum), de
@@ -681,18 +697,26 @@ rle_dirtest:
   xor a
   call rle_song_save
   ret nz                     ; SRAM full
-  ld a, $99                  ; corrupt the block AND echo
+  ld a, $99                  ; corrupt the block, echo AND name
   ld (wave_ram), a
   ld (echo_mode), a
   ld (echo_mode+1), a
+  ld (song_name), a
+  ld (song_name+7), a
   xor a
-  call rle_song_load         ; verifies its own checksum + restores echo
+  call rle_song_load         ; verifies its checksum + restores echo & name
   ret nz
   ld a, (echo_mode)          ; echo restored?
   cp $3C
   ret nz
   ld a, (echo_mode+1)
   cp $5A
+  ret nz
+  ld a, (song_name)          ; name restored?
+  cp $41
+  ret nz
+  ld a, (song_name+7)
+  cp $41
   ret nz
   ld hl, wave_ram            ; belt-and-braces: re-checksum == original
   call sram_sum
