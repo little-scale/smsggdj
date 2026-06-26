@@ -85,8 +85,8 @@
 .DEFINE PULSE_DIV   12         ; ticks per pulse (2 PPQN, groove 6)
 
 .DEFINE SONG_ROWS   128
-.DEFINE NUM_PHRASES 32
-.DEFINE NUM_CHAINS  32
+.DEFINE NUM_PHRASES 52
+.DEFINE NUM_CHAINS  40
 
 .RAMSECTION "engvars" SLOT 3
   play_state   db
@@ -2494,7 +2494,7 @@ cf_adv:
 ; layout: slot base: magic "SMDJ3", +5 checksum16, +16 song data
 ; =============================================================
 .DEFINE SRAM_DATA $8010
-.DEFINE SAVE_SIZE 5376       ; wave_ram..grooves, contiguous
+.DEFINE SAVE_SIZE 6912       ; wave_ram..grooves, contiguous (52 phrases / 40 chains)
 .DEFINE CFG_ADDR  $BF60      ; OPTIONS config: tail of bank 0 (8K cart mirrors -> $1F60)
 
 .ENDS

@@ -26,18 +26,18 @@ $(BUILD)/notes.inc: tools/maketables.py | $(BUILD)
 	python3 tools/maketables.py $@
 
 # The demo song: a committed .smdj export (songs/demo.smdj) is baked
-# straight in (its 16-byte SMDJ3 header stripped, leaving the 5376-byte
-# wave_ram..grooves block); otherwise makedemo.py composes one.
-# Remove songs/demo.smdj to go back to the procedural demo.
+# in (its 16-byte SMDJ3 header stripped to the 5376-byte block, then
+# expanded to the 6912-byte 52/40 layout via expanddemo.py); otherwise
+# makedemo.py composes one. Remove songs/demo.smdj for the procedural demo.
 ifneq ($(wildcard songs/demo.smdj),)
-$(BUILD)/demo.bin: songs/demo.smdj | $(BUILD)
-	tail -c +17 songs/demo.smdj | head -c 5376 > $@
+$(BUILD)/demo.bin: songs/demo.smdj tools/expanddemo.py | $(BUILD)
+	tail -c +17 songs/demo.smdj | head -c 5376 | python3 tools/expanddemo.py > $@
 # the 8 echo settings live in the SMDJ3 header's reserved area (+7)
 $(BUILD)/demo_echo.bin: songs/demo.smdj | $(BUILD)
 	tail -c +8 songs/demo.smdj | head -c 8 > $@
 else
-$(BUILD)/demo.bin: tools/makedemo.py | $(BUILD)
-	python3 tools/makedemo.py $@
+$(BUILD)/demo.bin: tools/makedemo.py tools/expanddemo.py | $(BUILD)
+	python3 tools/makedemo.py $@.5376 && python3 tools/expanddemo.py < $@.5376 > $@
 $(BUILD)/demo_echo.bin: | $(BUILD)
 	head -c 8 /dev/zero > $@
 endif
