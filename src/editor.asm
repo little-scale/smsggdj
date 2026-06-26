@@ -5407,6 +5407,20 @@ dsm_gattr:
   call vdp_set_addr
   ld a, 'G'
   call print_char
+  ; FILES indicator below the S
+  ld a, (scr_mode)
+  cp SCR_FILES
+  ld a, $00
+  jr nz, dsm_fattr
+  ld a, $08
+dsm_fattr:
+  ld (text_attr), a
+  ld b, MAP_ROW+2
+  ld c, MAP_COL
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, 'F'
+  call print_char
   ; WAVE indicator above the I
   ld a, (scr_mode)
   cp SCR_WAVE
