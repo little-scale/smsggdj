@@ -1,9 +1,15 @@
 # COMPRESSION.md — RLE save compression + larger pools (SMSGGDJ)
 
-**Status: PLANNING (2026-06-26).** Ported from the genmddj design
+**Status: M1 IN PROGRESS (2026-06-26).** Ported from the genmddj design
 (`~/Documents/genmddj/COMPRESSION.md`), where the codec + directory backend are
 already built and **hardware-verified on the 68k**. This is the SMSGGDJ (Z80)
-implementation spec. Nothing here is built yet.
+implementation spec.
+
+**M1 measurement (done, `tools/rletest.py`):** the real `demo.smdj` block packs
+**5,376 → 702 B (13.1 %)** → ~44 songs/32 KB (vs 6 today), ~90/64 KB. Per pool:
+phrases 9 %, chains 3.8 %, song 2 %, tables 1 %; the dense pools (wave_ram 75 %,
+instruments 100 %) don't compress but are tiny. Random data hits the store-raw
+floor (never expands). **Ratio confirmed on real data — proceeding to the codec.**
 
 ## 0. Goal (locked)
 
