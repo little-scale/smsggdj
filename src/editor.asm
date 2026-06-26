@@ -2521,7 +2521,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 7
+  cp 5
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2559,16 +2559,7 @@ prp_press:
   jr z, prp_new
   cp 4
   jr z, prp_demo
-  cp 6
-  jr z, prp_save
-  cp 7
-  ret nz
-  call song_load
-  call mark_all_dirty        ; song data replaced
-  ld a, 1
-  ld (state_dirty), a
-  ld (label_dirty), a
-  ret
+  ret                        ; SAVE/LOAD live on the FILES screen now
 prp_new:                     ; armed two-press wipe
   ld a, (new_arm)
   cp 3
@@ -2607,13 +2598,6 @@ prn_clear:
   xor a
   ld (new_arm), a
   jp engine_stop
-prp_save:
-  call song_save
-  ld a, 1
-  ld (state_dirty), a
-  ld (label_dirty), a
-  ret
-
 prp_edit:
   ld a, (prj_row)
   cp 5
@@ -2994,10 +2978,10 @@ stg_f2r:
 stg_r2f:
   .db 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF, $FF, $FF
 
-prj_f2r:
-  .db 0, 1, 2, 4, 6, 8, 10, 11
+prj_f2r:                     ; SAVE/LOAD removed (moved to FILES); fields 0..5
+  .db 0, 1, 2, 4, 6, 8
 prj_r2f:
-  .db 0, 1, 2, $FF, 3, $FF, 4, $FF, 5, $FF, 6, 7, $FF, $FF, $FF, $FF
+  .db 0, 1, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
