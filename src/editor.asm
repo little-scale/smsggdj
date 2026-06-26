@@ -1086,7 +1086,7 @@ do_press:
   cp SCR_WAVE
   ret z
   cp SCR_FILES
-  ret z
+  jp z, fp_files
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -1123,7 +1123,7 @@ do_cut:
   cp SCR_ECHO
   ret z
   cp SCR_FILES
-  ret z
+  jp z, fc_files
   cp SCR_WAVE
   jp z, wvp_cut
   cp SCR_CHAIN
@@ -6990,10 +6990,70 @@ fld_pr:
   inc hl
   inc c
   djnz fld_nm
+  ; action menu word on the right (rows 0..3) when the menu is open
+  ld a, (fmenu)
+  or a
+  ret z
+  ld a, e
+  cp 4
+  ret nc
+  xor a
+  ld (text_attr), a
+  ld a, (fmsel)
+  cp e
+  jr nz, flm_na
+  ld a, $08
+  ld (text_attr), a
+flm_na:
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 15
+  call fl_set
+  ld a, e
+  add a, a
+  add a, a
+  add a, a                   ; E*8
+  ld l, a
+  ld h, 0
+  ld de, fmenu_str
+  add hl, de
+  ld b, 8
+flm_w:
+  ld a, (hl)
+  push hl
+  push bc
+  call print_char
+  pop bc
+  pop hl
+  inc hl
+  djnz flm_w
   ret
 
 ; cm_files: up/down = slot cursor; left/right = name cursor (wraps 0..7).
+; When the menu is open, up/down move the menu selection instead.
 cm_files:
+  ld a, (fmenu)
+  or a
+  jr z, cmf_normal
+  bit 1, c                   ; down
+  jr z, cmf_menu_up
+  ld a, (fmsel)
+  cp 3
+  jr nc, cmf_menu_up
+  inc a
+  ld (fmsel), a
+cmf_menu_up:
+  bit 0, c                   ; up
+  jr z, cmf_menu_done
+  ld a, (fmsel)
+  or a
+  jr z, cmf_menu_done
+  dec a
+  ld (fmsel), a
+cmf_menu_done:
+  jp mark_all_dirty
+cmf_normal:
   ld a, c
   and PAD_LEFT|PAD_RIGHT
   jr z, cmf_slot
@@ -7040,6 +7100,9 @@ cmf_done:
 ; fe_edit: FILES "1 held + dpad" (do_edit). up/down cycle the letter at the
 ; cursor through fe_charset (blank, A-Z, specials, 0-9).
 fe_edit:
+  ld a, (fmenu)
+  or a
+  ret nz                     ; menu open: don't edit the name
   ld a, (ed_rep)
   and PAD_UP|PAD_DOWN
   ret z
@@ -7095,11 +7158,65 @@ fee_set:
   ld a, (files_row)
   jp mark_dirty_a
 
+; fp_files: 1-tap on FILES. In menu mode, run the selected action + close.
+fp_files:
+  ld a, (fmenu)
+  or a
+  ret z                      ; not in the menu: nothing
+  ld a, (fmsel)
+  or a
+  jr z, fpx_save
+  cp 1
+  jr z, fpx_load
+  cp 2
+  jr z, fpx_delete
+  call song_new              ; 3 = NEW
+  jr fpx_done
+fpx_save:
+  ld a, (files_row)          ; song_name = the slot's inline-edited name
+  ld e, a
+  call fl_entry
+  ld de, 16
+  add hl, de
+  ld de, song_name
+  ld bc, 8
+  ldir
+  ld a, (files_row)
+  call rle_song_save
+  jr fpx_done
+fpx_load:
+  ld a, (files_row)
+  call rle_song_load
+  jr fpx_done
+fpx_delete:
+  ld a, (files_row)
+  call rle_song_delete
+fpx_done:
+  ld a, $08                  ; rle_song_* moved $FFFC; re-map SRAM for FILES
+  ld ($FFFC), a
+  xor a
+  ld (fmenu), a
+  jp mark_all_dirty
+
+; fc_files: 1-hold+2 on FILES. Toggle the action menu.
+fc_files:
+  ld a, (fmenu)
+  xor 1
+  ld (fmenu), a
+  xor a
+  ld (fmsel), a
+  jp mark_all_dirty
+
 str_files:   .db "FILES", 0
 ; name charset, in cycle order: blank, A-Z, specials, 0-9
 fe_charset:
   .db " ABCDEFGHIJKLMNOPQRSTUVWXYZ-_.!?#:+=*/@()<>0123456789"
 fe_charset_end:
 .DEFINE FE_CHARLEN fe_charset_end - fe_charset
+fmenu_str:                   ; action menu, 8 chars each (indexed E*8)
+  .db "SAVE    "
+  .db "LOAD    "
+  .db "DELETE  "
+  .db "NEW     "
 
 .ENDS
