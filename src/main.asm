@@ -1014,6 +1014,7 @@ str_rest:        .db "---"
 .INCLUDE "src/engine.asm"
 .INCLUDE "src/sample.asm"
 .INCLUDE "src/editor.asm"
+.INCLUDE "src/rle.asm"
 .INCLUDE "notes.inc"
 .INCLUDE "buildid.inc"
 

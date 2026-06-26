@@ -69,7 +69,7 @@ $(BUILD)/buildid.inc: FORCE | $(BUILD)
 	@cmp -s $@.tmp $@ 2>/dev/null || mv -f $@.tmp $@
 	@rm -f $@.tmp
 
-SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm
+SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm src/rle.asm
 GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/demo_echo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc
 
 $(BUILD)/main.o: $(SRCS) $(GEN) | $(BUILD)

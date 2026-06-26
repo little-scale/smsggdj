@@ -1,0 +1,297 @@
+; ============================================================
+; src/rle.asm -- RLE save codec (see COMPRESSION.md).
+;
+; 4-byte unit (one phrase/table row). PackBits stream:
+;   control byte c:
+;     bit7 = 0 -> literal run : copy next (c & $7F)+1 units   (1..128)
+;     bit7 = 1 -> repeat run  : next 1 unit, output (c&$7F)+2  (2..129)
+; Matches tools/rletest.py / tools/rle.js (the canonical decoder)
+; byte-for-byte. Runs only during save/load (not real-time), so it
+; favours clarity over speed (RAM-var pointers, LDIR helpers) and
+; parks in a bank-1 section.
+;
+; STATUS (M1): build-clean; logic verified against the Python/JS
+; reference via tools/rle_z80mirror.py. The real on-console round
+; trip is exercised when M2 wires this into song_save/song_load.
+; Not yet called from anywhere.
+; ============================================================
+
+.RAMSECTION "RLEvars" BANK 0 SLOT 3
+  rle_sp   dw           ; stream pointer  (read on unpack / write on pack)
+  rle_bp   dw           ; block  pointer  (write on unpack / read on pack)
+  rle_rem  dw           ; units remaining
+  rle_cnt  dw           ; current run / literal length (low byte used)
+  rle_unit dsb 4        ; scratch unit, for expanding a repeat run
+.ENDS
+
+.BANK 1 SLOT 1
+.SECTION "RLEcodec" FREE
+
+; ------------------------------------------------------------
+; rle_unpack: HL = stream src, DE = block dst, BC = unit count.
+; Writes BC units (BC*4 bytes) to DE.
+; ------------------------------------------------------------
+rle_unpack:
+  ld (rle_sp), hl
+  ld (rle_bp), de
+  ld (rle_rem), bc
+ruk_loop:
+  ld hl, (rle_rem)
+  ld a, h
+  or l
+  ret z                       ; all units produced
+  ld hl, (rle_sp)             ; read control byte
+  ld a, (hl)
+  inc hl
+  ld (rle_sp), hl
+  bit 7, a
+  jr nz, ruk_rep
+  ; literal: n = a+1 units (bit7 clear -> a in 0..127)
+  inc a
+  ld (rle_cnt), a
+ruk_lit:
+  call rle_copy_unit          ; (rle_sp) -> (rle_bp), advance both
+  call rle_dec_rem
+  ld a, (rle_cnt)
+  dec a
+  ld (rle_cnt), a
+  jr nz, ruk_lit
+  jr ruk_loop
+ruk_rep:
+  and $7F
+  add a, 2                    ; count (2..129)
+  ld (rle_cnt), a
+  call rle_read_unit          ; (rle_sp) -> rle_unit, advance rle_sp
+ruk_rw:
+  call rle_write_unit         ; rle_unit -> (rle_bp), advance rle_bp
+  call rle_dec_rem
+  ld a, (rle_cnt)
+  dec a
+  ld (rle_cnt), a
+  jr nz, ruk_rw
+  jr ruk_loop
+
+; ------------------------------------------------------------
+; rle_pack: HL = block src, DE = stream dst, BC = unit count.
+; Returns DE = end of stream (length = DE - original dst).
+; ------------------------------------------------------------
+rle_pack:
+  ld (rle_bp), hl             ; bp = source block read ptr (i)
+  ld (rle_sp), de             ; sp = dst stream write ptr
+  ld (rle_rem), bc
+rp_loop:
+  ld hl, (rle_rem)
+  ld a, h
+  or l
+  jr z, rp_done
+  call rle_count_run          ; rle_cnt = run (1..129)
+  ld a, (rle_cnt)
+  cp 2
+  jr c, rp_literal
+  ; --- repeat run: ctrl = $80 | (run-2), then 1 unit ---
+  sub 2
+  or $80
+  call rle_emit_byte
+  ld hl, (rle_bp)             ; copy the unit at bp to the stream
+  ld de, (rle_sp)
+  ld bc, 4
+  ldir
+  ld (rle_sp), de
+  call rle_advance_run        ; bp += run units, rem -= run
+  jr rp_loop
+rp_literal:
+  call rle_count_literal      ; rle_cnt = literal length (1..128)
+  ld a, (rle_cnt)
+  dec a
+  call rle_emit_byte          ; ctrl = len-1
+rp_lit_copy:
+  ld hl, (rle_bp)             ; copy one literal unit bp -> stream
+  ld de, (rle_sp)
+  ld bc, 4
+  ldir
+  ld (rle_bp), hl
+  ld (rle_sp), de
+  call rle_dec_rem
+  ld a, (rle_cnt)
+  dec a
+  ld (rle_cnt), a
+  jr nz, rp_lit_copy
+  jr rp_loop
+rp_done:
+  ld de, (rle_sp)
+  ret
+
+; ---- run length at bp: consecutive units == unit[bp], cap min(rem,129) ----
+rle_count_run:
+  ld bc, 1                    ; BC = run
+crun_loop:
+  ld a, c
+  cp 129
+  jr z, crun_done             ; cap
+  ld hl, (rle_rem)
+  ld a, h
+  or a
+  jr nz, crun_inrange         ; rem >= 256 > run -> in range
+  ld a, c                     ; rem < 256: compare run vs rem(low = L)
+  cp l
+  jr nc, crun_done            ; run >= rem -> stop
+crun_inrange:
+  ld a, c                     ; scan = bp + run*4
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  ld de, (rle_bp)
+  add hl, de                  ; HL = scan unit
+  ld de, (rle_bp)             ; DE = ref unit
+  ld a, (de)
+  cp (hl)
+  jr nz, crun_done
+  inc hl
+  inc de
+  ld a, (de)
+  cp (hl)
+  jr nz, crun_done
+  inc hl
+  inc de
+  ld a, (de)
+  cp (hl)
+  jr nz, crun_done
+  inc hl
+  inc de
+  ld a, (de)
+  cp (hl)
+  jr nz, crun_done
+  inc bc                      ; equal -> run++
+  jr crun_loop
+crun_done:
+  ld (rle_cnt), bc
+  ret
+
+; ---- literal length at bp: units until a repeat begins, cap 128 ----
+rle_count_literal:
+  ld bc, 0                    ; BC = L
+clit_loop:
+  ld a, c
+  cp 128
+  jr z, clit_done             ; cap
+  ld hl, (rle_rem)            ; L < rem ?
+  ld a, h
+  or a
+  jr nz, clit_inrange
+  ld a, c
+  cp l
+  jr nc, clit_done            ; L >= rem -> stop
+clit_inrange:
+  ld hl, (rle_rem)            ; does U[p+1] exist? need L+1 < rem
+  ld a, h
+  or a
+  jr nz, clit_havenext        ; rem >= 256 > L+1
+  ld a, c
+  inc a
+  cp l
+  jr nc, clit_incl            ; L+1 >= rem -> no p+1 -> include U[p]
+clit_havenext:
+  ld a, c                     ; p = bp + L*4
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  ld de, (rle_bp)
+  add hl, de                  ; HL = p
+  ld d, h                     ; DE = p+1 unit (p + 4)
+  ld e, l
+  inc de
+  inc de
+  inc de
+  inc de
+  ld a, (de)                  ; compare U[p] vs U[p+1]
+  cp (hl)
+  jr nz, clit_incl            ; differ -> include U[p]
+  inc hl
+  inc de
+  ld a, (de)
+  cp (hl)
+  jr nz, clit_incl
+  inc hl
+  inc de
+  ld a, (de)
+  cp (hl)
+  jr nz, clit_incl
+  inc hl
+  inc de
+  ld a, (de)
+  cp (hl)
+  jr nz, clit_incl
+  jr clit_done                ; all equal -> repeat starts at p -> stop
+clit_incl:
+  inc bc                      ; L++
+  jr clit_loop
+clit_done:
+  ld a, c                     ; safety: never emit a zero-length literal
+  or a
+  jr nz, clit_store
+  ld c, 1
+clit_store:
+  ld (rle_cnt), bc
+  ret
+
+; ---- small shared helpers ----
+rle_copy_unit:                ; (rle_sp) -> (rle_bp), advance both by 4
+  ld hl, (rle_sp)
+  ld de, (rle_bp)
+  ld bc, 4
+  ldir
+  ld (rle_sp), hl
+  ld (rle_bp), de
+  ret
+
+rle_read_unit:                ; (rle_sp) -> rle_unit, advance rle_sp by 4
+  ld hl, (rle_sp)
+  ld de, rle_unit
+  ld bc, 4
+  ldir
+  ld (rle_sp), hl
+  ret
+
+rle_write_unit:               ; rle_unit -> (rle_bp), advance rle_bp by 4
+  ld hl, rle_unit
+  ld de, (rle_bp)
+  ld bc, 4
+  ldir
+  ld (rle_bp), de
+  ret
+
+rle_dec_rem:                  ; rem -= 1
+  ld hl, (rle_rem)
+  dec hl
+  ld (rle_rem), hl
+  ret
+
+rle_emit_byte:                ; write A to (rle_sp), advance rle_sp
+  ld hl, (rle_sp)
+  ld (hl), a
+  inc hl
+  ld (rle_sp), hl
+  ret
+
+rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
+  ld a, (rle_cnt)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl                  ; HL = cnt*4
+  ex de, hl
+  ld hl, (rle_bp)
+  add hl, de
+  ld (rle_bp), hl
+  ld a, (rle_cnt)
+  ld e, a
+  ld d, 0
+  ld hl, (rle_rem)
+  or a
+  sbc hl, de
+  ld (rle_rem), hl
+  ret
+
+.ENDS

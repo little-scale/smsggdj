@@ -11,13 +11,19 @@ phrases 9 %, chains 3.8 %, song 2 %, tables 1 %; the dense pools (wave_ram 75 %,
 instruments 100 %) don't compress but are tiny. Random data hits the store-raw
 floor (never expands). **Ratio confirmed on real data.**
 
-**M1 reference codecs (done):** `tools/rletest.py` (Python) and `tools/rle.js` (JS,
-for the browser tools) — **cross-verified byte-for-byte** on the demo song + edge
-cases (empty/zero → 55 B, random → store-raw +11 B), all round-tripping. Two
-independent implementations agree, so they're the oracle the Z80 cart codec
-(`src/rle.asm`, next) must match. **Verification status of the Z80 codec: built
-clean + faithful transcription only — needs an in-emulator self-test run (I can't
-run-test Z80 headlessly here).**
+**M1 DONE (2026-06-26).** Three codecs, all agreeing:
+- `tools/rletest.py` (Python) + `tools/rle.js` (JS) — **cross-verified byte-for-byte**
+  on the demo song + edge cases, round-tripping.
+- `src/rle.asm` (Z80 cart codec) — **build-clean** (both flavors), and its pack
+  branch logic (`count_run`/`count_literal`, the `rem<256` paths, the 129 cap) is
+  **verified byte-identical to the reference** via `tools/rle_z80mirror.py`. A RAM
+  bank-placement bug (the `.RAMSECTION` inherited bank 1 and would have aliased
+  `$C000`) was caught from the build map and fixed (`BANK 0 SLOT 3`).
+
+⚠️ **Still needs YOUR check:** the Z80 codec has *not* run on real silicon/emulator
+yet (no headless Z80 test here). The real on-console round-trip happens when M2
+wires `rle_pack`/`rle_unpack` into `song_save`/`song_load` — verify a save→load is
+byte-identical in Emulicious then on the Everdrive before trusting it with songs.
 
 ## 0. Goal (locked)
 
