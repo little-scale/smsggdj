@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMSGGDJ — SMDJ3 → SMDJ4 migration</title>
+<style>
+  body { background:#0d1117; color:#c9d1d9; font:15px/1.5 -apple-system,system-ui,sans-serif;
+         max-width:760px; margin:0 auto; padding:24px; }
+  h1 { font-size:20px; color:#58a6ff; }
+  a { color:#58a6ff; }
+  .zone { border:2px dashed #2d3742; border-radius:12px; padding:34px; text-align:center;
+          color:#8b949e; cursor:pointer; margin:18px 0; }
+  .zone.drag { border-color:#58a6ff; color:#c9d1d9; background:#161c22; }
+  select, button { background:#161c22; color:#c9d1d9; border:1px solid #2d3742;
+                   border-radius:8px; padding:7px 12px; font-size:14px; }
+  button { cursor:pointer; }
+  button.go { background:#238636; border-color:#2ea043; color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .dim { color:#8b949e; }
+  table { border-collapse:collapse; width:100%; margin-top:16px; }
+  td, th { padding:5px 8px; border-bottom:1px solid #21262d; text-align:left; font-size:13px; }
+  .bad { color:#f85149; } .ok { color:#3fb950; }
+  code { background:#161c22; padding:1px 5px; border-radius:5px; }
+</style>
+</head>
+<body>
+<h1>SMDJ3 → SMDJ4 migration</h1>
+<p class="dim">Convert an old <b>SMDJ3</b> save (32-phrase / 32-chain, fixed slots) to the
+new <b>SMDJ4</b> format (52 / 40 pools, RLE directory). Drop a <code>.sav</code> cart image
+or a single <code>.smdj</code> song. Everything runs in your browser — nothing is uploaded.
+Pool entries 32→51 (phrases) and 32→39 (chains) are added empty; existing data is preserved.</p>
+
+<div>
+  Target cart:
+  <select id="size">
+    <option value="8">8 KB</option>
+    <option value="16">16 KB</option>
+    <option value="32" selected>32 KB</option>
+  </select>
+</div>
+
+<div class="zone" id="zone">drop a <code>.sav</code> / <code>.smdj</code> here (or click)</div>
+<input type="file" id="file" hidden accept=".sav,.smdj,.srm">
+
+<div id="out"></div>
+
+<script src="rle.js"></script>
+<script src="smdj4.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const zone = $("zone"), out = $("out");
+let srcBytes = null, srcName = "";
+
+zone.onclick = () => $("file").click();
+$("file").onchange = e => { if (e.target.files[0]) load(e.target.files[0]); };
+["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove("drag"); }));
+zone.addEventListener("drop", e => { if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); });
+$("size").onchange = () => { if (srcBytes) migrate(); };
+
+function load(f) {
+  srcName = f.name.replace(/\.(sav|smdj|srm)$/i, "");
+  const r = new FileReader();
+  r.onload = () => { srcBytes = new Uint8Array(r.result); migrate(); };
+  r.readAsArrayBuffer(f);
+}
+
+function migrate() {
+  const S = window.SMDJ4, kb = +$("size").value;
+  try {
+    let songs, mode;
+    const block = S.unwrapSmdj3(srcBytes);             // a single .smdj or bare block?
+    if (block) {
+      songs = [{ block: S.expand(block) }];
+      mode = "single song";
+    } else {                                           // an SMDJ3 .sav
+      const src = S.readSmdj3Sav(srcBytes);
+      if (!src.some(Boolean)) throw new Error("No SMDJ3 songs found (is this an SMDJ3 .sav?)");
+      songs = src.map(s => s ? { block: S.expand(s.block), echo: s.echo } : null);
+      mode = `${src.filter(Boolean).length} song(s) from ${src.length} slots`;
+    }
+    const sav = S.buildSav(songs, kb, block ? null : S.readSmdj3Config(srcBytes));
+    report(sav, songs, mode, kb);
+  } catch (e) {
+    out.innerHTML = `<p class="bad">✗ ${e.message}</p>`;
+  }
+}
+
+function report(sav, songs, mode, kb) {
+  const heapUsed = (() => { // recompute used heap from the directory for the meter
+    let end = SMDJ4.HEAP_OFF;
+    for (let i = 0; i < SMDJ4.DIR_ENTRIES; i++) {
+      const e = SMDJ4.SUPER + i * SMDJ4.DIR_ENTRY;
+      if (sav[e] === 0xA5) end = Math.max(end, SMDJ4.HEAP_OFF + (sav[e+2]|(sav[e+3]<<8)) + (sav[e+4]|(sav[e+5]<<8)));
+    }
+    return end;
+  })();
+  const free = sav.length - heapUsed;
+  let rows = "";
+  songs.forEach((s, i) => {
+    if (!s) return;
+    const e = SMDJ4.SUPER + i * SMDJ4.DIR_ENTRY;
+    const len = sav[e+4] | (sav[e+5] << 8), raw = sav[e+1] === 1;
+    rows += `<tr><td>slot ${i}</td><td>${len} B${raw ? " (raw)" : ""}</td>` +
+            `<td class="dim">${(len/6912*100).toFixed(1)}% of 6912</td></tr>`;
+  });
+  out.innerHTML =
+    `<p class="ok">✓ migrated ${mode} → SMDJ4 ${kb} KB</p>` +
+    `<table><tr><th>slot</th><th>stored</th><th>ratio</th></tr>${rows}</table>` +
+    `<p class="dim">heap used ${heapUsed} / ${sav.length} B — <b>${free} B free</b> ` +
+    `(~${Math.max(0,(free/800)|0)} more typical songs)</p>` +
+    `<p><button class="go" id="dl">Download ${srcName}_smdj4.sav</button></p>`;
+  $("dl").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([sav], { type: "application/octet-stream" }));
+    a.download = `${srcName}_smdj4.sav`;
+    a.click();
+  };
+}
+</script>
+</body>
+</html>

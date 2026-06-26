@@ -32,7 +32,13 @@ directory+heap `.sav`), `wrapSmdj4` (`.smdj4`), all round-tripping with checksum
 the expanded demo packs to **722 B** (~40 songs/32 KB). The on-cart `.sav` layout
 it defines (superblock + 32×8 directory + heap, logical-linear, banked by the ROM)
 is the **contract M2 must implement** — see the `smdj4.js` header. Slots stay
-index-based (no song names). Browser UI (migration page + savetool v2) next.
+index-based (no song names).
+
+**Migration tool done (`tools/migrate.html`):** drop an SMDJ3 `.sav`/`.smdj`, it
+expands + RLE-packs every song into an SMDJ4 `.sav` (directory + heap), with a
+per-slot size table and a free-space meter. Thin UI over the node-tested
+`smdj4.js`; full `SMDJ3 .sav → migrate → SMDJ4 read` round-trip is in its
+self-test. Remaining M4: extend `savetool.html` to read/show SMDJ4 directories.
 
 ## 0. Goal (locked)
 

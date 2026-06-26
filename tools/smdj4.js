@@ -130,8 +130,50 @@
     return out;
   }
 
+  // ---- reading legacy SMDJ3 (fixed slots) for migration ----
+  const SMDJ3_MAGIC = [0x53,0x4D,0x44,0x4A,0x33];   // "SMDJ3"
+  const SMDJ3_STRIDE = 0x1520, SMDJ3_HDR = 16, BANK = 0x4000;
+  function smdj3Slots(len) { return len <= 0x2000 ? 1 : len <= 0x4000 ? 3 : 6; }
+  function smdj3SlotOff(n) { return Math.floor(n/3) * BANK + (n % 3) * SMDJ3_STRIDE; }
+  function smdj3ConfigOff(len) { return len <= 0x2000 ? 0x1F60 : 0x3F60; }
+
+  // -> array of {block(5376), echo(8), checksumOK} | null, by slot.
+  function readSmdj3Sav(sav) {
+    const out = [];
+    for (let i = 0; i < smdj3Slots(sav.length); i++) {
+      const b = smdj3SlotOff(i);
+      if (!SMDJ3_MAGIC.every((m, k) => sav[b + k] === m)) { out.push(null); continue; }
+      const block = sav.subarray(b + SMDJ3_HDR, b + SMDJ3_HDR + SMDJ3.LEN).slice();
+      const cs = sav[b+5] | (sav[b+6] << 8);
+      out.push({ block, echo: sav.subarray(b+7, b+15).slice(), checksumOK: checksum(block) === cs });
+    }
+    return out;
+  }
+
+  // accept an SMDJ3 .smdj (header+block) or a bare 5376-byte block -> block | null
+  function unwrapSmdj3(bytes) {
+    if (bytes.length >= SMDJ3_HDR + SMDJ3.LEN && SMDJ3_MAGIC.every((m, k) => bytes[k] === m))
+      return bytes.subarray(SMDJ3_HDR, SMDJ3_HDR + SMDJ3.LEN).slice();
+    if (bytes.length === SMDJ3.LEN) return bytes.slice();
+    return null;
+  }
+
+  function readSmdj3Config(sav) {
+    const o = smdj3ConfigOff(sav.length);
+    if (sav[o] === 0x43 && sav[o+1] === 0x46) return sav.subarray(o, o + 7).slice(); // 'C''F'
+    return null;
+  }
+
+  // SMDJ3 .sav -> migrated SMDJ4 .sav (expand every valid song).
+  function migrateSav(smdj3sav, cartKB) {
+    const src = readSmdj3Sav(smdj3sav);
+    const songs = src.map(s => s ? { block: expand(s.block), echo: s.echo } : null);
+    return buildSav(songs, cartKB || 32, readSmdj3Config(smdj3sav));
+  }
+
   const api = { SMDJ3, SMDJ4, SUPER, DIR_ENTRIES, DIR_ENTRY, HEAP_OFF,
-                checksum, expand, wrapSmdj4, buildSav, readSav };
+                checksum, expand, wrapSmdj4, buildSav, readSav,
+                readSmdj3Sav, unwrapSmdj3, readSmdj3Config, migrateSav };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.SMDJ4 = api;
 })(typeof self !== "undefined" ? self : this);
@@ -177,6 +219,19 @@ if (typeof require === "function" && require.main === module) {
   let refused = false;
   try { S.buildSav(new Array(20).fill({block: blk4}), 8); } catch(e){ refused = /FULL/.test(e.message); }
   chk(refused, "SRAM-full refused on 8K");
+
+  // 5. full migration: build an SMDJ3 .sav (demo in slot 0), migrate, read back
+  const s3 = new Uint8Array(0x8000);
+  s3.set([0x53,0x4D,0x44,0x4A,0x33], 0);                 // "SMDJ3" slot 0
+  s3.set(blk3, 16);
+  const cs3 = S.checksum(blk3); s3[5] = cs3 & 0xFF; s3[6] = (cs3 >> 8) & 0xFF;
+  const migrated = S.migrateSav(s3, 32);
+  const mback = S.readSav(migrated);
+  chk(mback[0] && mback[0].checksumOK &&
+      Buffer.compare(Buffer.from(mback[0].block), Buffer.from(S.expand(blk3))) === 0,
+      "SMDJ3 .sav -> migrate -> SMDJ4 read matches expand()");
+  chk(S.unwrapSmdj3(smdj) && Buffer.compare(Buffer.from(S.unwrapSmdj3(smdj)), Buffer.from(blk3))===0,
+      "unwrapSmdj3 of a .smdj");
 
   console.log(msg.join("\n"));
   console.log(ok ? "\nALL PASS -- smdj4.js" : "\nFAIL");
