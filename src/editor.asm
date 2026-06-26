@@ -33,6 +33,8 @@
 .DEFINE SCR_WAVE    7
 .DEFINE SCR_SET     8         ; OPTIONS, above SONG
 .DEFINE SCR_ECHO    9         ; ECHO, below INSTR
+.DEFINE SCR_FILES   10        ; FILES, below SONG (slot manager)
+.DEFINE FILES_SLOTS 16        ; slots exposed in the UI (directory holds 32)
 
 ; screen-map indicator position (SMS: far-right margin past the
 ; grid; GG: the free right columns of the 20-wide window)
@@ -70,6 +72,7 @@
   prj_row      db
   stg_row      db            ; SETTINGS cursor field
   ech_row      db            ; ECHO cursor field
+  files_row    db            ; FILES cursor (0..FILES_SLOTS-1)
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
   prj_slot     db            ; save slot 0..sram_slots-1
@@ -295,12 +298,26 @@ screen_nav:
   jp z, sn_instr_up
   cp SCR_TABLE
   jp z, sn_selt
+  cp SCR_FILES
+  jp z, sn_files
   jp sn_lr
-sn_song:                     ; OPTIONS sits above SONG
+sn_song:                     ; OPTIONS above SONG, FILES below
   ld a, (pad_edge)
   and PAD_UP
-  jp z, sn_lr
+  jr z, sn_song_d
   ld a, SCR_SET
+  jp sn_switch
+sn_song_d:
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jp z, sn_lr
+  ld a, SCR_FILES
+  jp sn_switch
+sn_files:                    ; FILES: up -> SONG
+  ld a, (pad_edge)
+  and PAD_UP
+  ret z
+  ld a, SCR_SONG
   jp sn_switch
 sn_set:                      ; down to SONG, right to PROJECT
   ld a, (pad_edge)
@@ -498,7 +515,13 @@ sn_switch:
   cp SCR_WAVE
   ld a, d
   call z, wv_cleanup
+  ld a, (scr_mode)           ; leaving FILES -> restore the pool mapping
+  cp SCR_FILES
+  call z, files_leave
+  ld a, d
   ld (scr_mode), a
+  cp SCR_FILES               ; entering FILES -> stop + map SRAM over the pool
+  call z, files_enter
   ld a, 1
   ld (label_dirty), a
   ld hl, drawn_a
@@ -539,6 +562,8 @@ cursor_move:
   jp z, cm_echo
   cp SCR_WAVE
   jp z, cm_wave
+  cp SCR_FILES
+  jp z, cm_files
 
   ; ---- SONG ----
   ld a, (hdr_cur)
@@ -1057,6 +1082,8 @@ do_press:
   ret z
   cp SCR_WAVE
   ret z
+  cp SCR_FILES
+  ret z
   ; ---- SONG ----
   ld a, (hdr_cur)
   or a
@@ -1091,6 +1118,8 @@ do_cut:
   cp SCR_SET
   ret z
   cp SCR_ECHO
+  ret z
+  cp SCR_FILES
   ret z
   cp SCR_WAVE
   jp z, wvp_cut
@@ -1156,6 +1185,8 @@ do_edit:
   jp z, stp_edit
   cp SCR_ECHO
   jp z, ep_edit
+  cp SCR_FILES
+  ret z
   cp SCR_WAVE
   jp z, wvp_edit
   ; ---- SONG: edit chain number ----
@@ -4891,6 +4922,8 @@ draw_row:
   jp z, et_draw_row
   cp SCR_WAVE
   jp z, wv_draw_row
+  cp SCR_FILES
+  jp z, fl_draw_row
   jp so_draw_row
 
 ; -------------------------------------------------------------
@@ -5112,6 +5145,8 @@ draw_labels:
   jp z, dl_echo
   cp SCR_WAVE
   jp z, dl_wave
+  cp SCR_FILES
+  jp z, dl_files
 
   ; ---- SONG ----
   ld b, NAME_ROW
@@ -6809,5 +6844,130 @@ str_blank:       .db "                        ", 0  ; 24 cols: map lives at 25+
 str_muted:       .db ".."
 track_names:
   .db "T1T2T3NO"
+
+.ENDS
+
+; =============================================================
+; FILES screen -- slot manager (bank 1, slot 1: bank 0 is full).
+; While here, playback is stopped and SRAM stays mapped over the
+; pool (files_enter), so the directory is read directly. Step 1:
+; list + cursor + nav. Gestures (load/save/delete/rename) follow.
+; =============================================================
+.BANK 1 SLOT 1
+.SECTION "Files" FREE
+
+files_enter:                 ; entering FILES: stop, map SRAM over the pool
+  call engine_stop
+  call smp_abort
+  ld a, $08                  ; SRAM enable, bank 0
+  ld ($FFFC), a
+  ret
+
+files_leave:                 ; leaving FILES: restore the pool mapping
+  xor a
+  ld ($FFFC), a
+  ret
+
+dl_files:                    ; header label
+  ld b, NAME_ROW
+  ld c, NAME_COL
+  ld hl, str_files
+  jp print_at
+
+; fl_draw_row: E = visible row = slot. Renders slot# + name/dashes.
+fl_draw_row:
+  ld a, e
+  cp FILES_SLOTS
+  ret nc                     ; only the slot rows exist
+  xor a                      ; highlight the cursor row
+  ld (text_attr), a
+  ld a, (files_row)
+  cp e
+  jr nz, fld_norm
+  ld a, $08
+  ld (text_attr), a
+fld_norm:
+  push de                    ; slot number at col 1
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 1
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  push de
+  ld a, e
+  call print_hex_a
+  pop de
+  push de                    ; entry = $8000 + SD4_SUPER + E*32
+  ld a, e
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, $8000 + SD4_SUPER
+  add hl, de
+  pop de
+  ld a, (hl)
+  cp $A5
+  jr z, fld_used
+  ld a, e                    ; empty -> dashes at col 4
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  ld hl, str_dashes8
+  jp print_at
+fld_used:
+  push hl                    ; name (entry+16, 8 chars) at col 4
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 4
+  call nt_addr_hl
+  call vdp_set_addr
+  pop hl
+  ld de, 16
+  add hl, de
+  ld b, 8
+fld_nm:
+  ld a, (hl)
+  push hl
+  push bc
+  call print_char
+  pop bc
+  pop hl
+  inc hl
+  djnz fld_nm
+  ret
+
+cm_files:                    ; FILES cursor up/down (C = pad bits)
+  push bc
+  ld a, (files_row)
+  call mark_dirty_a          ; repaint the old cursor row
+  pop bc
+  bit 1, c                   ; down
+  jr z, cmf_up
+  ld a, (files_row)
+  cp FILES_SLOTS-1
+  jr nc, cmf_up
+  inc a
+  ld (files_row), a
+cmf_up:
+  bit 0, c                   ; up
+  jr z, cmf_done
+  ld a, (files_row)
+  or a
+  jr z, cmf_done
+  dec a
+  ld (files_row), a
+cmf_done:
+  ld a, (files_row)
+  jp mark_dirty_a            ; repaint the new cursor row
+
+str_files:   .db "FILES", 0
+str_dashes8: .db "--------", 0
 
 .ENDS
