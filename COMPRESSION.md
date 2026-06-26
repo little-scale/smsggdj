@@ -9,7 +9,15 @@ implementation spec.
 **5,376 → 702 B (13.1 %)** → ~44 songs/32 KB (vs 6 today), ~90/64 KB. Per pool:
 phrases 9 %, chains 3.8 %, song 2 %, tables 1 %; the dense pools (wave_ram 75 %,
 instruments 100 %) don't compress but are tiny. Random data hits the store-raw
-floor (never expands). **Ratio confirmed on real data — proceeding to the codec.**
+floor (never expands). **Ratio confirmed on real data.**
+
+**M1 reference codecs (done):** `tools/rletest.py` (Python) and `tools/rle.js` (JS,
+for the browser tools) — **cross-verified byte-for-byte** on the demo song + edge
+cases (empty/zero → 55 B, random → store-raw +11 B), all round-tripping. Two
+independent implementations agree, so they're the oracle the Z80 cart codec
+(`src/rle.asm`, next) must match. **Verification status of the Z80 codec: built
+clean + faithful transcription only — needs an in-emulator self-test run (I can't
+run-test Z80 headlessly here).**
 
 ## 0. Goal (locked)
 
