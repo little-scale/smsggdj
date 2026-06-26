@@ -201,6 +201,12 @@ editor_input:
   ld a, (pad_raw)
   and PAD_B2
   jr z, ei_1alone
+  ld a, (scr_mode)           ; 2 held + 1
+  cp SCR_FILES
+  jr nz, ei_toggle
+  call fc_files              ; FILES: 2+1 toggles the action menu (no playback here)
+  jp ei_dtick
+ei_toggle:
   call toggle_play           ; 2 held + 1 = play/stop
   jp ei_dtick                ; consume: no cut on the same press
 ei_1alone:
@@ -1123,7 +1129,7 @@ do_cut:
   cp SCR_ECHO
   ret z
   cp SCR_FILES
-  jp z, fc_files
+  ret z
   cp SCR_WAVE
   jp z, wvp_cut
   cp SCR_CHAIN
@@ -6947,16 +6953,16 @@ fld_dot:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 4
+  ld c, 3
   call fl_set
   pop af
   push de
   call print_char
   pop de
-  ld a, e                    ; name (8 chars) at col 6
+  ld a, e                    ; name (8 chars) at col 4 (right after the dot)
   add a, GRID_ROW
   ld b, a
-  ld c, 6
+  ld c, 4
   call fl_set
   call fl_entry
   push de
@@ -7055,27 +7061,7 @@ cmf_menu_up:
   ld (fmsel), a
 cmf_menu_done:
   jp mark_all_dirty
-cmf_normal:
-  ld a, c
-  and PAD_LEFT|PAD_RIGHT
-  jr z, cmf_slot
-  bit 3, c                   ; right
-  jr z, cmf_left
-  ld a, (name_col)
-  inc a
-  and $07
-  ld (name_col), a
-cmf_left:
-  bit 2, c                   ; left
-  jr z, cmf_nm
-  ld a, (name_col)
-  dec a
-  and $07
-  ld (name_col), a
-cmf_nm:
-  ld a, (files_row)
-  jp mark_dirty_a            ; repaint (name cursor moved)
-cmf_slot:
+cmf_normal:                  ; plain dpad: up/down move the slot cursor
   push bc
   ld a, (files_row)
   call mark_dirty_a
@@ -7106,6 +7092,27 @@ fe_edit:
   or a
   ret nz                     ; menu open: don't edit the name
   ld a, (ed_rep)
+  ld c, a                    ; C = dpad bits
+  and PAD_LEFT|PAD_RIGHT
+  jr z, fe_letter
+  bit 3, c                   ; right: name cursor +1 (wrap)
+  jr z, fe_posl
+  ld a, (name_col)
+  inc a
+  and $07
+  ld (name_col), a
+fe_posl:
+  bit 2, c                   ; left: name cursor -1 (wrap)
+  jr z, fe_posdone
+  ld a, (name_col)
+  dec a
+  and $07
+  ld (name_col), a
+fe_posdone:
+  ld a, (files_row)
+  jp mark_dirty_a
+fe_letter:
+  ld a, c
   and PAD_UP|PAD_DOWN
   ret z
   ld b, a                    ; B = direction (bit0 up, bit1 down)
