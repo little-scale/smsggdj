@@ -6875,6 +6875,8 @@ track_names:
 
 files_enter:                 ; entering FILES: stop, map SRAM, ensure a directory
   call engine_stop
+  ld a, 1
+  ld (state_dirty), a        ; refresh the transport indicator (PLAY -> STOP)
   call smp_abort
   call rle_dir_ensure        ; init the SMDJ4 directory on a fresh cart (maps SRAM)
   xor a
