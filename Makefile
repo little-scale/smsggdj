@@ -119,3 +119,12 @@ clean:
 FORCE:
 
 .PHONY: all clean run run-gg dist FORCE
+
+# codec self-test ROM: boots, round-trips rle_pack/rle_unpack on an embedded
+# vector, shows RLE OK / RLE ERR on the splash. Zero cost in the normal build.
+.PHONY: selftest
+selftest: $(GEN) | $(BUILD)
+	$(ASM) -D RLE_SELFTEST=1 -I $(BUILD) -o $(BUILD)/main-st.o src/main.asm
+	{ echo '[objects]'; echo '$(BUILD)/main-st.o'; } > $(BUILD)/linkfile-st
+	$(LINK) -v $(BUILD)/linkfile-st $(BUILD)/smsggdj-selftest.sms
+	@echo built selftest ROM: $(BUILD)/smsggdj-selftest.sms

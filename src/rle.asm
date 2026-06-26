@@ -22,6 +22,10 @@
   rle_rem  dw           ; units remaining
   rle_cnt  dw           ; current run / literal length (low byte used)
   rle_unit dsb 4        ; scratch unit, for expanding a repeat run
+.IFDEF RLE_SELFTEST
+  rle_test_pk  dsb 80   ; codec self-test (make selftest): packed buffer
+  rle_test_un  dsb 60   ; codec self-test: unpacked buffer (15 units)
+.ENDIF
 .ENDS
 
 .BANK 1 SLOT 1
@@ -293,5 +297,59 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
   sbc hl, de
   ld (rle_rem), hl
   ret
+
+.IFDEF RLE_SELFTEST
+; Power-on codec self-test (built via `make selftest`). Round-trips an
+; embedded 15-unit vector (repeat runs of 5 and 2, literal runs, a single
+; unit) through rle_pack -> rle_unpack and prints the result on the splash,
+; then freezes so it stays readable. RAM/ROM cost only in this build.
+.DEFINE RLE_TEST_UNITS 15
+
+rle_selftest_show:
+  call rle_selftest          ; Z = round-trip byte-identical
+  ld hl, str_rle_ok
+  jr z, rss_go
+  ld hl, str_rle_err
+rss_go:
+  ld b, 16
+  ld c, 12
+  call print_at
+rss_freeze:
+  jr rss_freeze              ; stay on the splash with the result
+
+rle_selftest:
+  ld hl, rle_test_vec        ; pack the vector
+  ld de, rle_test_pk
+  ld bc, RLE_TEST_UNITS
+  call rle_pack
+  ld hl, rle_test_pk         ; unpack it back
+  ld de, rle_test_un
+  ld bc, RLE_TEST_UNITS
+  call rle_unpack
+  ld hl, rle_test_vec        ; compare to the original
+  ld de, rle_test_un
+  ld bc, RLE_TEST_UNITS*4
+rst_cmp:
+  ld a, (de)
+  cp (hl)
+  ret nz                     ; NZ = mismatch (fail)
+  inc hl
+  inc de
+  dec bc
+  ld a, b
+  or c
+  jr nz, rst_cmp
+  xor a                      ; Z = pass
+  ret
+
+rle_test_vec:
+  .db $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA
+  .db $01,$02,$03,$04, $05,$06,$07,$08, $09,$0A,$0B,$0C
+  .db $BB,$BB,$BB,$BB, $BB,$BB,$BB,$BB
+  .db $10,$11,$12,$13, $14,$15,$16,$17, $18,$19,$1A,$1B, $1C,$1D,$1E,$1F
+  .db $F0,$F1,$F2,$F3
+str_rle_ok:  .db "RLE OK ", 0
+str_rle_err: .db "RLE ERR", 0
+.ENDIF
 
 .ENDS

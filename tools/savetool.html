@@ -93,6 +93,8 @@ assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
 
 <div id="viewer" class="viewer"></div>
 
+<script src="rle.js"></script>
+<script src="smdj4.js"></script>
 <script>
 "use strict";
 // ---- the save contract (must match SAVEFORMAT.md / savetool.py) ----
@@ -267,9 +269,42 @@ function render() {
   document.getElementById("dlall").disabled = !any;
 }
 
+// ---- SMDJ4 (RLE directory) read-only view -- uses smdj4.js ----
+function loadSmdj4(d, name) {
+  let songs;
+  try { songs = SMDJ4.readSav(d); }
+  catch (e) { note(`${name}: ${e.message}`, true); return; }
+  const used = songs.filter(Boolean).length;
+  let heapEnd = SMDJ4.HEAP_OFF;
+  songs.forEach((s, i) => { if (s) { const e = SMDJ4.SUPER + i * SMDJ4.DIR_ENTRY;
+    heapEnd = Math.max(heapEnd, SMDJ4.HEAP_OFF + (d[e+2]|(d[e+3]<<8)) + (d[e+4]|(d[e+5]<<8))); } });
+  note(`${name}: SMDJ4 image — ${used} song(s), ${d.length - heapEnd} B free. ` +
+       `Read-only view; build SMDJ4 saves with migrate.html.`);
+  const box = document.getElementById("slots");
+  box.innerHTML = "";
+  songs.forEach((s, n) => {
+    if (!s) return;
+    const e = SMDJ4.SUPER + n * SMDJ4.DIR_ENTRY, len = d[e+4] | (d[e+5] << 8);
+    const div = document.createElement("div");
+    div.className = "slot";
+    div.innerHTML = `<div class="num">${n}</div>
+      <div class="info">song — ${s.checksumOK ? "checksum ok" : '<span class="bad">checksum BAD</span>'}
+        <span class="dim">(6912 B → ${len}${s.raw ? " raw" : ""})</span></div>
+      <button data-k="dl4">download .smdj4</button>`;
+    div.addEventListener("click", ev => {
+      if (ev.target.dataset.k === "dl4")
+        download(SMDJ4.wrapSmdj4(s.block), name.replace(/\.sav$/i, "") + `-slot${n}.smdj4`);
+    });
+    box.appendChild(div);
+  });
+  document.getElementById("dlsav").disabled = true;
+  document.getElementById("dlall").disabled = true;
+}
+
 async function addFiles(files) {
   for (const f of files) {
     const d = new Uint8Array(await f.arrayBuffer());
+    if (d.length >= 5 && magicOf(d) === "SMDJ4") { loadSmdj4(d, f.name); return; }
     if (d.length === BLOB && validBlob(d)) addSong(d, f.name);
     else if (d.length === DATA) addSong(wrapBlock(d), f.name + " (wrapped)");
     else if (d.length >= 0x2000 && d.length <= 0x10000) loadSav(d, f.name);

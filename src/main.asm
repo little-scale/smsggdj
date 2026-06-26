@@ -200,6 +200,9 @@ init:
   call config_load           ;   video) before the splash, so it renders
                              ;   in the saved palette (config reapplies it)
   call splash                ; logo + version; SMS region detect inside
+.IFDEF RLE_SELFTEST
+  call rle_selftest_show     ; freezes on the splash showing RLE OK / RLE ERR
+.ENDIF
   call song_new              ; boot a blank song; the baked demo
                              ; loads from PROJECT (DEMO, two-press)
   call editor_init

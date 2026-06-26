@@ -38,7 +38,25 @@ index-based (no song names).
 expands + RLE-packs every song into an SMDJ4 `.sav` (directory + heap), with a
 per-slot size table and a free-space meter. Thin UI over the node-tested
 `smdj4.js`; full `SMDJ3 .sav → migrate → SMDJ4 read` round-trip is in its
-self-test. Remaining M4: extend `savetool.html` to read/show SMDJ4 directories.
+self-test.
+
+**savetool.html v2 done:** drops of an SMDJ4 image now show a read-only directory
+view (per-song checksum/size, export each as `.smdj4`); the SMDJ3 path is byte-for-
+byte untouched (additive early-return + `smdj4.js`). Inline script syntax-checked.
+
+**M2 codec self-test done (`make selftest`):** a gated diagnostic ROM that boots,
+round-trips `rle_pack`/`rle_unpack` on an embedded 15-unit vector, and prints
+**RLE OK / RLE ERR** on the splash — your **zero-data-risk hardware check** that the
+Z80 codec executes correctly. Fully gated out of the normal build (RAM 2097 → same).
+
+**M2 still to do (the ROM save-path — needs your live verification):** the directory
++ heap `song_save`/`song_load`. Design decision to lock there: **bank handling on a
+32 KB cart.** A blob is ≤ 6912 B < a 16 KB bank, so the simplest scheme is
+**no-straddle allocation** — pad so each blob sits entirely in one bank; the ROM then
+sets `$FFFC` to the blob's bank and reuses the *existing* flat codec unchanged (no
+bank-aware stream I/O). `smdj4.js buildSav` currently packs fully contiguous and
+would need the matching no-straddle padding before 32 KB images interop with the ROM
+(8/16 KB have no boundary, so they already match).
 
 ## 0. Goal (locked)
 
