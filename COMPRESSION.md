@@ -58,6 +58,24 @@ bank-aware stream I/O). `smdj4.js buildSav` currently packs fully contiguous and
 would need the matching no-straddle padding before 32 KB images interop with the ROM
 (8/16 KB have no boundary, so they already match).
 
+**`rle_song_load` drafted (`src/rle.asm`, build-clean, NOT wired):** read-only on
+SRAM, so it can't corrupt saves even if buggy. Reads entry[slot], maps the blob's
+bank (`rle_sram_map`), `rle_unpack` (or raw copy) → `wave_ram`, verifies the
+checksum. Wire it into PROJECT load and verify live (after `make selftest` passes).
+
+**`rle_song_save` — spec, not coded** (it *writes* SRAM; do it with live verification):
+1. `sram_sum wave_ram` → checksum.
+2. scan the directory (bank 0) for `heap_end = max(SD4_HEAP + off + len)` over valid
+   entries (default `SD4_HEAP`).
+3. **no-straddle:** if `(heap_end & $3FFF) + SAVE_SIZE > $4000`, bump `heap_end` up to
+   the next `$4000` boundary so the worst-case (raw) blob stays in one bank.
+4. capacity check: `heap_end + SAVE_SIZE > cap` → refuse ("SRAM FULL").
+5. `rle_sram_map heap_end`; `rle_pack wave_ram → dst, SD4_UNITS` → `blob_len`.
+6. if `blob_len >= SAVE_SIZE` → store raw (copy `wave_ram → dst`, `blob_len=SAVE_SIZE`,
+   `raw=1`).
+7. bank 0; write entry[slot]: `$A5, raw, heap_off=heap_end-SD4_HEAP, blob_len, checksum`.
+8. overwrite leaves the old blob as a hole until a compaction pass (delete + compact, TBD).
+
 ## 0. Goal (locked)
 
 Two wins, delivered together:

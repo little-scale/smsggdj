@@ -298,6 +298,106 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
   ld (rle_rem), hl
   ret
 
+; ============================================================
+; M2 DRAFT (UNVERIFIED, opt-in, NOT yet called from anywhere).
+; SMDJ4 directory/heap LOAD. Read-only on SRAM -> cannot corrupt
+; saves even if buggy, so safe to carry build-clean. SAVE (which
+; writes SRAM) is spec'd in COMPRESSION.md, not coded blind.
+; Wire into PROJECT load + verify live (after `make selftest`
+; passes) before trusting. No-straddle: a blob lives in one bank.
+; ============================================================
+.DEFINE SD4_SUPER   32
+.DEFINE SD4_DIRENT  8
+.DEFINE SD4_DIRN    32
+.DEFINE SD4_HEAP    288              ; SD4_SUPER + SD4_DIRENT*SD4_DIRN
+.DEFINE SD4_UNITS   SAVE_SIZE/4
+.DEFINE SRAM_WIN    $8000
+.DEFINE SRAM_BANK0  $08
+.DEFINE SRAM_BANK1  $0C
+
+; map a logical SRAM offset HL -> set $FFFC to its 16 KB bank and
+; return HL = $8000 + (off & $3FFF). No-straddle => map once per blob.
+rle_sram_map:
+  ld a, h
+  cp $40
+  jr c, rsm_b0
+  ld a, SRAM_BANK1
+  ld ($FFFC), a
+  ld a, h
+  and $3F
+  or $80
+  ld h, a
+  ret
+rsm_b0:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld a, h
+  or $80
+  ld h, a
+  ret
+
+; rle_song_load: A = slot (0..SD4_DIRN-1). Decompresses into wave_ram.
+; Returns Z = loaded & checksum-ok, NZ = empty slot / bad checksum.
+rle_song_load:
+  ld l, a                              ; entry = SRAM_WIN + SD4_SUPER + slot*8
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, SRAM_WIN + SD4_SUPER
+  add hl, de
+  ld a, SRAM_BANK0
+  ld ($FFFC), a                        ; directory is in bank 0
+  ld a, (hl)
+  cp $A5
+  jr nz, rsl_bad                       ; not a valid entry
+  inc hl
+  ld a, (hl)                           ; +1 raw flag
+  ld (rle_cnt), a                      ; stash (low byte)
+  inc hl
+  ld e, (hl)
+  inc hl
+  ld d, (hl)                           ; DE = heap_off
+  inc hl
+  ld c, (hl)
+  inc hl
+  ld b, (hl)                           ; BC = blob_len
+  inc hl
+  ld a, (hl)                           ; +6 checksum lo -> stash
+  ld (rle_unit+0), a
+  inc hl
+  ld a, (hl)                           ; +7 checksum hi -> stash
+  ld (rle_unit+1), a
+  push bc                              ; blob_len (for raw copy)
+  ld hl, SD4_HEAP
+  add hl, de                           ; HL = logical blob offset
+  call rle_sram_map                    ; set bank, HL = physical src
+  pop bc                               ; blob_len
+  ld a, (rle_cnt)
+  or a
+  jr z, rsl_rle
+  ld de, wave_ram                      ; raw: straight copy
+  ldir
+  jr rsl_check
+rsl_rle:
+  ld de, wave_ram
+  ld bc, SD4_UNITS
+  call rle_unpack                      ; stream(SRAM) -> wave_ram(RAM)
+rsl_check:
+  ld hl, wave_ram                      ; wave_ram is RAM (always mapped)
+  call sram_sum                        ; DE = computed 16-bit sum
+  ld a, (rle_unit+0)                   ; compare to the stashed entry checksum
+  cp e
+  jr nz, rsl_bad
+  ld a, (rle_unit+1)
+  cp d
+  jr nz, rsl_bad
+  xor a                                ; Z = loaded ok
+  ret
+rsl_bad:
+  or 1                                 ; NZ
+  ret
+
 .IFDEF RLE_SELFTEST
 ; Power-on codec self-test (built via `make selftest`). Round-trips an
 ; embedded 15-unit vector (repeat runs of 5 and 2, literal runs, a single
