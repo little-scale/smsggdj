@@ -25,6 +25,15 @@ yet (no headless Z80 test here). The real on-console round-trip happens when M2
 wires `rle_pack`/`rle_unpack` into `song_save`/`song_load` — verify a save→load is
 byte-identical in Emulicious then on the Everdrive before trusting it with songs.
 
+**M4 core started (`tools/smdj4.js`, node-tested):** the SMDJ4 format library —
+`expand()` (SMDJ3 5376 → SMDJ4 6912, pools relocated, new phrases blanked to
+`00 FF 00 00` and new chains to `$FF` per `song_new`), `buildSav`/`readSav` (the
+directory+heap `.sav`), `wrapSmdj4` (`.smdj4`), all round-tripping with checksums;
+the expanded demo packs to **722 B** (~40 songs/32 KB). The on-cart `.sav` layout
+it defines (superblock + 32×8 directory + heap, logical-linear, banked by the ROM)
+is the **contract M2 must implement** — see the `smdj4.js` header. Slots stay
+index-based (no song names). Browser UI (migration page + savetool v2) next.
+
 ## 0. Goal (locked)
 
 Two wins, delivered together:
