@@ -22,9 +22,16 @@
   rle_rem  dw           ; units remaining
   rle_cnt  dw           ; current run / literal length (low byte used)
   rle_unit dsb 4        ; scratch unit, for expanding a repeat run
+  rss_slot    db        ; M2 save: slot index
+  rss_cksum   dw        ; M2 save: block checksum
+  rss_dst     dw        ; M2 save: blob physical dst
+  rss_bloblen dw        ; M2 save: blob length
+  rss_raw     db        ; M2 save: store-raw flag
+  rle_heapmax dw        ; M2 save: computed heap_end (logical)
 .IFDEF RLE_SELFTEST
   rle_test_pk  dsb 80   ; codec self-test (make selftest): packed buffer
   rle_test_un  dsb 60   ; codec self-test: unpacked buffer (15 units)
+  rdt_cksum    dw       ; directory self-test: original block checksum
 .ENDIF
 .ENDS
 
@@ -312,8 +319,9 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
 .DEFINE SD4_HEAP    288              ; SD4_SUPER + SD4_DIRENT*SD4_DIRN
 .DEFINE SD4_UNITS   SAVE_SIZE/4
 .DEFINE SRAM_WIN    $8000
-.DEFINE SRAM_BANK0  $08
-.DEFINE SRAM_BANK1  $0C
+.DEFINE SRAM_BANK0  $08              ; $FFFC: SRAM enable + bank 0
+.DEFINE SRAM_BANK1  $0C              ; SRAM enable + bank 1
+.DEFINE SD4_CAP     $8000            ; capacity (TODO: derive from sram_detect; 32K here)
 
 ; map a logical SRAM offset HL -> set $FFFC to its 16 KB bank and
 ; return HL = $8000 + (off & $3FFF). No-straddle => map once per blob.
@@ -398,6 +406,186 @@ rsl_bad:
   or 1                                 ; NZ
   ret
 
+; rle_dir_init: write the SMDJ4 superblock + clear all directory entries
+; (fresh cart). Caller must smp_abort first (this enables SRAM).
+rle_dir_init:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld hl, SRAM_WIN
+  ld (hl), 'S'
+  inc hl
+  ld (hl), 'M'
+  inc hl
+  ld (hl), 'D'
+  inc hl
+  ld (hl), 'J'
+  inc hl
+  ld (hl), '4'
+  inc hl
+  ld (hl), 1                           ; version
+  inc hl
+  ld (hl), SD4_DIRN                     ; entry count
+  ld hl, SRAM_WIN + SD4_SUPER
+  ld bc, SD4_DIRN * SD4_DIRENT
+rdi_clr:
+  ld (hl), 0
+  inc hl
+  dec bc
+  ld a, b
+  or c
+  jr nz, rdi_clr
+  ret
+
+; rle_heap_end -> HL (= rle_heapmax) = max(SD4_HEAP + off + len) over valid
+; entries, else SD4_HEAP. Reads the directory (bank 0).
+rle_heap_end:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld hl, SD4_HEAP
+  ld (rle_heapmax), hl
+  ld ix, SRAM_WIN + SD4_SUPER
+  ld b, SD4_DIRN
+rhe_loop:
+  ld a, (ix+0)
+  cp $A5
+  jr nz, rhe_next
+  ld e, (ix+2)
+  ld d, (ix+3)                         ; DE = off
+  ld l, (ix+4)
+  ld h, (ix+5)                         ; HL = len
+  add hl, de                           ; off + len
+  ld de, SD4_HEAP
+  add hl, de                           ; end = SD4_HEAP + off + len
+  ld de, (rle_heapmax)
+  ld a, e
+  sub l
+  ld a, d
+  sbc a, h                             ; max - end ; carry if end > max
+  jr nc, rhe_next
+  ld (rle_heapmax), hl
+rhe_next:
+  ld de, SD4_DIRENT
+  add ix, de
+  djnz rhe_loop
+  ld hl, (rle_heapmax)
+  ret
+
+; rle_song_save: A = slot. Packs wave_ram into the heap (no-straddle),
+; writes the directory entry. Z = saved, NZ = SRAM full. Caller smp_abort's.
+rle_song_save:
+  ld (rss_slot), a
+  ld hl, wave_ram
+  call sram_sum                        ; DE = block checksum
+  ld (rss_cksum), de
+  call rle_heap_end                    ; rle_heapmax = heap_end
+  ; no-straddle: if (heap_end & $3FFF) + SAVE_SIZE > $4000, bump to next bank
+  ld a, h
+  and $3F
+  ld d, a
+  ld e, l                              ; DE = heap_end within-bank offset
+  ld hl, SAVE_SIZE
+  add hl, de
+  ld a, h
+  cp $40
+  jr c, rss_fits
+  jr nz, rss_bump
+  ld a, l
+  or a
+  jr z, rss_fits
+rss_bump:
+  ld hl, (rle_heapmax)
+  ld a, h
+  and $C0
+  ld h, a
+  ld l, 0                              ; heap_end & ~$3FFF (bank base)
+  ld de, $4000
+  add hl, de                           ; next bank boundary
+  ld (rle_heapmax), hl
+rss_fits:
+  ld hl, (rle_heapmax)                 ; capacity: heap_end + SAVE_SIZE > CAP?
+  ld de, SAVE_SIZE
+  add hl, de
+  ld de, SD4_CAP
+  ld a, e
+  sub l
+  ld a, d
+  sbc a, h                             ; CAP - (heap_end+SAVE_SIZE) ; carry if full
+  jp c, rss_full
+  ld hl, (rle_heapmax)
+  call rle_sram_map                    ; set bank, HL = physical dst
+  ld (rss_dst), hl
+  ex de, hl                            ; DE = dst
+  ld hl, wave_ram
+  ld bc, SD4_UNITS
+  call rle_pack                        ; DE = stream end
+  ld hl, (rss_dst)
+  ex de, hl                            ; HL = end, DE = dst
+  or a
+  sbc hl, de                           ; HL = blob_len
+  ld (rss_bloblen), hl
+  ld de, SAVE_SIZE                      ; store-raw if blob_len >= SAVE_SIZE
+  ld a, h
+  cp d
+  jr c, rss_rle
+  jr nz, rss_storeraw
+  ld a, l
+  cp e
+  jr c, rss_rle
+rss_storeraw:
+  ld de, (rss_dst)                     ; raw: overwrite with a straight copy
+  ld hl, wave_ram
+  ld bc, SAVE_SIZE
+  ldir
+  ld hl, SAVE_SIZE
+  ld (rss_bloblen), hl
+  ld a, 1
+  ld (rss_raw), a
+  jr rss_entry
+rss_rle:
+  xor a
+  ld (rss_raw), a
+rss_entry:
+  ld a, SRAM_BANK0                     ; the directory lives in bank 0
+  ld ($FFFC), a
+  ld a, (rss_slot)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl                           ; slot*8
+  ld de, SRAM_WIN + SD4_SUPER
+  add hl, de                           ; HL = entry ptr
+  ld (hl), $A5
+  inc hl
+  ld a, (rss_raw)
+  ld (hl), a
+  inc hl
+  push hl
+  ld hl, (rle_heapmax)                 ; heap_off = heap_end - SD4_HEAP
+  ld bc, SD4_HEAP
+  or a
+  sbc hl, bc
+  ex de, hl                            ; DE = heap_off
+  pop hl
+  ld (hl), e
+  inc hl
+  ld (hl), d
+  inc hl
+  ld de, (rss_bloblen)
+  ld (hl), e
+  inc hl
+  ld (hl), d
+  inc hl
+  ld de, (rss_cksum)
+  ld (hl), e
+  inc hl
+  ld (hl), d
+  xor a                                ; Z = saved
+  ret
+rss_full:
+  or 1                                 ; NZ
+  ret
+
 .IFDEF RLE_SELFTEST
 ; Power-on codec self-test (built via `make selftest`). Round-trips an
 ; embedded 15-unit vector (repeat runs of 5 and 2, literal runs, a single
@@ -406,11 +594,19 @@ rsl_bad:
 .DEFINE RLE_TEST_UNITS 15
 
 rle_selftest_show:
-  call rle_selftest          ; Z = round-trip byte-identical
+  call rle_selftest          ; codec round-trip (RAM only)
   ld hl, str_rle_ok
-  jr z, rss_go
+  jr z, rss_c1
   ld hl, str_rle_err
-rss_go:
+rss_c1:
+  ld b, 14
+  ld c, 12
+  call print_at
+  call rle_dirtest           ; directory save->load round-trip (writes SRAM)
+  ld hl, str_dir_ok
+  jr z, rss_c2
+  ld hl, str_dir_err
+rss_c2:
   ld b, 16
   ld c, 12
   call print_at
@@ -443,6 +639,33 @@ rst_cmp:
   xor a                      ; Z = pass
   ret
 
+; directory save->load round-trip on SRAM: checksum the live block, init a
+; fresh directory, save to slot 0, corrupt RAM, load slot 0 back, confirm the
+; block is byte-identical (load also self-checks against the stored checksum).
+rle_dirtest:
+  call smp_abort             ; SRAM is about to cover the sample pool
+  ld hl, wave_ram
+  call sram_sum
+  ld (rdt_cksum), de
+  call rle_dir_init
+  xor a
+  call rle_song_save
+  ret nz                     ; SRAM full
+  ld a, $5A                  ; corrupt the block so load must restore it
+  ld (wave_ram), a
+  xor a
+  call rle_song_load         ; verifies its own checksum vs the entry
+  ret nz
+  ld hl, wave_ram            ; belt-and-braces: re-checksum == original
+  call sram_sum
+  ld hl, (rdt_cksum)
+  ld a, l
+  cp e
+  ret nz
+  ld a, h
+  cp d
+  ret
+
 rle_test_vec:
   .db $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA, $AA,$AA,$AA,$AA
   .db $01,$02,$03,$04, $05,$06,$07,$08, $09,$0A,$0B,$0C
@@ -451,6 +674,8 @@ rle_test_vec:
   .db $F0,$F1,$F2,$F3
 str_rle_ok:  .db "RLE OK ", 0
 str_rle_err: .db "RLE ERR", 0
+str_dir_ok:  .db "DIR OK ", 0
+str_dir_err: .db "DIR ERR", 0
 .ENDIF
 
 .ENDS

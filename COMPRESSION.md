@@ -63,7 +63,11 @@ SRAM, so it can't corrupt saves even if buggy. Reads entry[slot], maps the blob'
 bank (`rle_sram_map`), `rle_unpack` (or raw copy) → `wave_ram`, verifies the
 checksum. Wire it into PROJECT load and verify live (after `make selftest` passes).
 
-**`rle_song_save` — spec, not coded** (it *writes* SRAM; do it with live verification):
+**`rle_song_save` — now coded** (`src/rle.asm`, build-clean, not wired to PROJECT)
+with a `rle_dirtest` round-trip in the self-test (`make selftest` → **DIR OK/ERR**
+under the RLE line: init dir → save slot 0 → corrupt RAM → load → byte-compare).
+The codec already shows **RLE OK** on the emulator. Algorithm (writes SRAM — keep
+verifying live before wiring it into the PROJECT save):
 1. `sram_sum wave_ram` → checksum.
 2. scan the directory (bank 0) for `heap_end = max(SD4_HEAP + off + len)` over valid
    entries (default `SD4_HEAP`).
