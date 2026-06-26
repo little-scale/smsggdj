@@ -2787,6 +2787,7 @@ song_init:
   ld de, echo_mode
   ld bc, 8
   ldir
+  call rle_name_default
   jp echo_sanitize
 
 ; fresh blank song: the 8 preset waves, audible default
@@ -2845,6 +2846,7 @@ sn_tbl:
   ld a, 6                    ; groove 0 = 6,6
   ld (grooves), a
   ld (grooves+1), a
+  call rle_name_default
   jp echo_defaults
 
 .ENDS

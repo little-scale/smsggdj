@@ -621,6 +621,35 @@ rss_full:
   or 1                                 ; NZ
   ret
 
+; rle_song_delete: A = slot. Marks the entry free. heap_end recomputes on the
+; next save (trailing space reclaims); mid-heap holes await compaction (TODO).
+rle_song_delete:
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                           ; slot*32
+  ld de, SRAM_WIN + SD4_SUPER
+  add hl, de
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  xor a
+  ld (hl), a                           ; valid = 0
+  ret
+
+; rle_name_default: song_name = 8 spaces (for a fresh/loaded-demo song).
+rle_name_default:
+  ld hl, song_name
+  ld a, $20
+  ld b, 8
+rnd_l:
+  ld (hl), a
+  inc hl
+  djnz rnd_l
+  ret
+
 .IFDEF RLE_SELFTEST
 ; Power-on codec self-test (built via `make selftest`). Round-trips an
 ; embedded 15-unit vector (repeat runs of 5 and 2, literal runs, a single
