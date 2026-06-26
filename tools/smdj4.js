@@ -32,9 +32,9 @@
     NUM_PHRASES: 52, NUM_CHAINS: 40, PHRASE_BYTES: 64, CHAIN_BYTES: 32,
   };
 
-  // SMDJ4 .sav (cart image) geometry
-  const SUPER = 32, DIR_ENTRIES = 32, DIR_ENTRY = 8;
-  const DIR_OFF = SUPER, HEAP_OFF = SUPER + DIR_ENTRIES * DIR_ENTRY; // 288
+  // SMDJ4 .sav (cart image) geometry. Entry: valid,raw,off2,len2,cksum2 + 8 echo.
+  const SUPER = 32, DIR_ENTRIES = 32, DIR_ENTRY = 16;
+  const DIR_OFF = SUPER, HEAP_OFF = SUPER + DIR_ENTRIES * DIR_ENTRY; // 544
   const MAGIC4 = [0x53,0x4D,0x44,0x4A,0x34];                         // "SMDJ4"
   const HDR = 16;                                                     // .smdj header
 
@@ -105,6 +105,7 @@
       sav[e+5] = (bytes.length >> 8) & 0xFF;
       sav[e+6] = cs & 0xFF;
       sav[e+7] = (cs >> 8) & 0xFF;
+      if (s.echo) sav.set(s.echo.subarray(0, 8), e + 8);   // +8..+15 echo
       sav.set(bytes, heapEnd);
       heapEnd += bytes.length;
     }
@@ -123,9 +124,10 @@
       const off = HEAP_OFF + (sav[e+2] | (sav[e+3] << 8));
       const len = sav[e+4] | (sav[e+5] << 8);
       const cs  = sav[e+6] | (sav[e+7] << 8);
+      const echo = sav.subarray(e + 8, e + 16).slice();
       const blob = sav.subarray(off, off + len);
       const block = raw ? blob.slice() : RLE.decompress(blob);
-      out.push({ block, raw, checksumOK: checksum(block) === cs });
+      out.push({ block, echo, raw, checksumOK: checksum(block) === cs });
     }
     return out;
   }

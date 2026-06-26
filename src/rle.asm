@@ -314,9 +314,9 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
 ; passes) before trusting. No-straddle: a blob lives in one bank.
 ; ============================================================
 .DEFINE SD4_SUPER   32
-.DEFINE SD4_DIRENT  8
+.DEFINE SD4_DIRENT  16               ; valid,raw,off2,len2,cksum2, then 8 echo bytes
 .DEFINE SD4_DIRN    32
-.DEFINE SD4_HEAP    288              ; SD4_SUPER + SD4_DIRENT*SD4_DIRN
+.DEFINE SD4_HEAP    544              ; SD4_SUPER + SD4_DIRENT*SD4_DIRN
 .DEFINE SD4_UNITS   SAVE_SIZE/4
 .DEFINE SRAM_WIN    $8000
 .DEFINE SRAM_BANK0  $08              ; $FFFC: SRAM enable + bank 0
@@ -347,8 +347,9 @@ rsm_b0:
 ; rle_song_load: A = slot (0..SD4_DIRN-1). Decompresses into wave_ram.
 ; Returns Z = loaded & checksum-ok, NZ = empty slot / bad checksum.
 rle_song_load:
-  ld l, a                              ; entry = SRAM_WIN + SD4_SUPER + slot*8
+  ld l, a                              ; entry = SRAM_WIN + SD4_SUPER + slot*16
   ld h, 0
+  add hl, hl
   add hl, hl
   add hl, hl
   add hl, hl
@@ -361,30 +362,35 @@ rle_song_load:
   jr nz, rsl_bad                       ; not a valid entry
   inc hl
   ld a, (hl)                           ; +1 raw flag
-  ld (rle_cnt), a                      ; stash (low byte)
+  ld (rss_raw), a
   inc hl
   ld e, (hl)
   inc hl
-  ld d, (hl)                           ; DE = heap_off
+  ld d, (hl)                           ; +2/+3 heap_off
+  ld (rle_heapmax), de
   inc hl
-  ld c, (hl)
+  ld e, (hl)
   inc hl
-  ld b, (hl)                           ; BC = blob_len
+  ld d, (hl)                           ; +4/+5 blob_len
+  ld (rss_bloblen), de
   inc hl
-  ld a, (hl)                           ; +6 checksum lo -> stash
-  ld (rle_unit+0), a
+  ld e, (hl)
   inc hl
-  ld a, (hl)                           ; +7 checksum hi -> stash
-  ld (rle_unit+1), a
-  push bc                              ; blob_len (for raw copy)
-  ld hl, SD4_HEAP
-  add hl, de                           ; HL = logical blob offset
+  ld d, (hl)                           ; +6/+7 checksum
+  ld (rss_cksum), de
+  inc hl                               ; +8: echo settings (8 bytes)
+  ld de, echo_mode
+  ld bc, 8
+  ldir                                 ; restore echo (bank 0, entry mapped)
+  ld hl, (rle_heapmax)                 ; logical blob offset = SD4_HEAP + heap_off
+  ld de, SD4_HEAP
+  add hl, de
   call rle_sram_map                    ; set bank, HL = physical src
-  pop bc                               ; blob_len
-  ld a, (rle_cnt)
+  ld a, (rss_raw)
   or a
   jr z, rsl_rle
-  ld de, wave_ram                      ; raw: straight copy
+  ld bc, (rss_bloblen)                 ; raw: straight copy
+  ld de, wave_ram
   ldir
   jr rsl_check
 rsl_rle:
@@ -392,12 +398,13 @@ rsl_rle:
   ld bc, SD4_UNITS
   call rle_unpack                      ; stream(SRAM) -> wave_ram(RAM)
 rsl_check:
-  ld hl, wave_ram                      ; wave_ram is RAM (always mapped)
-  call sram_sum                        ; DE = computed 16-bit sum
-  ld a, (rle_unit+0)                   ; compare to the stashed entry checksum
+  ld hl, wave_ram
+  call sram_sum                        ; DE = computed checksum
+  ld hl, (rss_cksum)
+  ld a, l
   cp e
   jr nz, rsl_bad
-  ld a, (rle_unit+1)
+  ld a, h
   cp d
   jr nz, rsl_bad
   xor a                                ; Z = loaded ok
@@ -552,7 +559,8 @@ rss_entry:
   ld h, 0
   add hl, hl
   add hl, hl
-  add hl, hl                           ; slot*8
+  add hl, hl
+  add hl, hl                           ; slot*16
   ld de, SRAM_WIN + SD4_SUPER
   add hl, de                           ; HL = entry ptr
   ld (hl), $A5
@@ -579,7 +587,13 @@ rss_entry:
   ld de, (rss_cksum)
   ld (hl), e
   inc hl
-  ld (hl), d
+  ld (hl), d                           ; +7 checksum hi
+  inc hl                               ; +8: echo settings (8 bytes)
+  ld d, h
+  ld e, l
+  ld hl, echo_mode
+  ld bc, 8
+  ldir                                 ; echo_mode -> entry+8..+15
   xor a                                ; Z = saved
   ret
 rss_full:
@@ -644,6 +658,10 @@ rst_cmp:
 ; block is byte-identical (load also self-checks against the stored checksum).
 rle_dirtest:
   call smp_abort             ; SRAM is about to cover the sample pool
+  ld a, $3C                  ; seed echo with a known pattern (uninit at boot)
+  ld (echo_mode), a
+  ld a, $5A
+  ld (echo_mode+1), a
   ld hl, wave_ram
   call sram_sum
   ld (rdt_cksum), de
@@ -651,10 +669,18 @@ rle_dirtest:
   xor a
   call rle_song_save
   ret nz                     ; SRAM full
-  ld a, $5A                  ; corrupt the block so load must restore it
+  ld a, $99                  ; corrupt the block AND echo
   ld (wave_ram), a
+  ld (echo_mode), a
+  ld (echo_mode+1), a
   xor a
-  call rle_song_load         ; verifies its own checksum vs the entry
+  call rle_song_load         ; verifies its own checksum + restores echo
+  ret nz
+  ld a, (echo_mode)          ; echo restored?
+  cp $3C
+  ret nz
+  ld a, (echo_mode+1)
+  cp $5A
   ret nz
   ld hl, wave_ram            ; belt-and-braces: re-checksum == original
   call sram_sum
