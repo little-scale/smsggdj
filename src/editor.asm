@@ -6824,7 +6824,6 @@ str_phrase:      .db "PHRASE", 0
 str_instr:       .db "INSTR", 0
 str_tabl:        .db "TABLE", 0
 str_grv:         .db "GROOVE", 0
-str_htik:        .db "TIK", 0
 str_hv:          .db "V", 0
 str_hpit:        .db "PIT", 0
 str_hphr:        .db "PHR", 0
