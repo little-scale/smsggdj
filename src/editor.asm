@@ -6802,16 +6802,16 @@ cc_set:
 ; rank (alphabetical) -> command id   (B = CMD_WSET sits after A)
 cmd_order:
   .db CMD_NONE, CMD_TBL, CMD_WSET, CMD_ARP, CMD_DELAY, CMD_ENV
-  .db CMD_FINE, CMD_GRV, CMD_HOP, CMD_ITER, CMD_KILL, CMD_SLIDE
-  .db CMD_TREM, CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG, CMD_SPEED
-  .db CMD_TPO, CMD_VIB, CMD_WAIT, CMD_VOL, CMD_FMPROG, CMD_PROB
+  .db CMD_FINE, CMD_GRV, CMD_HOP, CMD_ITER, CMD_JTRANS, CMD_KILL
+  .db CMD_SLIDE, CMD_TREM, CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG
+  .db CMD_SPEED, CMD_TPO, CMD_VIB, CMD_WAIT, CMD_VOL, CMD_FMPROG, CMD_PROB
 ; command id -> rank (inverse of cmd_order)
 cmd_rank:
-  .db 0, 10, 8, 1, 3, 5, 6, 7, 13, 15, 18, 19, 20, 12, 4, 11, 16, 14, 9, 17, 2, 21, 22, 23
+  .db 0, 11, 8, 1, 3, 5, 6, 7, 14, 16, 19, 20, 21, 13, 4, 12, 17, 15, 9, 18, 2, 22, 23, 24, 10
 
 ; command id -> display letter
 cmd_chars:
-  .db "-KHACEFGNPTVWMDLROISBXYZ"
+  .db "-KHACEFGNPTVWMDLROISBXYZJ"
 
 .ENDS
 

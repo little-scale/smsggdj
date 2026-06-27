@@ -293,7 +293,7 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `E xy` | Envelope | ATK x, DCY y | re-slope the AHD ramps live (HLD and the current stage are untouched) |
 | `F xx` | Finetune | signed | detune in period units |
 | `G xx` | Groove | groove # | switch the (global) groove from this row |
-| `H xx` | Hop | — | PHRASE: end **this track's** phrase now (per-channel; param ignored); TABLE: loop |
+| `H xx` | Hop | — | PHRASE: end **this track's** phrase **immediately** — the H row costs no tick; play jumps to row 0 (looping the phrase / stepping the chain) and processes it in the **same** tick, so a row of `H` is a zero-time loop marker (per-channel; param ignored). TABLE: loop |
 | `K xx` | Kill | ticks | note cut after xx ticks (00 = instant; also aborts samples) |
 | `L xx` | sLide | speed | tone portamento toward this row's note |
 | `M xy` | aMp mod | speed x, depth y | tremolo override (LSDJ's M is master volume, which the PSG lacks — letter reused) |
@@ -308,8 +308,10 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `W xx` | Wait-skip | ticks | shorten this row to xx ticks (shuffle fills) |
 | `X xx` | volume | level 0–F | set this note's volume (the AHD peak); pair with a note — the attack ramps to it. Accents a single note (the only per-note volume control after `E` became ATK/DCY) |
 | `Y xx` | FM program | patch 1–15 | set this note's FM program/patch, overriding the FM instrument's PROG (one-shot, like `B` for wavetables) |
+| `Z xx` | Probability | chance 00–FF | the note triggers with probability xx/256 — `Z00` never, `ZFF` always, `Z80` ≈ 50/50. A fresh roll of a 16-bit Galois LFSR (taps $B400, seeded from the frame counter at play-start) each time the row plays. Resolved in the trigger peek; the command slot is a no-op |
+| `J xy` | Jump (transpose) | x = signed semitones, y = mask | sibling to `I`: transpose the note by x semitones (`0`–`7` = +, `8`–`F` = −8…−1) on the plays whose **(play count mod 4)** bit is set in y. `J00` never, `J2F` always +2, `J21`/`J28` = +2 once every 4 plays. Same per-phrase play count as `I`, but varies pitch instead of gating the note |
 
-Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `Z` (random) → v2. `B` (wave-bank select) is new — no LSDJ equivalent.
+Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `B` (wave-bank select) is new — no LSDJ equivalent. `Z` (probability) and `J` (probabilistic transpose) are the SMSGGDJ variation trio with `I`.
 
 ---
 
@@ -529,4 +531,4 @@ One tree, two ROMs: `TARGET_GG` selects the flavor; everything musical
   real-time bytes — not parallel mode. GG↔GG via a stock Gear-to-Gear cable;
   the SMS counter protocol stays for SMS rigs.
 
-**v2 parking lot:** `Z` random command, pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.
+**v2 parking lot:** pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.

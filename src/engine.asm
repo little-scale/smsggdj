@@ -59,7 +59,8 @@
 .DEFINE CMD_VOL     21         ; X: set this note's volume (AHD peak 0-F)
 .DEFINE CMD_FMPROG  22         ; Y: set this note's FM program (patch 1-15)
 .DEFINE CMD_PROB    23         ; Z: chance the note triggers (00 never .. FF always)
-.DEFINE CMD_COUNT   24
+.DEFINE CMD_JTRANS  24         ; J: signed transpose (x) on plays masked by y (mod 4)
+.DEFINE CMD_COUNT   25
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -100,7 +101,8 @@
   eng_start    db            ; song row playback began on
   eng_len      db            ; song rows until the wrap to row 0
   groove_sel   db            ; active groove
-  chan_hop     dsb 4         ; per-channel H: force this track's phrase boundary
+  hop_now      db            ; H just fired on this channel: hop NOW, same tick
+  hop_guard    db            ; per-tick hop budget (kills an all-H spin)
   cur_trig_ch  db            ; channel being processed (for WAV)
   sync_mode    db            ; SYNC_* (0 = OUT, the default)
   sync_cnt     db            ; master tick counter / pulse divider
@@ -160,10 +162,7 @@ engine_play:
 ep_seed:
   ld (rng_state), hl
   xor a
-  ld (chan_hop+0), a         ; per-channel hop flags clear
-  ld (chan_hop+1), a
-  ld (chan_hop+2), a
-  ld (chan_hop+3), a
+  ld (hop_now), a            ; immediate-hop flag clear
   ld a, $FF
   ld (wav_ovr), a
   ld (fm_ovr), a
@@ -847,17 +846,6 @@ sc_loop:
   ; the beat: a silent track re-armed in LIVE then still starts bar-aligned.
   ld d, 0
   ld e, c
-  ld hl, chan_hop
-  add hl, de
-  ld a, (hl)
-  or a
-  jr z, sc_adv
-  ld (hl), 0                 ; pending hop: force this track's boundary now
-  ld hl, chan_row
-  add hl, de
-  ld (hl), 0
-  jr sc_bound
-sc_adv:
   ld hl, chan_row
   add hl, de
   ld a, (hl)
@@ -875,6 +863,9 @@ sc_bound:
   jp z, sc_next
   call advance_track         ; walk this track's chain/song (or take a queue)
 sc_setrow:
+  xor a
+  ld (hop_guard), a          ; fresh per-row hop budget
+sc_reproc:
   ld d, 0                    ; cur_row = this channel's row (advance_track
   ld e, c                    ;   clobbers DE, so recompute the index)
   ld hl, chan_row
@@ -882,6 +873,28 @@ sc_setrow:
   ld a, (hl)
   ld (cur_row), a
   call process_chan
+  ; immediate H: a hop on this row jumps to row 0 and re-processes NOW, so the
+  ; H row spends no tick of its own. Guarded so an all-H phrase can't spin.
+  ld a, (hop_now)
+  or a
+  jr z, sc_next
+  xor a
+  ld (hop_now), a
+  ld a, (hop_guard)
+  inc a
+  ld (hop_guard), a
+  cp 16
+  jr nc, sc_next             ; pathological hop chain: bail this tick
+  ld a, (ix+6)               ; advance_track may have silenced the track
+  or a
+  jr z, sc_next
+  ld d, 0
+  ld e, c
+  ld hl, chan_row
+  add hl, de
+  ld (hl), 0                 ; hop target = row 0
+  call advance_track         ; loop the phrase / step the chain, as a boundary
+  jr sc_reproc
 sc_next:
   ld de, 32
   add ix, de
@@ -1241,6 +1254,8 @@ pr_nok:
   jr z, prn_fmprog
   cp CMD_PROB
   jp z, prn_prob
+  cp CMD_JTRANS
+  jp z, prn_jump
 prn_norm:
   ld (ix+0), b
   push hl
@@ -1346,6 +1361,51 @@ prn_prob:
   cp d                       ; carry if random < param
   jp c, prn_norm             ; play
   jp pr_cmd                  ; skip the note
+prn_jump:
+  ; J xy: x = signed semitone transpose (0..7 = +1..+7, 8..F = -8..-1),
+  ; applied to this note only on plays whose (play mod 4) bit is set in the
+  ; low nibble y. A sibling to I: same per-phrase play count, but it varies
+  ; pitch instead of gating the note. y=0 never transposes, y=F always.
+  push hl
+  ld hl, phrase_plays
+  ld a, (ix+10)              ; how many times this phrase has played
+  add a, l
+  ld l, a
+  adc a, h
+  sub l
+  ld h, a
+  ld a, (hl)                 ; play count N
+  pop hl
+  and 3                      ; bit index = N mod 4
+  inc a                      ; rotate (index + 1) times -> bit in carry
+  ld e, a
+  ld a, d                    ; the 4-bit mask (low nibble; high nibble ignored)
+prn_jbit:
+  rrca
+  dec e
+  jr nz, prn_jbit
+  jp nc, prn_norm            ; bit clear: play untransposed
+  ld a, d                    ; high nibble = signed transpose
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  cp 8
+  jr c, prn_jadd
+  sub 16                     ; 8..15 -> -8..-1
+prn_jadd:
+  add a, b                   ; note + transpose
+  jp m, prn_jlo              ; wrapped below 0 (NOTE_COUNT < 128, so +overflow
+  cp NOTE_COUNT              ;   never sets sign): clamp to floor
+  jr c, prn_jok
+  ld a, NOTE_COUNT-1
+  jr prn_jok
+prn_jlo:
+  xor a
+prn_jok:
+  ld b, a
+  jp prn_norm
 pr_cmd:
   inc hl
   inc hl
@@ -1369,6 +1429,8 @@ pr_cmd:
   jr z, pr_next              ; applied in the trigger peek above
   cp CMD_PROB
   jr z, pr_next              ; Z (probability) is resolved in the trigger peek
+  cp CMD_JTRANS
+  jr z, pr_next              ; J (transpose mask) is resolved in the trigger peek
   call exec_command          ; channel-scope
   jp pr_next
 prc_grv:
@@ -1379,13 +1441,9 @@ prc_grv:
   ld (groove_pos), a
   jp pr_next
 prc_hop:
-  ld a, (cur_trig_ch)        ; H ends only this track's phrase (next tick)
-  ld e, a
-  ld d, 0
-  ld hl, chan_hop
-  add hl, de
-  ld (hl), 1
-  jp pr_next
+  ld a, 1                    ; H ends this track's phrase NOW, same tick: the
+  ld (hop_now), a            ; H row costs no time (step_channels re-processes
+  jp pr_next                 ; row 0 immediately). Per-channel: only cur_trig_ch.
 prc_wait:
   ld a, (sync_mode)          ; W shortens a row; that fights the SYNC IN
   cp SYNC_IN                 ; 6-tick lock, so ignore it while following
