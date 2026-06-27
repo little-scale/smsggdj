@@ -312,6 +312,7 @@ take a two-digit parameter `xy`.
 | `W` | Wait-skip | Shorten this row (for shuffle/swing fills) |
 | `X` | Volume | Set this note's volume `0`–`F` (accent). Use it on a note — the attack ramps to that level |
 | `Y` | FM program | Set this note's FM patch `1`–`15`, overriding an FM instrument's PROG (for FM voices) |
+| `Z` | Probability | Chance the note triggers: `Z00` never, `ZFF` always, in between rolls a fresh random each play (`Z80` ≈ 50/50) |
 
 ---
 

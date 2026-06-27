@@ -3,9 +3,13 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.31 — unreleased
+## v0.31 — 2026-06-28
 
 ### Added
+- **`Z` command — note probability.** `Zxx` gives the row's note a chance to
+  trigger: `Z00` never plays, `ZFF` always plays, and values in between roll a
+  fresh random number each time (e.g. `Z80` ≈ 50/50). Works in phrase and table
+  columns.
 - **FILES screen scrolls** through all 32 song slots (12 visible at a time), with
   a **song count** above the list and a **SRAM / FREE / SONG** space readout (in
   KB) stacked under the mini-map.

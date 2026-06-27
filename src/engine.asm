@@ -58,7 +58,8 @@
 .DEFINE CMD_WSET    20         ; B: set this note's wavetable (0-7)
 .DEFINE CMD_VOL     21         ; X: set this note's volume (AHD peak 0-F)
 .DEFINE CMD_FMPROG  22         ; Y: set this note's FM program (patch 1-15)
-.DEFINE CMD_COUNT   23
+.DEFINE CMD_PROB    23         ; Z: chance the note triggers (00 never .. FF always)
+.DEFINE CMD_COUNT   24
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -126,6 +127,7 @@
   sram_ok      db            ; cart SRAM detected at boot
   sram_slots   db            ; save slots available (0/1/3/6)
   sd4_cap      dw            ; SMDJ4 heap capacity in bytes (from the detected size)
+  rng_state    dw            ; 16-bit LFSR for the Z (probability) command
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
@@ -150,6 +152,13 @@
 engine_play:
   ld (eng_mode), a
   push af
+  ld hl, (frame)             ; re-seed the Z-command RNG from the frame counter
+  ld a, h
+  or l                       ;   (so probabilities vary per playback; LFSR must
+  jr nz, ep_seed             ;    stay non-zero)
+  inc hl
+ep_seed:
+  ld (rng_state), hl
   xor a
   ld (chan_hop+0), a         ; per-channel hop flags clear
   ld (chan_hop+1), a
@@ -1230,6 +1239,8 @@ pr_nok:
   jr z, prn_wset
   cp CMD_FMPROG
   jr z, prn_fmprog
+  cp CMD_PROB
+  jp z, prn_prob
 prn_norm:
   ld (ix+0), b
   push hl
@@ -1321,6 +1332,20 @@ prn_ibit:
   jr nz, prn_ibit
   jp nc, pr_cmd              ; bit clear: rest this repeat
   jp prn_norm
+prn_prob:
+  ; Z xx: D = chance the note triggers. FF always, 00 never, else a fresh roll
+  ; plays when random < param. The note's command is a no-op (handled here).
+  ld a, d
+  cp $FF
+  jp z, prn_norm             ; always
+  or a
+  jp z, pr_cmd               ; never -> rest this row
+  push hl                    ; preserve the step pointer (rng clobbers HL)
+  call rng                   ; A = random byte (preserves B = note, D = param)
+  pop hl
+  cp d                       ; carry if random < param
+  jp c, prn_norm             ; play
+  jp pr_cmd                  ; skip the note
 pr_cmd:
   inc hl
   inc hl
@@ -1342,6 +1367,8 @@ pr_cmd:
   jr z, pr_next              ; applied in the trigger peek above
   cp CMD_FMPROG
   jr z, pr_next              ; applied in the trigger peek above
+  cp CMD_PROB
+  jr z, pr_next              ; Z (probability) is resolved in the trigger peek
   call exec_command          ; channel-scope
   jp pr_next
 prc_grv:
@@ -2596,6 +2623,22 @@ sd_st:
   ld (sram_ok), a
   xor a
   ld ($FFFC), a
+  ret
+
+; rng: 16-bit Galois LFSR -> A = a pseudo-random byte. Advances rng_state, which
+; must stay non-zero (seeded at boot, re-seeded from the frame counter on play).
+; Preserves BC/DE/IX. Used by the Z (probability) command.
+rng:
+  ld hl, (rng_state)
+  srl h
+  rr l                       ; HL >>= 1, low bit -> carry
+  jr nc, rng_nt
+  ld a, h
+  xor $B4                    ; tap polynomial $B400 (period 65535)
+  ld h, a
+rng_nt:
+  ld (rng_state), hl
+  ld a, l
   ret
 
 ; -------------------------------------------------------------
