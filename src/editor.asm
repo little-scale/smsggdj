@@ -6962,12 +6962,12 @@ fl_draw_space:
   ld hl, str_size
   ld b, MAP_ROW+10
   call fsp_label
-  ld hl, SD4_CAP             ; SRAM = capacity
+  ld hl, (sd4_cap)           ; SRAM = detected capacity
   ld b, MAP_ROW+5
   call fsp_kfix
   call rle_heap_end          ; HL = heap_end (maps bank 0)
-  ex de, hl                  ; FREE = SD4_CAP - heap_end
-  ld hl, SD4_CAP
+  ex de, hl                  ; FREE = cap - heap_end
+  ld hl, (sd4_cap)
   or a
   sbc hl, de
   ld b, MAP_ROW+8

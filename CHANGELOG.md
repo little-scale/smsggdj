@@ -11,6 +11,10 @@ The git history has the full detail; this is the curated summary.
   KB) stacked under the mini-map.
 
 ### Changed
+- **The save system now respects the detected cart size.** The heap capacity (and
+  the FILES `SRAM`/`FREE` readout) comes from `sram_detect` (8/16/32 KB) instead
+  of assuming 32 KB, so a save can't be placed past the real SRAM on a smaller
+  cart, and the bank-crossing logic only kicks in on a true 32 KB (two-bank) cart.
 - **Deleting a song now compacts the cartridge heap.** Clearing a song slides the
   remaining songs down to close the gap (across the 16 KB bank boundary when
   needed), so freed space is always reclaimed — no more stranded holes that only

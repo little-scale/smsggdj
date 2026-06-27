@@ -120,7 +120,16 @@ bank 1 — if both persist independently the cart has a real second bank
 second bank is a separate question, confirmable only by a power-cycle test —
 **confirmed on real hardware** (a Master Everdrive X7 on a PAL SMS1, both banks
 persisted across power-off). Verify your own cart the same way before trusting
-the second bank. A bigger cart simply means a bigger heap (more songs).
+the second bank.
+
+The detected size sets the **runtime heap capacity** (`sd4_cap`: 8K→`$2000`,
+16K→`$4000`, 32K→`$8000`), which the save's capacity check and the FILES readout
+both use — so a save is never placed past the real SRAM, and the readout shows
+the true size. The no-straddle bank bump only applies on a 32 KB cart (the only
+one with two banks); single-bank carts pack contiguously. Note the capacity
+check reserves the worst-case 6912 B before packing (the packer writes straight
+to SRAM, no scratch buffer), so the top ~7 KB of any cart isn't usable for a new
+save — negligible on 32 KB, but it leaves an 8 KB cart room for only ~one song.
 
 ## OPTIONS config block
 

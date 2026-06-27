@@ -334,7 +334,9 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
 .DEFINE SRAM_WIN    $8000
 .DEFINE SRAM_BANK0  $08              ; $FFFC: SRAM enable + bank 0
 .DEFINE SRAM_BANK1  $0C              ; SRAM enable + bank 1
-.DEFINE SD4_CAP     $8000            ; capacity (TODO: derive from sram_detect; 32K here)
+.DEFINE SD4_CAP     $8000            ; max capacity (32K). The live capacity is the
+                                     ; runtime `sd4_cap` (set from sram_detect: 8K/
+                                     ; 16K/32K); SD4_CAP is only the heap-scan sentinel.
 ; NOTE: the OPTIONS config block lives at CFG_ADDR $BF60 = logical heap offset
 ; $3F60 (16224) in bank 0, which sits inside this heap range. Compressed songs
 ; bump to bank 1 long before reaching it, but a pathological near-raw blob could
@@ -483,6 +485,10 @@ rle_dir_ensure:
 ; FILES UI (trailing-empty-slot gate).
 rle_can_save:
   call rle_heap_end                    ; rle_heapmax = heap_end (HL too)
+  ; single-bank carts (<= 16K) have no internal $4000 boundary -> no straddle bump
+  ld a, (sd4_cap+1)
+  cp $80
+  jr c, rcs_fits                       ; cap < 32K -> skip the bump
   ; no-straddle: if (heap_end & $3FFF) + SAVE_SIZE > $4000, bump to next bank
   ld a, h
   and $3F
@@ -510,7 +516,7 @@ rcs_fits:
   ld hl, (rle_heapmax)                 ; capacity: heap_end + SAVE_SIZE > CAP?
   ld de, SAVE_SIZE
   add hl, de
-  ld de, SD4_CAP
+  ld de, (sd4_cap)
   ld a, e
   sub l
   ld a, d
@@ -779,6 +785,9 @@ rle_compact:
 rcp_loop:
   call rcp_findmin                     ; bank 0; Z = none left, NZ = found
   jr z, rcp_done
+  ld a, (sd4_cap+1)                    ; single-bank cart -> no straddle bump
+  cp $80
+  jr c, rcp_nobump
   ; no-straddle: if (dst & $3FFF) + len > $4000, bump dst to the next bank
   ld hl, (rcp_dst)
   ld a, h
@@ -984,6 +993,14 @@ rss_c3:
   ld b, 18
   ld c, 12
   call print_at
+  call rle_captest           ; 16K capacity path (single-bank, no straddle bump)
+  ld hl, str_cap_ok
+  jr z, rss_c4
+  ld hl, str_cap_err
+rss_c4:
+  ld b, 20
+  ld c, 12
+  call print_at
   call display_on            ; splash left the display OFF + screen wiped
 rss_freeze:
   jr rss_freeze              ; freeze on the result (interrupts already off)
@@ -1124,12 +1141,50 @@ rcf_loop:
   jr nz, rcf_loop
   ret
 
+; 16K-cart capacity path: pretend the cart is 16K (sd4_cap = $4000), then check
+; that single-bank saves pack contiguously with no straddle bump (two raw 6912 B
+; songs fit, 1056..14880 < $4000) and that the third is correctly refused (no
+; bank 1 to bump into). Then load the survivors checksum-clean.
+rle_captest:
+  call smp_abort
+  ld hl, $4000               ; pretend 16K
+  ld (sd4_cap), hl
+  call rle_dir_init
+  ld a, $44                  ; song 0 (incompressible -> raw 6912 B)
+  call rct_fill
+  xor a
+  call rle_song_save
+  ret nz                     ; must fit
+  ld a, $55                  ; song 1
+  call rct_fill
+  ld a, 1
+  call rle_song_save
+  ret nz                     ; must fit (ends at 14880 < $4000)
+  ld a, $66                  ; song 2 must be refused (would exceed 16K, no bump)
+  call rct_fill
+  ld a, 2
+  call rle_song_save
+  jr z, rct_capfail          ; Z = saved = wrong
+  xor a                      ; survivors still load clean?
+  call rle_song_load
+  ret nz
+  ld a, 1
+  call rle_song_load
+  ret nz
+  xor a                      ; Z = pass
+  ret
+rct_capfail:
+  or 1                       ; NZ = fail
+  ret
+
 str_rle_ok:  .db "RLE OK ", 0
 str_rle_err: .db "RLE ERR", 0
 str_dir_ok:  .db "DIR OK ", 0
 str_dir_err: .db "DIR ERR", 0
 str_cmp_ok:  .db "CMP OK ", 0
 str_cmp_err: .db "CMP ERR", 0
+str_cap_ok:  .db "CAP OK ", 0
+str_cap_err: .db "CAP ERR", 0
 .ENDIF
 
 .ENDS

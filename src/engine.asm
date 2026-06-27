@@ -124,7 +124,8 @@
   proj_tsp     db            ; global transpose, signed semitones
   live_q       dsb 4         ; queued song row per track ($FF -)
   sram_ok      db            ; cart SRAM detected at boot
-  sram_slots   db            ; save slots available (0/1/3)
+  sram_slots   db            ; save slots available (0/1/3/6)
+  sd4_cap      dw            ; SMDJ4 heap capacity in bytes (from the detected size)
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
@@ -2575,11 +2576,22 @@ sd_8k:
   ld a, 1
 sd_slots:
   ld (sram_slots), a
+  ld hl, $2000               ; SMDJ4 heap capacity from the size: 8K
+  cp 1
+  jr z, sd_capset
+  ld hl, $4000               ;   16K (3 slots)
+  cp 3
+  jr z, sd_capset
+  ld hl, $8000               ;   32K (6 slots)
+sd_capset:
+  ld (sd4_cap), hl
   ld a, 1
   jr sd_st
 sd_no:
   xor a
   ld (sram_slots), a
+  ld (sd4_cap), a            ; no SRAM -> capacity 0
+  ld (sd4_cap+1), a
 sd_st:
   ld (sram_ok), a
   xor a
