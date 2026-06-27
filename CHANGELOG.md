@@ -3,13 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.32 — unreleased
-
-### Changed
-- **`H` (hop) is now immediate.** Hitting `H` in a phrase jumps back to row 0 in
-  the **same tick** instead of spending a 16th on the H row — so a row of `H` is a
-  zero-time loop marker. Put it right after your last step and the phrase loops
-  with no wasted step (e.g. `H` on row 4 now loops a 4-step phrase, not 5).
+## v0.32 — 2026-06-28
 
 ### Added
 - **`J` command — probabilistic transpose.** A sibling to `I`/`Z` for making one
@@ -17,6 +11,12 @@ The git history has the full detail; this is the curated summary.
   amount `x` (`0`–`7` = +1…+7, `8`–`F` = −8…−1, so `F` = −1) on the plays whose
   **(play mod 4)** bit is set in the mask `y` (`y=0` never, `y=F` always). Pairs with
   `I` (gate the note) and `Z` (random chance) to keep a single phrase moving.
+
+### Changed
+- **`H` (hop) is now immediate.** Hitting `H` in a phrase jumps back to row 0 in
+  the **same tick** instead of spending a 16th on the H row — so a row of `H` is a
+  zero-time loop marker. Put it right after your last step and the phrase loops
+  with no wasted step (e.g. `H` on row 4 now loops a 4-step phrase, not 5).
 
 ## v0.31 — 2026-06-28
 
