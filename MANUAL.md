@@ -18,13 +18,12 @@ Everything in this manual applies to both unless noted.
 1. Put the `.sms` (or `.gg`) file on your flashcart's SD card, or open it
    in an emulator.
 2. On boot you'll see the SMSGGDJ logo, then the tracker opens on an empty
-   song, ready to edit.
-3. Want to hear what it can do first? Go to the **FILES** screen, hold **2** and
-   tap **1** to open the action menu, pick **DEMO** and tap **1** — that loads the
-   built-in demo song. Then press **Play**.
+   song, ready to edit. The eight wavetables come preloaded with the stamp
+   presets, so a fresh song can make sound right away.
+3. Drop a note or two in a phrase, point a chain and the SONG screen at it,
+   and press **Play**.
 
-Nothing is loaded or playing until you ask — the demo is always one
-**FILES → DEMO** away.
+Nothing is loaded or playing until you ask.
 
 ---
 
@@ -82,12 +81,14 @@ column lands back on its own column type so nothing gets scrambled.
 Hold **2** and press the D-pad to move around this map:
 
 ```
-   [OPTIONS] [PROJECT]                    [WAVE]
-   [ SONG  ][ CHAIN ][ PHRASE ][ INSTR ][ TABLE ]
-                     [ GROOVE ]            [ ECHO ]
+   [OPTIONS][PROJECT]                   [WAVE]
+   [ SONG ][ CHAIN ][PHRASE][ INSTR ][ TABLE ]
+   [ FILES][GROOVE ]          [ ECHO ]
 ```
 
-Navigation stops at the edges of the map — it doesn't wrap around.
+Navigation stops at the edges of the map — it doesn't wrap around. **FILES** and
+**GROOVE** sit side by side on the bottom row, so `2+Right` from FILES goes to
+GROOVE and `2+Left` from GROOVE comes back.
 
 - **SONG** — the arrangement: which chains play on each of the 4 tracks.
 - **CHAIN** — a list of phrases (with transpose), played in order.
@@ -318,8 +319,12 @@ take a two-digit parameter `xy`.
 
 **Grooves** are the clock. A groove is a short list of tick-counts per row
 (ticks run at the fixed 50/60 Hz frame rate), so uneven pairs (like `8,4`)
-shuffle the feel. The GROOVE screen edits them; the `G` command switches
-groove mid-song.
+shuffle the feel. The GROOVE screen edits the 16 ticks of one groove; the `G`
+command switches groove mid-song.
+
+There are 16 grooves. The groove number is an **editable field** at the top of
+the GROOVE screen: move the cursor **up** past the first tick onto the number,
+then **hold 1 + Left/Right** to pick which groove you're editing.
 
 Tempo *is* the groove — there's no separate tempo. **TMPO** (on PROJECT)
 shows the BPM of the current groove and Left/Right steps it tick-by-tick
@@ -361,11 +366,14 @@ Playback stops while you're here.
 FILES shows a **packed list** of your saved songs — `00`, `01`, `02`, … with an
 8-character name beside each — plus one **empty slot** at the end whenever
 there's room for another song. The list has no gaps: deleting a song closes
-the space up.
+the space up. The list **scrolls** (12 rows at a time) so you can hold up to 32
+songs. A **song count** sits above the list, and a small **SRAM / FREE / SONG**
+readout (in KB — total, free, and the selected song's size) sits under the map.
 
 **Moving around and naming**
 
-- **Up / Down** — pick a slot (including the trailing empty one).
+- **Up / Down** — pick a slot (including the trailing empty one); the list
+  scrolls to follow.
 - **Hold 1 + Up / Down** — change the letter under the name cursor (it cycles
   blank → A–Z → punctuation → 0–9).
 - **Hold 1 + Left / Right** — move the name cursor along the 8 characters (wraps).
@@ -383,8 +391,8 @@ and **tap 1** runs it and closes the menu:
   when you press SAVE* — your edits aren't auto-saved, so save often.
 - **LOAD** — load the selected song. On the **empty slot** it blanks the working
   song instead (a fresh start).
-- **CLEA** (clear) — delete the selected song and close the gap.
-- **DEMO** — load the built-in demo song into the working song.
+- **CLEA** (clear) — delete the selected song and close the gap (the remaining
+  songs slide down to reclaim the space).
 - **CANC** — close the menu, do nothing.
 
 On a real flashcart with a battery, SAVE persists instantly. In an emulator,
@@ -486,7 +494,7 @@ PLAY/STOP   2 hold + 1   (or PAUSE / Game Gear START)
 SCREEN MAP
    OPTIONS  PROJECT                  WAVE
    SONG     CHAIN    PHRASE   INSTR   TABLE
-                     GROOVE
+   FILES    GROOVE                    ECHO
 ```
 
 Have fun. Save often.

@@ -20,9 +20,8 @@ One source tree builds two ROMs:
 - **`smsggdj.gg`** — Game Gear / *GGDJ* (handheld screen, real stereo).
 
 **Prebuilt ROMs are on the [Releases](../../releases) page** — download the
-version-stamped `smsggdj_<ver>.sms` (Master System) or `smsggdj_<ver>.gg` (Game
-Gear), e.g. `smsggdj_v0_27.sms`; flash to a cart or open in an emulator, no
-toolchain needed.
+version-stamped `.sms` (Master System) or `.gg` (Game Gear) ROM; flash to a cart
+or open in an emulator, no toolchain needed.
 
 ## Build & run
 
@@ -36,8 +35,8 @@ make run-gg   # build both, launch the Game Gear ROM
 make clean
 ```
 
-Both ROMs boot to a blank song, ready to make music. The bundled demo song is
-loadable any time from the **PROJECT** screen (DEMO — a two-press confirm).
+Both ROMs boot to a blank song, ready to make music (the wavetables come
+preloaded with the stamp presets, so a fresh song makes sound right away).
 
 Drop a ROM on a flashcart (Master Everdrive etc.) or open it in an emulator,
 and press play.
@@ -98,7 +97,7 @@ and press play.
 ```
 src/        Z80 assembly (main, vdp, input, psg, engine, sample, editor)
 tools/      Python build tools + the browser apps:
-              makefont / maketables / makedemo / makelogo  (build inputs)
+              makefont / maketables / makelogo  (build inputs)
               smsggdj_sample.py   WAV/pool -> sample bank
               patcher.html      browser sample patcher
               savetool.html     browser song/save manager

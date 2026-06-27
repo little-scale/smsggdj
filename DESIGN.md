@@ -20,7 +20,7 @@ Post-v0.2 addenda (implemented):
 - **8 user waves** (up from 4), booting as the 8 stamp presets; save format SMDJ4.
 - **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSGGDJ↔SMSGGDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
 - **RLE save compression + larger pools** (save format **SMDJ4**, see SAVEFORMAT.md): the song block grew from 32/32 to **52 phrases / 40 chains** (6,912 B), and saves are RLE-packed into an on-cart **directory + heap** rather than flat fixed-stride slots — so sparse songs cost a fraction of their size and many more fit per cart. Migration of old SMDJ3 saves via `tools/migrate.html`. The codec is `src/rle.asm` and the on-cart layout is the contract in SAVEFORMAT.md.
-- **FILES screen** (below SONG on the map): a packed song manager — a gap-free list of named songs (8-char names stored in the slot) plus a trailing empty slot when there's heap room, with a SAVE/LOAD/CLEA/DEMO/CANC action menu. Replaces the old PROJECT-screen SLOT/SAVE/LOAD/NEW/DEMO controls.
+- **FILES screen** (below SONG on the map): a packed song manager — a scrollable, gap-free list of named songs (8-char names stored in the slot) plus a trailing empty slot when there's heap room, a SAVE/LOAD/CLEA/CANC action menu, a song count, and a SRAM/FREE/SONG (KB) space readout. Deleting compacts the heap. Replaces the old PROJECT-screen SLOT/SAVE/LOAD/NEW/DEMO controls. The built-in demo song was removed.
 
 ---
 
@@ -114,7 +114,7 @@ Screen map (navigated with 2+D-pad):
 ```
 [OPTIONS] [PROJECT]          [WAVE]
 [SONG]  [CHAIN]  [PHRASE]  [INSTR]  [TABLE]
-          [GROOVE]            [ECHO]
+[FILES] [GROOVE]            [ECHO]
 ```
 
 (OPTIONS and PROJECT link left/right along the top row.)
@@ -136,11 +136,11 @@ SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
 | **PHRASE** | 16 rows × (note, instrument, command, param). Noise track shows noise pitch/preset names; sample instruments show sample names |
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
-| **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
+| **GROOVE** | 16 tick values; the groove number is an editable header field (cursor up from the top tick, 1+L/R selects one of 16). This frees 2+L/R, so 2+Left ↔ FILES. Live BPM readout (uses active tick rate, §5.1) |
 | **ECHO** | delay/echo of T1 onto T2/T3 (below INSTR): MODE off/T2/T2+T3, TAP1/TAP2 (rows, groove-scaled), RD1/RD2 (volume falloff), STER (GG ping-pong), TSP1/TSP2 (per-tap transpose). A once-per-tick engine post-pass reads a 64-tick ring of T1's output |
 | **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** (8 palettes 0-7, patchable via tools/palette.html), **CLONE: SLIM/DEEP** (§12) |
-| **PROJECT** | This song: **TMPO** (live BPM readout, steps the active groove), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **MODE: SONG/LIVE** (§5.4). Save/load and NEW/DEMO moved to FILES |
-| **FILES** | Packed song manager (below SONG): a gap-free list of named songs (8-char names, stored in the slot) + a trailing empty slot when there's heap room. Hold 2 + tap 1 opens the action menu — **SAVE / LOAD / CLEA / DEMO / CANC**; SAVE on the empty slot appends, LOAD on it blanks the working song, CLEA closes the gap. Hold 1 + dpad edits the name. Playback stops while here (SRAM maps over the sample pool) |
+| **PROJECT** | This song: **TMPO** (live BPM readout, steps the active groove), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **MODE: SONG/LIVE** (§5.4). Save/load moved to FILES |
+| **FILES** | Packed song manager (below SONG): a scrollable, gap-free list of named songs (8-char names, stored in the slot) + a trailing empty slot when there's heap room, a song count, and a SRAM/FREE/SONG (KB) readout. Hold 2 + tap 1 opens the action menu — **SAVE / LOAD / CLEA / CANC**; SAVE on the empty slot appends, LOAD on it blanks the working song, CLEA deletes and compacts. Hold 1 + dpad edits the name. 2+Right ↔ GROOVE. Playback stops while here (SRAM maps over the sample pool) |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 

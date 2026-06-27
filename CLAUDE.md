@@ -32,10 +32,9 @@ cycle), this hash is how you tell two dev builds apart — glance at it to catch
 changes.
 
 Build flags (passed to `wla-z80` via the Makefile): `TARGET_GG` selects the
-Game Gear flavor (below). The build boots to a blank song; the baked-in demo
-song is loadable from the PROJECT screen (DEMO, a two-press confirm —
-`song_init` copies the ROM `demo_song_block`). The boot splash lives in a
-bank-1 `"Splash"` section (bank 0/slot 0 is full).
+Game Gear flavor (below). The build boots to a blank song (`song_new` seeds the
+8 preset waves from `default_waves`; there is no built-in demo song). The boot
+splash lives in a bank-1 `"Splash"` section (bank 0/slot 0 is full).
 
 Two ROM flavors from one tree: `TARGET_GG` (assembled as `main-gg.o`) is the
 native Game Gear build — 20×18-tile window layout via a UI origin in
@@ -47,14 +46,13 @@ don't exist there (DESIGN.md §15).
 - Toolchain: `wla-z80` + `wlalink` (Homebrew). `make run` needs `/opt/homebrew/opt/openjdk/bin/java`.
 - Emulicious must have `AudioSync=true` in `tools/emulicious/Emulicious.ini`, or it free-runs at turbo speed.
 - There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent; the timing-critical sample/wave feed **and 32 KB SRAM (6 slots, second bank persists)** are **confirmed on real hardware** (Master Everdrive X7 on a PAL SMS1) — still worth checking NTSC and Game Gear hardware.
-- Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/demo.bin` (makedemo.py), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
-- **Demo song:** if `songs/demo.smdj` exists (a committed save export), the build strips its 16-byte header and bakes the 5376-byte block as `build/demo.bin`, with its echo settings (the SMDJ3 reserved bytes) in `build/demo_echo.bin`; both ride into `song_init`. Otherwise `makedemo.py` composes one. Delete `songs/demo.smdj` for the procedural demo.
+- Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables, plus the `default_waves` preset table), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
 - **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsggdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsggdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
 - Save images (emulator `.sav` / Everdrive `.srm`) are managed by the browser tools: `tools/savetool.html` (view/export songs from an SMDJ4 image) and `tools/migrate.html` (carry an old SMDJ3 save forward to SMDJ4). Format contract in SAVEFORMAT.md; node-tested library in `tools/smdj4.js`.
 
 ## Architecture
 
-Single translation unit: the Makefile assembles only `src/main.asm`, which `.INCLUDE`s every other source file plus the generated includes. There is no per-file linking — adding a file means adding an `.INCLUDE` in main.asm *and* a prerequisite in the Makefile. 128 KB ROM, 8×16 KB banks (standard Sega mapper, `.SMSTAG` header): code/tables/demo in banks 0–1, the self-describing sample pool in banks 2–7 (contract in DESIGN.md §10.3 — ROM file offset $8000). SRAM maps over the pool banks in slot 2, so anything enabling SRAM must `smp_abort` first.
+Single translation unit: the Makefile assembles only `src/main.asm`, which `.INCLUDE`s every other source file plus the generated includes. There is no per-file linking — adding a file means adding an `.INCLUDE` in main.asm *and* a prerequisite in the Makefile. 128 KB ROM, 8×16 KB banks (standard Sega mapper, `.SMSTAG` header): code/tables in banks 0–1, the self-describing sample pool in banks 2–7 (contract in DESIGN.md §10.3 — ROM file offset $8000). SRAM maps over the pool banks in slot 2, so anything enabling SRAM must `smp_abort` first.
 
 - `src/main.asm` — memory map, hardware port defines, boot, VBlank IRQ dispatch, main loop.
 - `src/vdp.asm` — Mode 4 text UI helpers; register init table (line interrupt every 2 scanlines for the sample feed).
