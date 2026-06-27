@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.30 — unreleased
+## v0.30 — 2026-06-27
 
 ### Added
 - **FILES screen (F, below S).** A dedicated screen to manage saved songs. It
