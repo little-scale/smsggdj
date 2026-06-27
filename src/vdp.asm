@@ -202,7 +202,7 @@ pal_marker:                  ; 4-byte locator for tools/palette.html
   .db "PAL8"
 pal_presets:                 ; 8 x (bg, fg) BGR 2:2:2
   .db $00, $3F               ; WHT: white on black
-  .db $04, $0E               ; GRN: green screen
+  .db $3F, $00               ; WB:  black on white
   .db $00, $0B               ; AMBR: amber terminal
   .db $10, $3C               ; CYAN: cyan on navy
   .db $11, $33               ; PINK: magenta on purple

@@ -188,8 +188,8 @@ init:
   call psg_init
   call vdp_init
   call vdp_clear_vram
-  ld a, 6                    ; KIDD is the house palette (default if no
-  ld (pal_sel), a            ;   valid saved config)
+  ld a, 0                    ; palette 0 (white on black) is the house default
+  ld (pal_sel), a            ;   (used if no valid saved config)
   call load_palette
   ld a, SYNC_OFF             ; defaults config_load may override; set
   ld (sync_mode), a          ;   before it now that it runs pre-splash
