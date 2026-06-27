@@ -80,7 +80,8 @@
   }
 
   // ---- directory/heap .sav assembly ----
-  // songs: array of {block(6912), echo?(8)} | null. cartKB in {8,16,32}.
+  // songs: array of {block(6912), echo?(8), name?(8)} | null. cartKB in {8,16,32}.
+  // Blobs are no-straddle (never cross a 16 KB bank boundary), matching the ROM.
   function buildSav(songs, cartKB, config /*opt 7-byte*/) {
     const total = cartKB * 1024;
     const sav = new Uint8Array(total);            // $00-filled
@@ -93,6 +94,12 @@
       const s = songs[i];
       const e = DIR_OFF + i * DIR_ENTRY;
       if (!s) { sav[e] = 0; continue; }           // free entry
+      // no-straddle: a blob must stay inside one 16 KB bank, since the ROM maps
+      // a single bank and reads it with a flat pointer. Mirror the ROM, which
+      // reserves the worst case (SMDJ4.LEN) before packing and bumps to the next
+      // bank boundary when it wouldn't fit (rle_can_save in src/rle.asm).
+      if ((heapEnd & (BANK - 1)) + SMDJ4.LEN > BANK)
+        heapEnd = (heapEnd & ~(BANK - 1)) + BANK;
       const { raw, bytes } = RLE.pack(s.block);
       if (heapEnd + bytes.length > total)
         throw new Error(`SRAM FULL at slot ${i} (need ${bytes.length}, have ${total - heapEnd})`);

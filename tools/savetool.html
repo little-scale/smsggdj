@@ -97,7 +97,7 @@ assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
 <script src="smdj4.js"></script>
 <script>
 "use strict";
-// ---- the save contract (must match SAVEFORMAT.md / savetool.py) ----
+// ---- the save contract (must match SAVEFORMAT.md) ----
 const MAGIC = "SMDJ3", STRIDE = 0x1520, HDR = 16, DATA = 5376;
 const BLOB = HDR + DATA, BANK = 0x4000;
 // cart SRAM size -> slot count + .sav bytes (32K = two 16K banks)

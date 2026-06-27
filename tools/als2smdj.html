@@ -30,9 +30,9 @@
 T1/T2/T3; each track's <b>Session clips</b> (top→bottom) become phrases in that
 track's chain. Clips are cut to a 16th-note grid; a clip longer than 16 steps
 spills into more phrases. Highest note wins on polyphony, out-of-range notes
-octave-fold in, note-offs are ignored. Downloads a <b>.smdj</b> — load it with
-<a href="savetool.html">savetool.html</a> (or <code>savetool.py import</code>).
-Nothing leaves this page.</p>
+octave-fold in, note-offs are ignored. Downloads a ready-to-load <b>SMDJ4
+.sav</b> (one song) at your cart's SRAM size — drop it straight into an emulator
+or onto an Everdrive. Nothing leaves this page.</p>
 
 <label class="opt"><input type="checkbox" id="vel"> map note velocity to <code>X</code> (volume) commands</label>
 
@@ -40,11 +40,18 @@ Nothing leaves this page.</p>
 <input type="file" id="file" accept=".als" hidden>
 
 <div>
-  <button class="primary" id="dl" disabled>download .smdj</button>
+  <label class="opt" style="display:inline-block">cart size
+    <select id="size">
+      <option value="32" selected>32 KB</option>
+      <option value="16">16 KB</option>
+      <option value="8">8 KB</option>
+    </select></label>
+  <button class="primary" id="dl" disabled>download .sav</button>
   <span class="dim" id="note"></span>
 </div>
 <pre id="report" hidden></pre>
 
+<script src="smdj4.js"></script>
 <script>
 "use strict";
 const NPHR = 32, NCHN = 32, NROWS = 128, NINS = 16, NTBL = 16, NGRV = 16;
@@ -52,7 +59,7 @@ const VOL_CMD = 21;                                 // engine command id for X (
 // current ROM instrument default: TONE, vol F, ATK 0 / HLD 1 / DCY 3
 const INSTR_DEFAULT = [0, 0x0F, 0x03, 0x01, 0, 0, 0, 0, 0, 0xFF, 1, 0, 0, 0, 0, 0];
 
-let outBytes = null, outName = "song.smdj";
+let outBytes = null, outName = "song.sav";
 
 const val = el => el ? el.getAttribute("Value") : null;
 const num = (el, d) => { const v = val(el); return v == null ? d : +v; };
@@ -193,12 +200,13 @@ function buildBlock(c) {
   return new Uint8Array(b);                                      // 5376 bytes
 }
 
-function wrapSmdj(block) {                           // SMDJ3 header + checksum
-  let sum = 0; for (const x of block) sum = (sum + x) & 0xFFFF;
-  const out = new Uint8Array(16 + block.length);
-  out.set([0x53, 0x4D, 0x44, 0x4A, 0x33]);           // "SMDJ3"
-  out[5] = sum & 0xFF; out[6] = sum >> 8;
-  out.set(block, 16);
+function nameBytes(s) {                              // filename -> 8-char slot name
+  const out = new Uint8Array(8).fill(0x20);          // padded with spaces
+  const up = s.toUpperCase();
+  for (let i = 0; i < 8 && i < up.length; i++) {
+    const c = up.charCodeAt(i);
+    out[i] = (c >= 0x20 && c <= 0x5F) ? c : 0x20;    // font covers $20-$5F
+  }
   return out;
 }
 
@@ -232,8 +240,11 @@ async function handle(f) {
     if (!xml.getElementsByTagName("MidiTrack").length)
       return note(f.name + ": no MIDI tracks found", "bad");
     const c = convert(xml, document.getElementById("vel").checked);
-    outBytes = wrapSmdj(buildBlock(c));
-    outName = f.name.replace(/\.als$/i, "") + ".smdj";
+    const stem = f.name.replace(/\.als$/i, "");
+    const block4 = SMDJ4.expand(buildBlock(c));      // SMDJ3 5376 -> SMDJ4 6912
+    const kb = +document.getElementById("size").value;
+    outBytes = SMDJ4.buildSav([{ block: block4, name: nameBytes(stem) }], kb);
+    outName = stem + ".sav";
     document.getElementById("dl").disabled = false;
     showReport(c.st);
     note(`${f.name} → ${outName}` + (c.st.truncated ? " (truncated)" : " ✓"),
