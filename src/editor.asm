@@ -34,7 +34,8 @@
 .DEFINE SCR_SET     8         ; OPTIONS, above SONG
 .DEFINE SCR_ECHO    9         ; ECHO, below INSTR
 .DEFINE SCR_FILES   10        ; FILES, below SONG (slot manager)
-.DEFINE FILES_SLOTS 16        ; slots exposed in the UI (directory holds 32)
+.DEFINE FILES_SLOTS    12     ; visible slot rows (scrolls; directory holds 32)
+.DEFINE FILES_LIST_TOP 2      ; the list starts this many rows below the header
 
 ; screen-map indicator position (SMS: far-right margin past the
 ; grid; GG: the free right columns of the 20-wide window)
@@ -72,7 +73,9 @@
   prj_row      db
   stg_row      db            ; SETTINGS cursor field
   ech_row      db            ; ECHO cursor field
-  files_row    db            ; FILES slot cursor (0..FILES_SLOTS-1)
+  files_row    db            ; FILES slot cursor (absolute, 0..directory max)
+  files_view   db            ; FILES top visible slot (scroll offset)
+  fl_slot      db            ; FILES draw scratch: absolute slot of the drawn row
   name_col     db            ; FILES name-edit cursor (0..7)
   fmenu        db            ; FILES action menu: 0 = slots, 1 = menu open
   fmsel        db            ; FILES menu selection (0..4 = SAVE/LOAD/CLEAR/DEMO/CANCEL)
@@ -324,11 +327,17 @@ sn_song_d:
   jp z, sn_lr
   ld a, SCR_FILES
   jp sn_switch
-sn_files:                    ; FILES: up -> SONG
+sn_files:                    ; FILES: up -> SONG, right -> GROOVE
   ld a, (pad_edge)
   and PAD_UP
-  ret z
+  jr z, snf_r
   ld a, SCR_SONG
+  jp sn_switch
+snf_r:
+  ld a, (pad_edge)
+  and PAD_RIGHT
+  ret z
+  ld a, SCR_GROOVE
   jp sn_switch
 sn_set:                      ; down to SONG, right to PROJECT
   ld a, (pad_edge)
@@ -366,29 +375,18 @@ sn_chdn:
   jp z, sn_lr
   ld a, SCR_GROOVE
   jp sn_switch
-sn_groove:                   ; 2+up exits, 2+L/R selects groove
+sn_groove:                   ; 2+up -> CHAIN, 2+left -> FILES (groove # is a field now)
   ld a, (pad_edge)
   and PAD_UP
-  jr z, sn_gsel
+  jr z, sng_l
   ld a, SCR_CHAIN
   jp sn_switch
-sn_gsel:
+sng_l:
   ld a, (pad_edge)
-  and PAD_LEFT|PAD_RIGHT
+  and PAD_LEFT
   ret z
-  and PAD_RIGHT
-  ld a, (cur_groove)
-  jr z, sng_dn
-  inc a
-  jr sng_st
-sng_dn:
-  dec a
-sng_st:
-  and $0F
-  ld (cur_groove), a
-  ld a, 1
-  ld (label_dirty), a
-  jp mark_all_dirty
+  ld a, SCR_FILES
+  jp sn_switch
 sn_instr_up:                 ; WAVE above INSTR, ECHO below
   ld a, (pad_edge)
   and PAD_UP
@@ -2933,28 +2931,58 @@ gr_entry_ptr:                ; E = row -> HL
   add hl, de
   ret
 
+; cm_groove: cursor over the groove-number field ($FF) then the 16 tick rows.
 cm_groove:
-  ld a, (grv_row)
+  ld a, (grv_row)            ; mark the old cursor position
+  cp $FF
+  jr nz, cmg_oldtick
+  ld a, 1
+  ld (label_dirty), a        ; field lives in the header
+  jr cmg_dn
+cmg_oldtick:
   call mark_dirty_a
-  bit 1, c
-  jr z, cg_up
+cmg_dn:
+  bit 1, c                   ; down
+  jr z, cmg_up
   ld a, (grv_row)
+  cp $FF
+  jr nz, cmg_dn_t
+  xor a                      ; field -> tick 0
+  ld (grv_row), a
+  jr cmg_up
+cmg_dn_t:
+  cp $0F
+  jr nc, cmg_up              ; bottom tick: stay
   inc a
-  and $0F
   ld (grv_row), a
-cg_up:
-  bit 0, c
-  jr z, cg_f
+cmg_up:
+  bit 0, c                   ; up
+  jr z, cmg_done
   ld a, (grv_row)
+  cp $FF
+  jr z, cmg_done             ; field: already at the top
+  or a
+  jr nz, cmg_up_t
+  ld a, $FF                  ; tick 0 -> field
+  ld (grv_row), a
+  jr cmg_done
+cmg_up_t:
   dec a
-  and $0F
   ld (grv_row), a
-cg_f:
-  ld a, (grv_row)
+cmg_done:
+  ld a, (grv_row)            ; mark the new cursor position
+  cp $FF
+  jr z, cmg_newhdr
   jp mark_dirty_a
+cmg_newhdr:
+  ld a, 1
+  ld (label_dirty), a
+  ret
 
 grp_press:
   ld a, (grv_row)
+  cp $FF
+  ret z                      ; on the groove-number field: no tick to set
   ld e, a
   call gr_entry_ptr
   ld a, (hl)
@@ -2965,6 +2993,8 @@ grp_press:
 
 grp_cut:
   ld a, (grv_row)
+  cp $FF
+  ret z
   ld e, a
   call gr_entry_ptr
   ld (hl), 0
@@ -2974,6 +3004,8 @@ gr_mark:
 
 grp_edit:
   ld a, (grv_row)
+  cp $FF
+  jr z, grpe_field           ; 1+L/R changes the selected groove
   ld e, a
   call gr_entry_ptr
   ld d, (hl)
@@ -2996,6 +3028,23 @@ gre_dn:
 gre_st:
   ld (hl), d
   jr gr_mark
+grpe_field:
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (cur_groove)
+  bit 3, c                   ; right -> next groove
+  jr z, grpf_l
+  inc a
+grpf_l:
+  bit 2, c                   ; left -> previous groove
+  jr z, grpf_st
+  dec a
+grpf_st:
+  and $0F
+  ld (cur_groove), a
+  ld a, 1
+  ld (label_dirty), a        ; the field + every tick belong to the new groove
+  jp mark_all_dirty
 
 ; -------------------------------------------------------------
 ; TABLE screen handlers (columns: 0 vol, 1 pitch, 2 cmd, 3 param)
@@ -5188,16 +5237,22 @@ dl_groove:
   ld c, NAME_COL
   ld hl, str_grv
   call print_at
-  ld b, 1
+  xor a                      ; groove-number field: invert when the cursor's on it
+  ld (text_attr), a
+  ld a, (grv_row)
+  cp $FF
+  jr nz, dlg_na
+  ld a, $08
+  ld (text_attr), a
+dlg_na:
+  ld b, NAME_ROW             ; on the GROOVE label row, after some space
   ld c, 8
   call nt_addr_hl
   call vdp_set_addr
   ld a, (cur_groove)
   call print_hex_a
-  ld b, 3
-  ld c, 4
-  ld hl, str_htik
-  call print_at
+  xor a
+  ld (text_attr), a
   ret
 
 dl_table:
@@ -5380,7 +5435,16 @@ dsm_eattr:
   call print_char
   xor a
   ld (text_attr), a
-  ret
+  ; the FILES space readout sits under the map; draw it here so it survives the
+  ; GG row-wipe (draw_scrmap is re-run after the rows on GG, like the map)
+  ld a, (scr_mode)
+  cp SCR_FILES
+  jp z, fl_draw_space
+.IFDEF TARGET_GG
+  ret                        ; GG: col 15 is inside the row wipe -> auto-cleared
+.ELSE
+  jp fl_clear_space          ; SMS: col 25 escapes the wipe -> blank it explicitly
+.ENDIF
 map_letters:
   .db "SCPIT"
 
@@ -6798,6 +6862,7 @@ files_enter:                 ; entering FILES: stop, map SRAM, ensure a director
   ld (name_col), a
   ld (fmenu), a
   ld (files_row), a
+  ld (files_view), a
   jp files_refresh
 
 files_leave:                 ; leaving FILES: restore the pool mapping
@@ -6830,43 +6895,212 @@ fr_setroom:
   ld b, a
   ld a, (files_row)
   cp b
-  ret c
+  jr c, fr_clamped
   ld a, b
   ld (files_row), a
-  ret
+fr_clamped:
+  ld a, 1
+  ld (label_dirty), a        ; refresh the size readout (used/free changed)
+  jp fl_fixview              ; keep the cursor on screen
 
-; files_maxrow -> A = highest selectable row = file_count (when the trailing
-; empty slot is shown) else file_count-1, clamped to [0, FILES_SLOTS-1].
+; files_maxrow -> A = highest selectable (absolute) slot = file_count (when the
+; trailing empty slot is shown) else file_count-1. Scrolling keeps it on screen.
 files_maxrow:
   ld a, (file_room)
   or a
   ld a, (file_count)
-  jr nz, fmx_cap             ; room: max = count
+  ret nz                     ; room: max = count (the trailing empty slot)
   or a
-  jr z, fmx_cap              ; no room, count 0: max = 0
+  ret z                      ; no room, count 0: max = 0
   dec a                      ; no room: max = count-1
-fmx_cap:
-  cp FILES_SLOTS
-  ret c
-  ld a, FILES_SLOTS-1
   ret
 
-dl_files:                    ; header label
+; fl_fixview: scroll files_view so the cursor (files_row) is on screen.
+fl_fixview:
+  ld a, (files_row)
+  ld b, a
+  ld a, (files_view)
+  cp b
+  jr c, ffv_below            ; view < row -> maybe below the window
+  ld a, b                    ; cursor at/above the top: view = row
+  ld (files_view), a
+  ret
+ffv_below:
+  add a, FILES_SLOTS-1       ; view + (window-1)
+  cp b
+  ret nc                     ; cursor already visible
+  ld a, b                    ; cursor below the window: view = row - (window-1)
+  sub FILES_SLOTS-1
+  ld (files_view), a
+  ret
+
+; fl_mark_cur: mark the cursor's visible row dirty (absolute slot -> draw row).
+fl_mark_cur:
+  ld a, (files_view)
+  ld b, a
+  ld a, (files_row)
+  sub b
+  add a, FILES_LIST_TOP      ; the list is offset down from the top of the grid
+  jp mark_dirty_a
+
+dl_files:                    ; header label (the space readout is in draw_scrmap)
   ld b, NAME_ROW
   ld c, NAME_COL
   ld hl, str_files
   jp print_at
 
-; fl_entry: E = slot -> HL = directory entry ptr (SRAM). Preserves DE.
+; fl_draw_space: SRAM total / heap used / heap free, in KB, stacked under the
+; mini-map (left-aligned to MAP_COL). Drawn from draw_scrmap so it survives the
+; GG post-row map restore. Reads the directory (bank 0, mapped during FILES).
+fl_draw_space:
+  ld hl, str_sram            ; labels, each on its own row under the map
+  ld b, MAP_ROW+4
+  call fsp_label
+  ld hl, str_free
+  ld b, MAP_ROW+7
+  call fsp_label
+  ld hl, str_size
+  ld b, MAP_ROW+10
+  call fsp_label
+  ld hl, SD4_CAP             ; SRAM = capacity
+  ld b, MAP_ROW+5
+  call fsp_kfix
+  call rle_heap_end          ; HL = heap_end (maps bank 0)
+  ex de, hl                  ; FREE = SD4_CAP - heap_end
+  ld hl, SD4_CAP
+  or a
+  sbc hl, de
+  ld b, MAP_ROW+8
+  call fsp_kfix
+  call fl_selsize            ; SIZE = selected song's blob length
+  ld b, MAP_ROW+11
+  jp fsp_kfix
+
+.IFNDEF TARGET_GG
+; fl_clear_space: blank the readout column (SMS only). Col 25+ is past the 24-col
+; per-row wipe, so the SRAM/FREE/SONG block would otherwise linger off the FILES
+; screen. Called from draw_scrmap on every non-FILES screen.
+fl_clear_space:
+  xor a
+  ld (text_attr), a
+  ld d, MAP_ROW+4
+fcs_row:
+  ld b, d
+  ld c, MAP_COL
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld b, 6
+fcs_col:
+  ld a, ' '
+  push bc
+  call print_char
+  pop bc
+  djnz fcs_col
+  inc d
+  ld a, d
+  cp MAP_ROW+12
+  jr c, fcs_row
+  ret
+.ENDIF
+
+; fsp_label: B = row, HL = label (0-term) -> print at (row, MAP_COL).
+fsp_label:
+  ld c, MAP_COL
+  push hl
+  call fl_set
+  pop hl
+  xor a
+  ld (text_attr), a
+fsp_str:                     ; HL = zero-term string -> print at current address
+  ld a, (hl)
+  or a
+  ret z
+  push hl
+  call print_char
+  pop hl
+  inc hl
+  jr fsp_str
+
+; fsp_kfix: B = row, HL = byte count -> "NN.NK" (KB, one decimal) at MAP_COL.
+fsp_kfix:
+  push hl
+  ld c, MAP_COL
+  call fl_set
+  pop hl
+  ld a, h                    ; whole KB = value >> 10 = high byte >> 2
+  srl a
+  srl a
+  call fsp_dec2
+  ld a, '.'
+  call print_char
+  ld a, h                    ; tenths = ((value & 1023) * 10) >> 10
+  and 3
+  ld h, a
+  ld d, h
+  ld e, l
+  add hl, hl
+  add hl, hl
+  add hl, de
+  add hl, hl                 ; (value & 1023) * 10
+  ld a, h
+  srl a
+  srl a
+  add a, '0'
+  call print_char
+  ld a, 'K'
+  jp print_char
+
+fsp_dec2:                    ; A (0..99) -> two decimal digits at current address
+  ld c, '0'
+fd2_t:
+  cp 10
+  jr c, fd2_done
+  sub 10
+  inc c
+  jr fd2_t
+fd2_done:
+  add a, '0'
+  ld b, a
+  ld a, c
+  call print_char
+  ld a, b
+  jp print_char
+
+; fl_selsize: HL = selected song's blob_len, 0 if the cursor is on the empty slot.
+fl_selsize:
+  ld a, (files_row)
+  ld hl, file_count
+  cp (hl)
+  jr c, fss_have
+  ld hl, 0
+  ret
+fss_have:
+  ld a, (files_row)
+  call fl_entry
+  ld de, 4
+  add hl, de
+  ld e, (hl)
+  inc hl
+  ld d, (hl)
+  ex de, hl
+  ret
+
+str_sram:  .db "SRAM", 0
+str_free:  .db "FREE", 0
+str_size:  .db "SONG", 0
+str_songs: .db "SONGS", 0
+
+; fl_entry: A = slot -> HL = directory entry ptr (SRAM). Preserves DE.
 fl_entry:
-  ld a, e
   ld l, a
   ld h, 0
   add hl, hl
   add hl, hl
   add hl, hl
   add hl, hl
-  add hl, hl                 ; E*32
+  add hl, hl                 ; slot*32
   push de
   ld de, $8000 + SD4_SUPER
   add hl, de
@@ -6881,34 +7115,42 @@ fl_set:
   pop de
   ret
 
-; fl_draw_row: E = visible row = slot. slot# + used dot + 8-char name,
-; with the name-edit cursor inverted on the highlighted slot.
+; fl_draw_row: E = visible grid row (0..15). The slot list occupies rows
+; [FILES_LIST_TOP, FILES_LIST_TOP+FILES_SLOTS-1]; the action menu (when open)
+; sits beside the first rows of it.
 fl_draw_row:
   ld a, e
-  cp FILES_SLOTS
-  ret nc
-  ; only draw the packed list plus one trailing empty row (gated on heap room);
-  ; rows past that stay blank (draw_row already wiped them)
-  ld hl, file_count
-  ld a, e
-  cp (hl)
-  jr c, fld_show             ; E < count -> a saved song
-  jr nz, fld_blank           ; E > count -> blank
-  ld a, (file_room)          ; E == count -> trailing empty only if there's room
   or a
-  jr z, fld_blank
+  jp z, fld_count            ; the top row shows "nn SONGS"
+  sub FILES_LIST_TOP
+  jp c, fld_menu             ; above the list -> only a menu word, maybe
+  cp FILES_SLOTS
+  jp nc, fld_menu            ; below the list -> only a menu word, maybe
+  ld b, a                    ; list index (0..FILES_SLOTS-1)
+  ld a, (files_view)
+  add a, b
+  ld (fl_slot), a            ; absolute slot shown on this row
+  ld hl, file_count
+  ld a, (fl_slot)
+  cp (hl)
+  jr c, fld_show             ; slot < count -> a saved song
+  jp nz, fld_menu            ; slot > count -> blank
+  ld a, (file_room)          ; slot == count -> trailing empty only if room
+  or a
+  jp z, fld_menu
 fld_show:
   xor a
   ld (text_attr), a
-  ld a, e                    ; slot number at col 1
+  ld a, e                    ; slot number at col 1 (at this visible row)
   add a, GRID_ROW
   ld b, a
   ld c, 1
   call fl_set
-  ld a, e
+  ld a, (fl_slot)
   push de
   call print_hex_a
   pop de
+  ld a, (fl_slot)
   call fl_entry              ; used dot at col 4: '*' / ' '
   ld a, (hl)
   cp $A5
@@ -6931,6 +7173,7 @@ fld_dot:
   ld b, a
   ld c, 4
   call fl_set
+  ld a, (fl_slot)
   call fl_entry
   push de
   ld de, 16
@@ -6942,7 +7185,10 @@ fld_nm:
   xor a                      ; invert the name cursor on the active slot
   ld (text_attr), a
   ld a, (files_row)
-  cp e
+  push hl
+  ld hl, fl_slot
+  cp (hl)
+  pop hl
   jr nz, fld_na
   ld a, (name_col)
   cp c
@@ -6965,18 +7211,22 @@ fld_pr:
   inc hl
   inc c
   djnz fld_nm
-fld_blank:
-  ; action menu word on the right (rows 0..4) when the menu is open
+fld_menu:
+  ; action menu word, aligned with the list (action i beside list row i)
   ld a, (fmenu)
   or a
   ret z
   ld a, e
-  cp 5
+  sub FILES_LIST_TOP
+  ret c
+  cp 4
   ret nc
+  ld (fl_slot), a            ; reuse the draw scratch as the action index
   xor a
   ld (text_attr), a
-  ld a, (fmsel)
-  cp e
+  ld a, (fl_slot)
+  ld hl, fmsel
+  cp (hl)
   jr nz, flm_na
   ld a, $08
   ld (text_attr), a
@@ -6986,9 +7236,9 @@ flm_na:
   ld b, a
   ld c, 10                   ; left of the mini-map (col 25); names sit at 4..11
   call fl_set
-  ld a, e
+  ld a, (fl_slot)
   add a, a
-  add a, a                   ; E*4
+  add a, a                   ; index*4
   ld l, a
   ld h, 0
   ld de, fmenu_str
@@ -7005,6 +7255,21 @@ flm_w:
   djnz flm_w
   ret
 
+fld_count:                   ; "nn SONGS" on the row above the list
+  xor a
+  ld (text_attr), a
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 1
+  call fl_set
+  ld a, (file_count)
+  call fsp_dec2
+  ld a, ' '
+  call print_char
+  ld hl, str_songs
+  jp fsp_str
+
 ; cm_files: up/down = slot cursor; left/right = name cursor (wraps 0..7).
 ; When the menu is open, up/down move the menu selection instead.
 cm_files:
@@ -7014,7 +7279,7 @@ cm_files:
   bit 1, c                   ; down
   jr z, cmf_menu_up
   ld a, (fmsel)
-  cp 4
+  cp 3
   jr nc, cmf_menu_up
   inc a
   ld (fmsel), a
@@ -7029,13 +7294,14 @@ cmf_menu_up:
 cmf_menu_done:
   jp mark_all_dirty
 cmf_normal:                  ; plain dpad: up/down move the slot cursor
+  ld a, 1
+  ld (label_dirty), a        ; the SIZE readout follows the selection
   push bc
-  ld a, (files_row)
-  call mark_dirty_a
+  call fl_mark_cur           ; old cursor row dirty
   pop bc
   bit 1, c                   ; down
   jr z, cmf_up
-  call files_maxrow          ; B = highest selectable row (list + trailing empty)
+  call files_maxrow          ; highest selectable slot (list + trailing empty)
   ld b, a
   ld a, (files_row)
   cp b
@@ -7050,9 +7316,14 @@ cmf_up:
   jr z, cmf_done
   dec a
   ld (files_row), a
-cmf_done:
-  ld a, (files_row)
-  jp mark_dirty_a
+cmf_done:                    ; scroll to follow the cursor
+  ld a, (files_view)
+  ld b, a
+  call fl_fixview
+  ld a, (files_view)
+  cp b
+  jp nz, mark_all_dirty      ; view scrolled -> redraw the page
+  jp fl_mark_cur             ; same view -> just mark the new cursor row
 
 ; fe_edit: FILES "1 held + dpad" (do_edit). up/down cycle the letter at the
 ; cursor through fe_charset (blank, A-Z, specials, 0-9).
@@ -7078,16 +7349,14 @@ fe_posl:
   and $07
   ld (name_col), a
 fe_posdone:
-  ld a, (files_row)
-  jp mark_dirty_a
+  jp fl_mark_cur
 fe_letter:
   ld a, c
   and PAD_UP|PAD_DOWN
   ret z
   ld b, a                    ; B = direction (bit0 up, bit1 down)
   ld a, (files_row)
-  ld e, a
-  call fl_entry              ; HL = entry, preserves E
+  call fl_entry              ; A = slot -> HL = entry, preserves DE
   ld de, 16
   add hl, de
   ld a, (name_col)
@@ -7133,8 +7402,7 @@ fee_set:
   ld a, (hl)
   pop hl                     ; char ptr
   ld (hl), a
-  ld a, (files_row)
-  jp mark_dirty_a
+  jp fl_mark_cur
 
 ; fp_files: 1-tap on FILES. In menu mode, run the selected action + close.
 ; The trailing empty slot (files_row == file_count) is the "new file" target:
@@ -7150,12 +7418,7 @@ fp_files:
   jr z, fpx_load             ; 1 LOAD
   cp 2
   jr z, fpx_clear            ; 2 CLEAR
-  cp 3
-  jr z, fpx_demo             ; 3 DEMO
-  jr fpx_close               ; 4 CANCEL (and anything else): close, no-op
-fpx_demo:
-  call song_init             ; ROM demo block into the working song
-  jr fpx_close
+  jr fpx_close               ; 3 CANCEL (and anything else): close, no-op
 fpx_load:
   ld a, (files_row)          ; LOAD on the trailing empty slot = blank canvas
   ld hl, file_count
@@ -7169,7 +7432,6 @@ fpl_file:
   jr fpx_close
 fpx_save:
   ld a, (files_row)          ; song_name = the slot's inline-edited name
-  ld e, a
   call fl_entry
   ld de, 16
   add hl, de
@@ -7218,7 +7480,6 @@ fmenu_str:                   ; action menu, 4 chars each (indexed E*4)
   .db "SAVE"
   .db "LOAD"
   .db "CLEA"
-  .db "DEMO"
   .db "CANC"
 
 .ENDS
