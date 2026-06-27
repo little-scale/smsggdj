@@ -299,7 +299,7 @@ take a two-digit parameter `xy`.
 | `G` | Groove | Switch groove from this row (this track) |
 | `H` | Hop | PHRASE: end this track's phrase **immediately** — the H row takes no time, play jumps straight back to row 0 in the same tick (only this channel). Put `H` on the row *after* your last step to loop tightly with no wasted 16th. TABLE: loop |
 | `I` | Iteration | An 8-bit play mask over **this phrase's play count**: on the Nth play of the phrase the note sounds if bit (N mod 8) is set. `IFF` = always, `I00` = never, `I55`/`IAA` = odd/even plays, `I0F` = first four of eight, `IF0` = last four. Lets one phrase vary across its repeats without cloning |
-| `J` | Jump (transpose) | A sibling to `I`: `Jxy` transposes the note by **x semitones** (`0`–`7` up, `8`–`F` = −8…−1, so `F` = −1) on plays whose **(play mod 4)** bit is set in the mask **y**. `J00` never, `J2F` = always +2, `J21`/`J28` = +2 on every 4th play (phase 0/3). Varies pitch across a phrase's repeats without cloning |
+| `J` | Jump (transpose) | A sibling to `I`: `Jxy` transposes the note by **x semitones** (`0`–`7` up, `8`–`F` = −8…−1, so `F` = −1) on the plays whose **(play mod 4)** bit is set in the 4-bit mask **y**. `J00` never, `J2F` = +2 always, `J21` = +2 on every 4th play; varies pitch across a phrase's repeats without cloning |
 | `K` | Kill | Cut the note after xy ticks (`K00` = instant; also stops samples) |
 | `L` | Slide | Glide (portamento) to this note |
 | `M` | Amp mod | Tremolo: speed x, depth y |
@@ -314,6 +314,21 @@ take a two-digit parameter `xy`.
 | `X` | Volume | Set this note's volume `0`–`F` (accent). Use it on a note — the attack ramps to that level |
 | `Y` | FM program | Set this note's FM patch `1`–`15`, overriding an FM instrument's PROG (for FM voices) |
 | `Z` | Probability | Chance the note triggers: `Z00` never, `ZFF` always, in between rolls a fresh random each play (`Z80` ≈ 50/50) |
+
+### Varying a phrase — the I / J / Z trio
+
+`I`, `J` and `Z` are built to make **one phrase sound different across its
+repeats**, so you can avoid cloning a phrase just to add a fill or a variation:
+
+- **`I`** — *whether* the note plays, on a fixed schedule (the play-count mask).
+- **`J`** — *what pitch* it plays, transposing on a schedule (a sibling mask).
+- **`Z`** — *whether* it plays, by random chance.
+
+`I` and `J` are deterministic and loop with the phrase's play count (so a fill
+lands in the same place every time round), while `Z` adds genuine randomness.
+Combine them — e.g. a steady hat with `Z` ghost notes, an `I` accent every 4th
+bar, and a `J` octave jump on the last repeat — and a single 16-step phrase
+carries a whole evolving part.
 
 ---
 
