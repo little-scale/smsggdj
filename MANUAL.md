@@ -19,12 +19,12 @@ Everything in this manual applies to both unless noted.
    in an emulator.
 2. On boot you'll see the SMSGGDJ logo, then the tracker opens on an empty
    song, ready to edit.
-3. Want to hear what it can do first? Go to the **PROJECT** screen and choose
-   **DEMO** (a two-press confirm) to load the built-in demo song, then press
-   **Play**. **NEW** (also on PROJECT) clears back to a blank song.
+3. Want to hear what it can do first? Go to the **FILES** screen, hold **2** and
+   tap **1** to open the action menu, pick **DEMO** and tap **1** — that loads the
+   built-in demo song. Then press **Play**.
 
 Nothing is loaded or playing until you ask — the demo is always one
-**PROJECT → DEMO** away.
+**FILES → DEMO** away.
 
 ---
 
@@ -97,7 +97,8 @@ Navigation stops at the edges of the map — it doesn't wrap around.
 - **GROOVE** — swing and timing.
 - **WAVE** — draw the 8 wavetable shapes (above INSTR).
 - **ECHO** — a tempo-synced delay that echoes T1 onto T2/T3 (below INSTR).
-- **PROJECT** — this song: tempo, transpose, mode, save/load.
+- **PROJECT** — this song: tempo, transpose, mode.
+- **FILES** — save, load and manage your songs on the cartridge (below SONG).
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).
 
@@ -351,18 +352,40 @@ Switch back to **MODE: SONG** for normal start-to-finish playback.
 
 ---
 
-## 10. Saving & loading
+## 10. Saving & loading — the FILES screen
 
 Songs live in the cartridge's battery-backed save RAM (or your emulator's
-`.sav` file). On the **PROJECT** screen:
+`.sav` file). Manage them on the **FILES** screen (below SONG on the map).
+Playback stops while you're here.
 
-- **SLOT** — choose save slot 1, 2 or 3.
-- **SAVE** — write the current song to the chosen slot. *Saving only happens
+FILES shows a **packed list** of your saved songs — `00`, `01`, `02`, … with an
+8-character name beside each — plus one **empty slot** at the end whenever
+there's room for another song. The list has no gaps: deleting a song closes
+the space up.
+
+**Moving around and naming**
+
+- **Up / Down** — pick a slot (including the trailing empty one).
+- **Hold 1 + Up / Down** — change the letter under the name cursor (it cycles
+  blank → A–Z → punctuation → 0–9).
+- **Hold 1 + Left / Right** — move the name cursor along the 8 characters (wraps).
+
+The name is stored *inside* the song, so it travels with it.
+
+**The action menu**
+
+**Hold 2, then tap 1** to open the action menu on the right; tap **1** again (or
+pick **CANC**) to close it. With the menu open, **Up / Down** choose an action
+and **tap 1** runs it and closes the menu:
+
+- **SAVE** — write the current song to the selected slot. On an existing slot it
+  overwrites; on the **empty slot** it creates a new file. *Saving only happens
   when you press SAVE* — your edits aren't auto-saved, so save often.
-- **LOAD** — load the song from the chosen slot.
-- **NEW** — start a blank song. **Press it twice** (it shows `SURE?` first)
-  because it clears your work.
-- **DEMO** — reload the built-in demo song. Also a two-press confirm.
+- **LOAD** — load the selected song. On the **empty slot** it blanks the working
+  song instead (a fresh start).
+- **CLEA** (clear) — delete the selected song and close the gap.
+- **DEMO** — load the built-in demo song into the working song.
+- **CANC** — close the menu, do nothing.
 
 On a real flashcart with a battery, SAVE persists instantly. In an emulator,
 the `.sav` file is usually written when you **quit the emulator** — so save

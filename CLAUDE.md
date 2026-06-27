@@ -47,7 +47,7 @@ don't exist there (DESIGN.md §15).
 - Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables), `build/demo.bin` (makedemo.py), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
 - **Demo song:** if `songs/demo.smdj` exists (a committed save export), the build strips its 16-byte header and bakes the 5376-byte block as `build/demo.bin`, with its echo settings (the SMDJ3 reserved bytes) in `build/demo_echo.bin`; both ride into `song_init`. Otherwise `makedemo.py` composes one. Delete `songs/demo.smdj` for the procedural demo.
 - **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsggdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsggdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
-- `tools/savetool.py build/smsggdj.sav list|export|import` manipulates emulator/Everdrive save images (see SAVEFORMAT.md).
+- Save images (emulator `.sav` / Everdrive `.srm`) are managed by the browser tools: `tools/savetool.html` (view/export songs from an SMDJ4 image) and `tools/migrate.html` (carry an old SMDJ3 save forward to SMDJ4). Format contract in SAVEFORMAT.md; node-tested library in `tools/smdj4.js`.
 
 ## Architecture
 

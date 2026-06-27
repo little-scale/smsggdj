@@ -61,6 +61,9 @@ and press play.
 - **[tools/savetool.html](tools/savetool.html)** — unpack songs from a `.sav`,
   assemble a cart image (pick 8/16/32 KB), or click a slot to view a song's
   notes, commands and instruments — in the browser.
+- **[tools/migrate.html](tools/migrate.html)** — carry an older (SMDJ3) `.sav`
+  forward to the current compressed format: it RLE-packs every song into an
+  SMDJ4 directory + heap image. Drop the old save, download the new one.
 - **[tools/palette.html](tools/palette.html)** — drop a built ROM and recolour
   its 8 UI palettes (0–7): pick a background + foreground for each (the pickers
   snap to the 64 hardware colours), then download the patched ROM. No toolchain.
@@ -106,9 +109,9 @@ src/        Z80 assembly (main, vdp, input, psg, engine, sample, editor)
 tools/      Python build tools + the browser apps:
               makefont / maketables / makedemo / makelogo  (build inputs)
               smsggdj_sample.py   WAV/pool -> sample bank
-              savetool.py       song/.sav manager (CLI)
               patcher.html      browser sample patcher
               savetool.html     browser song/save manager
+              migrate.html      SMDJ3 -> SMDJ4 save migrator
               palette.html      browser UI-palette recolourer
               fmpatch.html      browser FM custom-preset editor
 samples/    sample sources; samples/pool.bin (if present) is the baked bank

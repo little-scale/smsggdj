@@ -5,6 +5,45 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.30 — unreleased
 
+### Added
+- **FILES screen (F, below S).** A dedicated screen to manage saved songs. It
+  shows a **packed list** of your songs plus one empty slot at the end (whenever
+  there's room for another). Up/Down picks a slot; **hold 1 + Up/Down** cycles the
+  letter under the name cursor (blank, A–Z, specials, 0–9); **hold 1 + Left/Right**
+  moves the cursor across the 8-char name (wraps). **Hold 2 + 1** opens an action
+  menu on the right — **SAVE / LOAD / CLEA / DEMO / CANC** — Up/Down to choose,
+  tap 1 to run it and close. **SAVE** on the empty slot creates a new file;
+  **LOAD** on the empty slot blanks the working song; **CLEAR** removes a file and
+  closes the gap. Song names are stored inside the slot.
+- **Bigger pools.** Songs now hold **52 phrases and 40 chains** (was 32/32),
+  made affordable by RLE save compression.
+
+### Changed
+- **New save format (SMDJ4).** Song data is RLE-compressed before it hits SRAM
+  and stored in a directory + heap, so many more songs fit on one cartridge
+  alongside the larger pools. **This is a breaking change** — older (SMDJ3) saves
+  don't load directly; bring them forward with `tools/migrate.html`.
+- **PROJECT screen trimmed to TMPO / TSP / MODE.** NEW, DEMO, SLOT and SAVE/LOAD
+  moved to the FILES screen — slot management now lives in one place.
+- **Palette 1 is now black-on-white** (was the green KIDD scheme); palette 0
+  (white on black) remains the boot default. Pick any via OPTIONS → COLR.
+
+### Fixed
+- **Game Gear: OPTIONS and PROJECT values no longer crowd the mini-map.** Their
+  labels and values shift left by two columns on GG (as the INSTR form already
+  did), clearing the screen map on the right. SMS is unchanged.
+- **Game Gear: leaving the WAVE screen no longer smears the display.** The
+  canvas-clear wiped a full 32-tile-wide row, which overflowed the narrower GG
+  window and wrapped onto other rows; it now clears only the window width.
+
+### Tools
+- **`als2smdj.html`** now exports a ready-to-load **SMDJ4 `.sav`** (one song,
+  named from the file, at your 8/16/32 KB cart size) — no separate migrate step.
+- **`tools/migrate.html`** (new) carries an old SMDJ3 `.sav`/`.smdj` forward to
+  SMDJ4; **`savetool.html`** reads SMDJ4 images (view + export `.smdj4`).
+- The old `savetool.py` CLI (SMDJ3-only) was removed in favour of the browser
+  tools.
+
 ## v0.29 — 2026-06-19
 
 ### Fixed

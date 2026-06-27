@@ -12,13 +12,15 @@ Changes in v0.2:
 - Confirmed decisions: double-tap-1 deep-edit jump; CH3-steal policy for pitched noise.
 
 Post-v0.2 addenda (implemented):
-- **Wavetable mode**: WAV instrument type + WAVE editor screen — 8 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ3).
+- **Wavetable mode**: WAV instrument type + WAVE editor screen — 8 user-drawn waves played through the T3 volume DAC via a phase accumulator (§10.6). Waves save with the song (SMDJ4).
 - **Block select/copy/cut/paste** on the grid screens (§3).
 - **LIVE mode** (§5.4): per-track looping chains with quantized swaps, queued from the SONG screen.
 - **128 KB mapper move**: 8 banks, sample pool in banks 2-7 with a self-describing directory (§10.3) — the contract for **tools/patcher.html**, a single-file browser patcher: drop a built ROM + sounds (any decodable format), trim/gain/tanh/normalize/gate/fade per sample, audition the bit-exact DAC render, and download a patched ROM — no toolchain needed.
 - **GGDJ**, the native Game Gear build (§15): same tree, `make` emits `smsggdj.sms` + `smsggdj.gg`.
-- **8 user waves** (up from 4), booting as the 8 stamp presets; save format SMDJ3.
+- **8 user waves** (up from 4), booting as the 8 stamp presets; save format SMDJ4.
 - **Native sync** replaces the MIDI-adapter plan: OUT/PULSE/IN/OFF on controller port 2 — SMSGGDJ↔SMSGGDJ tick-counter sync plus Volca/PO pulse out (§11). MIDI itself moves to v2.
+- **RLE save compression + larger pools** (save format **SMDJ4**, see SAVEFORMAT.md): the song block grew from 32/32 to **52 phrases / 40 chains** (6,912 B), and saves are RLE-packed into an on-cart **directory + heap** rather than flat fixed-stride slots — so sparse songs cost a fraction of their size and many more fit per cart. Migration of old SMDJ3 saves via `tools/migrate.html`. The codec is `src/rle.asm` and the on-cart layout is the contract in SAVEFORMAT.md.
+- **FILES screen** (below SONG on the map): a packed song manager — a gap-free list of named songs (8-char names stored in the slot) plus a trailing empty slot when there's heap room, with a SAVE/LOAD/CLEA/DEMO/CANC action menu. Replaces the old PROJECT-screen SLOT/SAVE/LOAD/NEW/DEMO controls.
 
 ---
 
@@ -137,7 +139,8 @@ SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
 | **GROOVE** | 16 tick values, live BPM readout (uses active tick rate, §5.1) |
 | **ECHO** | delay/echo of T1 onto T2/T3 (below INSTR): MODE off/T2/T2+T3, TAP1/TAP2 (rows, groove-scaled), RD1/RD2 (volume falloff), STER (GG ping-pong), TSP1/TSP2 (per-tap transpose). A once-per-tick engine post-pass reads a 64-tick ring of T1's output |
 | **OPTIONS** | The machine/rig page — the shape of the future persisted config block: **VIDEO: AUTO/PAL/NTSC**, SRAM readout, **SYNC: OUT/PULSE/IN/OFF**, **COLR** (8 palettes 0-7, patchable via tools/palette.html), **CLONE: SLIM/DEEP** (§12) |
-| **PROJECT** | Song name, default groove, **NEW** (two-press arm/confirm blank song), **DEMO** (two-press load of the ROM demo song), save/load/erase, clone mode, prelisten, key-repeat speed, **VIDEO: AUTO/PAL/NTSC**, **SYNC: OUT/PULSE/IN/OFF** (default OFF, §11), **MODE: SONG/LIVE** (§5.4), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **COLR** (UI palette 0-7), **SMP CH: T1/T2/T3/OFF**, blocks free, version |
+| **PROJECT** | This song: **TMPO** (live BPM readout, steps the active groove), **TSP** (global transpose ±24, applied at note trigger; sample slots exempt), **MODE: SONG/LIVE** (§5.4). Save/load and NEW/DEMO moved to FILES |
+| **FILES** | Packed song manager (below SONG): a gap-free list of named songs (8-char names, stored in the slot) + a trailing empty slot when there's heap room. Hold 2 + tap 1 opens the action menu — **SAVE / LOAD / CLEA / DEMO / CANC**; SAVE on the empty slot appends, LOAD on it blanks the working song, CLEA closes the gap. Hold 1 + dpad edits the name. Playback stops while here (SRAM maps over the sample pool) |
 
 Rendering: dirty-row queue, VBlank flushes up to 4 rows (≈256 bytes VRAM) per frame. While a sample is playing, UI flushes move into active display at the VDP-safe write spacing (§10.4) and throttle to 2 rows/frame. No sprites required.
 
@@ -372,7 +375,7 @@ Pipeline: mix to mono → resample to target rate → normalize/compress → map
 
 Wavetable synthesis through the same T3 DC-DAC as PCM samples, sharing the entire §10.4 feed machinery (line IRQ + vblank feeder; `smp_mode` selects PCM vs wave per feed tick).
 
-- **8 user waves**, 32 steps × 16 levels each (booting as the 8 stamp presets — a ready-made timbre selector), drawn on the **WAVE screen** (above INSTR on the screen map; 2+left/right selects the wave; the cut gesture stamps ROM presets: sine, triangle, saw, square, 25%, 12.5%, organ, random). `wave_ram` (256 B) leads the song block and saves with the song (format SMDJ3).
+- **8 user waves**, 32 steps × 16 levels each (booting as the 8 stamp presets — a ready-made timbre selector), drawn on the **WAVE screen** (above INSTR on the screen map; 2+left/right selects the wave; the cut gesture stamps ROM presets: sine, triangle, saw, square, 25%, 12.5%, organ, random). `wave_ram` (256 B) leads the song block and saves with the song (format SMDJ4).
 - **Pitch** = 8.8 fixed-point phase accumulator over the 32 steps. Per-region increment tables (`winc_table_pal/ntsc`, generated by maketables.py): `inc = f × 8192 / feed_rate`, so output frequency = feed × inc / (256 × 32). Same note range as the tone channels.
 - **Log-DAC correction:** the DAC's 16 levels are logarithmic (2 dB/step) but drawn levels are linear. At note trigger — and live on every WAVE-screen edit — the drawn wave is copied through the `wav_lin2log` map (nearest attenuation to v/15) into `wav_buf`, a 32-byte-aligned play buffer in internal RAM. `wave_ram` always holds the *drawn* shape (what the editor shows and the save stores); only the play buffer is corrected. Quantization is coarse near full scale (the 2 dB grid spans levels 11–15 with two steps) — inherent to the hardware.
 - **Arbitration:** one wave at a time (it owns the T3 DAC, like samples — last trigger wins). The owning track's volume/envelope gate the wave: volume 0 stops it. The noise channel plays **normally alongside a wave** (like samples — the wave feed touches only T3's volume register). Only *pitched* (rate-3) noise needs care: it's hardwired to tone-3's period, so it falls back to the nearest fixed rate while the DAC owns T3 (§5.3).
