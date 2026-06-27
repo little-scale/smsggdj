@@ -5,6 +5,12 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.31 — unreleased
 
+### Changed
+- **Deleting a song now compacts the cartridge heap.** Clearing a song slides the
+  remaining songs down to close the gap (across the 16 KB bank boundary when
+  needed), so freed space is always reclaimed — no more stranded holes that only
+  came back if you deleted from the top of the list.
+
 ## v0.30 — 2026-06-27
 
 ### Added

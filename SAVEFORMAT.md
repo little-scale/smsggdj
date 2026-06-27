@@ -76,8 +76,11 @@ verbatim copy if RLE didn't shrink it (`raw = 1` — random data hits this
 store-raw floor and never expands). Blobs are allocated **no-straddle**: a blob
 never crosses the 16 KB bank boundary, so the ROM sets `$FFFC` to the blob's
 bank and reuses the flat codec with no bank-aware stream I/O. New saves append
-after the highest blob; a deleted song leaves a hole in the heap that is
-reclaimed by trailing saves (full mid-heap compaction is a later step).
+after the highest blob. **Deleting a song compacts the heap** (`rle_compact`):
+the surviving blobs are slid down in offset order to close the gap — including
+pulling a blob across the bank boundary when room opens below it — and each
+entry's `heap_off` is rewritten. So free space is always one contiguous region
+at the top, with no stranded mid-heap holes.
 
 ### The 6,912-byte song block (the decompressed payload)
 

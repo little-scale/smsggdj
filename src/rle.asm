@@ -29,6 +29,18 @@
   rss_raw     db        ; M2 save: store-raw flag
   rle_heapmax dw        ; M2 save: computed heap_end (logical)
   song_name   dsb 8     ; current song's 8-char name (metadata, not in the block)
+  ; heap compaction (rle_compact): repack blobs in offset order to close holes
+  rcp_dst   dw          ; running placement offset (logical)
+  rcp_prev  dw          ; last processed source offset (offset-order scan)
+  rcp_hi    dw          ; scan upper bound / sentinel
+  rcp_off   dw          ; chosen blob's absolute offset (= scan best)
+  rcp_len   dw          ; chosen blob's length
+  rcp_ent   dw          ; chosen directory entry pointer
+  rcp_found db          ; 1 = findmin found a blob
+  rmv_src   dw          ; blob move: working source (logical)
+  rmv_dst   dw          ; blob move: working dest (logical)
+  rmv_n     db          ; blob move: current chunk size
+  rcp_buf   dsb 64      ; blob move: cross-bank staging buffer
 .IFDEF RLE_SELFTEST
   rle_test_pk  dsb 80   ; codec self-test (make selftest): packed buffer
   rle_test_un  dsb 60   ; codec self-test: unpacked buffer (15 units)
@@ -703,9 +715,8 @@ rss_full:
   ret
 
 ; rle_song_delete: A = slot. Removes the entry and shifts the following entries
-; down to keep the directory packed (heap blobs are untouched; the freed blob
-; leaves a hole in the heap, reclaimed only by trailing saves until compaction,
-; step 2). bank 0.
+; down to keep the directory packed, then calls rle_compact to close the heap
+; hole the freed blob left. bank 0.
 rle_song_delete:
   ld (rss_slot), a
   ld a, SRAM_BANK0
@@ -751,7 +762,184 @@ rsd_z:
   ld (de), a
   inc de
   djnz rsd_z
+  jp rle_compact                       ; close the heap hole the delete left
+
+; rle_compact: slide every valid blob down to close heap holes, processing in
+; ascending offset order so an unmoved blob is never overwritten (all moves are
+; "down"). Keeps the no-straddle invariant (bumps a blob to the next bank when
+; it wouldn't fit), and updates each entry's heap_off. Leaves bank 0 mapped.
+; Reads the directory in bank 0; the data move maps the blob's own bank.
+rle_compact:
+  ld hl, SD4_HEAP
+  ld (rcp_dst), hl
+  dec hl
+  ld (rcp_prev), hl                    ; prev = SD4_HEAP - 1 (nothing placed yet)
+  ld hl, SD4_CAP
+  ld (rcp_hi), hl                      ; scan sentinel
+rcp_loop:
+  call rcp_findmin                     ; bank 0; Z = none left, NZ = found
+  jr z, rcp_done
+  ; no-straddle: if (dst & $3FFF) + len > $4000, bump dst to the next bank
+  ld hl, (rcp_dst)
+  ld a, h
+  and $3F
+  ld d, a
+  ld e, l                              ; DE = dst within-bank offset
+  ld hl, (rcp_len)
+  add hl, de
+  ld a, h
+  cp $40
+  jr c, rcp_nobump
+  jr nz, rcp_bump
+  ld a, l
+  or a
+  jr z, rcp_nobump
+rcp_bump:
+  ld hl, (rcp_dst)
+  ld a, h
+  and $C0
+  ld h, a
+  ld l, 0                              ; dst & ~$3FFF (bank base)
+  ld de, $4000
+  add hl, de
+  ld (rcp_dst), hl
+rcp_nobump:
+  ld hl, (rcp_dst)                     ; already in place? skip the move
+  ld de, (rcp_off)
+  ld a, l
+  cp e
+  jr nz, rcp_mv
+  ld a, h
+  cp d
+  jr z, rcp_after
+rcp_mv:
+  call rcp_move                        ; maps the blob's bank(s) to copy down
+  ld a, SRAM_BANK0
+  ld ($FFFC), a                        ; back to the directory bank
+  ld hl, (rcp_dst)                     ; entry heap_off = dst - SD4_HEAP
+  ld de, SD4_HEAP
+  or a
+  sbc hl, de
+  ld ix, (rcp_ent)
+  ld (ix+2), l
+  ld (ix+3), h
+rcp_after:
+  ld hl, (rcp_off)                     ; prev = this blob's source offset
+  ld (rcp_prev), hl
+  ld hl, (rcp_dst)                     ; dst += len
+  ld de, (rcp_len)
+  add hl, de
+  ld (rcp_dst), hl
+  jr rcp_loop
+rcp_done:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
   ret
+
+; rcp_findmin: scan the directory for the valid blob with the smallest absolute
+; offset in (rcp_prev, rcp_hi). Maps bank 0. NZ + rcp_off/rcp_len/rcp_ent set if
+; found; Z if none.
+rcp_findmin:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  xor a
+  ld (rcp_found), a
+  ld hl, (rcp_hi)
+  ld (rcp_off), hl                     ; best = hi sentinel
+  ld ix, SRAM_WIN + SD4_SUPER
+  ld b, SD4_DIRN
+rfm_loop:
+  ld a, (ix+0)
+  cp $A5
+  jr nz, rfm_next
+  ld l, (ix+2)
+  ld h, (ix+3)
+  ld de, SD4_HEAP
+  add hl, de                           ; HL = abs offset
+  ld de, (rcp_prev)                    ; abs > prev?  (carry if prev < abs)
+  ld a, e
+  sub l
+  ld a, d
+  sbc a, h
+  jr nc, rfm_next
+  ld de, (rcp_off)                     ; abs < best?  (carry if abs < best)
+  ld a, l
+  sub e
+  ld a, h
+  sbc a, d
+  jr nc, rfm_next
+  ld (rcp_off), hl                     ; new best
+  ld l, (ix+4)
+  ld h, (ix+5)
+  ld (rcp_len), hl
+  ld (rcp_ent), ix
+  ld a, 1
+  ld (rcp_found), a
+rfm_next:
+  ld de, SD4_DIRENT
+  add ix, de
+  djnz rfm_loop
+  ld a, (rcp_found)
+  or a                                 ; Z = none, NZ = found
+  ret
+
+; rcp_move: copy rcp_len bytes from logical rcp_off down to rcp_dst (dst <= src).
+; Goes through a small RAM buffer in <=64-byte chunks, so it works whether the
+; two ends share a bank or straddle it (one bank is mapped at a time). Forward
+; chunk order is safe for a down-move. Preserves rcp_off / rcp_dst / rcp_len.
+rcp_move:
+  ld hl, (rcp_off)
+  ld (rmv_src), hl
+  ld hl, (rcp_dst)
+  ld (rmv_dst), hl
+  ld bc, (rcp_len)
+rmv_loop:
+  ld a, b
+  or c
+  ret z
+  ld a, b                              ; n = min(BC, 64)
+  or a
+  jr nz, rmv_full
+  ld a, c
+  cp 64
+  jr c, rmv_setn
+rmv_full:
+  ld a, 64
+rmv_setn:
+  ld (rmv_n), a
+  push bc
+  ld hl, (rmv_src)                     ; source bank -> buffer
+  call rle_sram_map
+  ld de, rcp_buf
+  ld a, (rmv_n)
+  ld c, a
+  ld b, 0
+  ldir
+  ld hl, (rmv_dst)                     ; buffer -> dest bank
+  call rle_sram_map
+  ex de, hl
+  ld hl, rcp_buf
+  ld a, (rmv_n)
+  ld c, a
+  ld b, 0
+  ldir
+  pop bc
+  ld a, (rmv_n)                        ; advance both ends, BC -= n
+  ld e, a
+  ld d, 0
+  ld hl, (rmv_src)
+  add hl, de
+  ld (rmv_src), hl
+  ld hl, (rmv_dst)
+  add hl, de
+  ld (rmv_dst), hl
+  ld a, c
+  sub e
+  ld c, a
+  ld a, b
+  sbc a, d
+  ld b, a
+  jr rmv_loop
 
 ; rle_name_default: song_name = 8 spaces (for a fresh/loaded-demo song).
 rle_name_default:
@@ -786,6 +974,14 @@ rss_c1:
   ld hl, str_dir_err
 rss_c2:
   ld b, 16
+  ld c, 12
+  call print_at
+  call rle_compacttest       ; delete-with-compaction round-trip (writes SRAM)
+  ld hl, str_cmp_ok
+  jr z, rss_c3
+  ld hl, str_cmp_err
+rss_c3:
+  ld b, 18
   ld c, 12
   call print_at
   call display_on            ; splash left the display OFF + screen wiped
@@ -877,10 +1073,63 @@ rle_test_vec:
   .db $BB,$BB,$BB,$BB, $BB,$BB,$BB,$BB
   .db $10,$11,$12,$13, $14,$15,$16,$17, $18,$19,$1A,$1B, $1C,$1D,$1E,$1F
   .db $F0,$F1,$F2,$F3
+; compaction round-trip: save three big (incompressible -> store-raw, so they
+; span both SRAM banks) songs, delete the middle one (which compacts the heap,
+; pulling the third blob down across the bank boundary), then load both
+; survivors. rle_song_load verifies each blob's stored checksum, so a bad move
+; fails here. Distinct per-song fills => a swapped/garbled blob can't pass.
+rle_compacttest:
+  call smp_abort
+  call rle_dir_init
+  ld a, $11                  ; song 0
+  call rct_fill
+  xor a
+  call rle_song_save
+  ret nz
+  ld a, $22                  ; song 1 (the one we delete)
+  call rct_fill
+  ld a, 1
+  call rle_song_save
+  ret nz
+  ld a, $33                  ; song 2 (gets pulled across the bank boundary)
+  call rct_fill
+  ld a, 2
+  call rle_song_save
+  ret nz
+  ld a, 1                    ; delete the middle song -> dir shift + compaction
+  call rle_song_delete
+  xor a                      ; slot 0 still song 0 (checksum-verified on load)
+  call rle_song_load
+  ret nz
+  ld a, 1                    ; slot 1 is now the moved song 2
+  call rle_song_load
+  ret nz
+  xor a                      ; Z = pass
+  ret
+
+; fill the live block with an incompressible, seed-distinct pattern:
+; wave_ram[i] = (i & $FF) XOR A. wave_ram is 256-aligned, so L = i & $FF.
+rct_fill:
+  ld c, a                    ; C = seed
+  ld hl, wave_ram
+  ld de, SAVE_SIZE
+rcf_loop:
+  ld a, l
+  xor c
+  ld (hl), a
+  inc hl
+  dec de
+  ld a, d
+  or e
+  jr nz, rcf_loop
+  ret
+
 str_rle_ok:  .db "RLE OK ", 0
 str_rle_err: .db "RLE ERR", 0
 str_dir_ok:  .db "DIR OK ", 0
 str_dir_err: .db "DIR ERR", 0
+str_cmp_ok:  .db "CMP OK ", 0
+str_cmp_err: .db "CMP ERR", 0
 .ENDIF
 
 .ENDS
