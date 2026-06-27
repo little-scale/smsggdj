@@ -41,8 +41,8 @@
 .IFDEF TARGET_GG
 .DEFINE MAP_COL     15
 .DEFINE MAP_ROW     2
-.DEFINE INS_LBL     2        ; INSTR form shifted left to clear the map
-.DEFINE INS_VAL     8
+.DEFINE INS_LBL     2        ; form label/value cols (INSTR/OPTIONS/PROJECT),
+.DEFINE INS_VAL     8        ; shifted left on GG to clear the map at MAP_COL 15
 .DEFINE PH_INS_COL  9        ; PHRASE columns shifted +1 to gap NOTE/I
 .DEFINE PH_CMD_COL  11
 .ELSE
@@ -75,7 +75,9 @@
   files_row    db            ; FILES slot cursor (0..FILES_SLOTS-1)
   name_col     db            ; FILES name-edit cursor (0..7)
   fmenu        db            ; FILES action menu: 0 = slots, 1 = menu open
-  fmsel        db            ; FILES menu selection (0..3 = SAVE/LOAD/DELETE/NEW)
+  fmsel        db            ; FILES menu selection (0..4 = SAVE/LOAD/CLEAR/DEMO/CANCEL)
+  file_count   db            ; FILES: number of saved songs (directory kept packed)
+  file_room    db            ; FILES: 1 = room for one more (trailing empty shown)
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
   prj_slot     db            ; save slot 0..sram_slots-1
@@ -2339,13 +2341,18 @@ wve_st:
 ; repaint the next screen over it
 wv_cleanup:
   push af
-  ld b, GRID_ROW-1
+  push de                    ; nt_addr_hl trashes DE; sn_switch holds the target
+  ld b, GRID_ROW-1           ; screen in D across this call, so preserve it
 wvc_row:
   push bc
   ld c, 0
   call nt_addr_hl
   call vdp_set_addr
-  ld b, 64                   ; 32 tiles x (index, attr) - zeros
+.IFDEF TARGET_GG
+  ld b, 40                   ; 20 tiles x (index, attr) - GG window width
+.ELSE                        ; (32 tiles would overflow the 20-wide window and
+  ld b, 64                   ; 32 tiles x (index, attr) - wrap onto later rows)
+.ENDIF
 wvc_col:
   xor a
   out (VDP_DATA), a          ; tile 0 = space, attr 0
@@ -2358,6 +2365,7 @@ wvc_col:
   ld a, b
   cp GRID_ROW+17
   jr c, wvc_row
+  pop de
   pop af
   ret
 
@@ -2521,7 +2529,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 5
+  cp 2
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2554,54 +2562,9 @@ prj_mark_field:              ; A = field (preserved)
   ret
 
 prp_press:
-  ld a, (prj_row)
-  cp 3
-  jr z, prp_new
-  cp 4
-  jr z, prp_demo
-  ret                        ; SAVE/LOAD live on the FILES screen now
-prp_new:                     ; armed two-press wipe
-  ld a, (new_arm)
-  cp 3
-  jr z, prn_go
-  ld a, 3                    ; first press: arm + ask
-  jr prn_ask
-prn_go:
-  call prn_clear
-  call song_new
-  ld a, 6                    ; "NEW"
-  jr prn_done
-prp_demo:                    ; armed two-press demo load
-  ld a, (new_arm)
-  cp 4
-  jr z, prd_go
-  ld a, 4
-prn_ask:
-  ld (new_arm), a
-  ld a, 5                    ; "SURE?"
-  ld (prj_stat), a
-  ld a, 1
-  ld (label_dirty), a
-  ret
-prd_go:
-  call prn_clear
-  call song_init             ; the ROM demo block
-  ld a, 2                    ; "LOADED"
-prn_done:
-  ld (prj_stat), a
-  call mark_all_dirty
-  ld a, 1
-  ld (state_dirty), a
-  ld (label_dirty), a
-  ret
-prn_clear:
-  xor a
-  ld (new_arm), a
-  jp engine_stop
+  ret                        ; NEW/DEMO/SAVE/LOAD live on the FILES screen now
 prp_edit:
   ld a, (prj_row)
-  cp 5
-  jr z, prp_slot
   cp 2
   jp z, prp_play
   cp 1
@@ -2647,34 +2610,6 @@ pe_set:
   jr nz, pe_loop
 pe_done:
   xor a
-  jp prj_mark_field
-prp_slot:
-  ld a, (sram_slots)
-  or a
-  ret z
-  ld d, a                    ; max+1
-  ld a, (ed_rep)
-  ld c, a
-  ld a, (prj_slot)
-  bit 3, c
-  jr z, psl_l
-  inc a
-psl_l:
-  bit 2, c
-  jr z, psl_cl
-  dec a
-psl_cl:
-  jp m, psl_zero
-  cp d
-  jr c, psl_st
-  ld a, d
-  dec a
-  jr psl_st
-psl_zero:
-  xor a
-psl_st:
-  ld (prj_slot), a
-  ld a, 5
   jp prj_mark_field
 prp_tsp:                     ; global transpose: L/R = semitone,
   ld a, (ed_rep)             ; U/D = octave, +-24
@@ -2922,7 +2857,7 @@ st_draw_row:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 4
+  ld c, INS_LBL
   pop hl
   push de
   call print_at
@@ -2941,7 +2876,7 @@ std_addr:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 10
+  ld c, INS_VAL
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -2978,10 +2913,10 @@ stg_f2r:
 stg_r2f:
   .db 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF, $FF, $FF
 
-prj_f2r:                     ; SAVE/LOAD removed (moved to FILES); fields 0..5
-  .db 0, 1, 2, 4, 6, 8
+prj_f2r:                     ; only TMPO/TSP/MODE; NEW/DEMO/SAVE/LOAD/SLOT on FILES
+  .db 0, 1, 2
 prj_r2f:
-  .db 0, 1, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .db 0, 1, 2, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -3466,8 +3401,9 @@ ffp_next:
 
 .ENDS
 
-; cloning lives in bank 1 (slot 1, always mapped): bank 0 is full.
-.BANK 1 SLOT 1
+; cloning is cold code; bank 0 has room again (PROJECT slimmed down), and bank 1
+; is tight with the FILES manager, so park it in bank 0.
+.BANK 0 SLOT 0
 .SECTION "Clone" FREE
 
 ; ===========================================================
@@ -5844,7 +5780,7 @@ pr_draw_row:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 4
+  ld c, INS_LBL
   pop hl
   push de
   call print_at
@@ -5863,7 +5799,7 @@ prd_addr:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 10
+  ld c, INS_VAL
   push de
   call nt_addr_hl
   call vdp_set_addr
@@ -5875,12 +5811,7 @@ prd_addr:
   jr z, prd_tsp
   cp 2
   jp z, prd_play
-  cp 5
-  jp z, prd_slot
-  ; SAVE / LOAD
-  ld hl, str_go
-  ld b, 2
-  jp print_raw
+  ret                        ; only fields 0..2 are drawn now
 prd_tsp:
   ld a, (proj_tsp)
   or a
@@ -5926,15 +5857,11 @@ prd_sync:
   add hl, de
   ld b, 6
   jp print_raw
-prd_slot:
-  ld a, (prj_slot)
-  inc a                      ; shown 1-based
-  jp print_hex_nib
-
 .ENDS
 
-; the BPM-from-groove math is cold draw code: park it in bank 1.
-.BANK 1 SLOT 1
+; the BPM-from-groove math is cold draw code; moved to bank 0, which freed up
+; when PROJECT lost NEW/DEMO/SLOT (bank 1 is now tight with the FILES manager).
+.BANK 0 SLOT 0
 .SECTION "TempoCalc" FREE
 
 prd_tempo:                   ; BPM = rate * count / sum-of-ticks
@@ -6039,11 +5966,6 @@ prj_lbls:
   .db "TMPO", 0
   .db "TSP ", 0
   .db "MODE", 0
-  .db "NEW ", 0
-  .db "DEMO", 0
-  .db "SLOT", 0
-  .db "SAVE", 0
-  .db "LOAD", 0
 stg_lbls:
   .db "VID ", 0
   .db "SRAM", 0
@@ -6072,7 +5994,6 @@ prj_stats:
   .db "NEW    "
 str_proj:   .db "PROJECT", 0
 str_set:    .db "OPTIONS", 0
-str_go:     .db "GO"
 str_video:                   ; indexed by vid_sel (4-char tokens)
   .db "AUTO"
   .db "PAL "
@@ -6855,10 +6776,13 @@ track_names:
 .ENDS
 
 ; =============================================================
-; FILES screen -- slot manager (bank 1, slot 1: bank 0 is full).
+; FILES screen -- packed song manager (bank 1, slot 1).
 ; While here, playback is stopped and SRAM stays mapped over the
-; pool (files_enter), so the directory is read directly. Step 1:
-; list + cursor + nav. Gestures (load/save/delete/rename) follow.
+; pool (files_enter), so the directory is read directly. The list is
+; kept packed (valid entries contiguous) with one trailing empty slot
+; when there's heap room: SAVE there appends a new file, LOAD there
+; blanks the working song. CLEAR shifts the directory down to stay
+; packed (the freed heap blob is reclaimed by compaction, a later step).
 ; =============================================================
 .BANK 1 SLOT 1
 .SECTION "Files" FREE
@@ -6869,14 +6793,62 @@ files_enter:                 ; entering FILES: stop, map SRAM, ensure a director
   ld (state_dirty), a        ; refresh the transport indicator (PLAY -> STOP)
   call smp_abort
   call rle_dir_ensure        ; init the SMDJ4 directory on a fresh cart (maps SRAM)
+  call rle_dir_pack          ; normalise any holes -> contiguous packed list
   xor a
   ld (name_col), a
   ld (fmenu), a
-  ret
+  ld (files_row), a
+  jp files_refresh
 
 files_leave:                 ; leaving FILES: restore the pool mapping
   xor a
   ld ($FFFC), a
+  ret
+
+; files_refresh: recompute file_count + file_room (the trailing-empty gate) and
+; clamp the cursor. Call after entering and after any save/clear. Re-maps SRAM
+; (bank 0) for direct directory access on return.
+files_refresh:
+  call rle_dir_count
+  ld (file_count), a
+  ld b, a                    ; B = count
+  ld a, SD4_DIRN
+  cp b
+  jr z, fr_noroom            ; directory full -> no trailing slot
+  call rle_can_save          ; Z = heap has room for one more
+  jr nz, fr_noroom
+  ld a, 1
+  jr fr_setroom
+fr_noroom:
+  xor a
+fr_setroom:
+  ld (file_room), a
+  ld a, $08                  ; rle_* may have moved $FFFC; re-map SRAM bank 0
+  ld ($FFFC), a
+  ; clamp files_row to the max selectable row (count, or count-1 if no room)
+  call files_maxrow
+  ld b, a
+  ld a, (files_row)
+  cp b
+  ret c
+  ld a, b
+  ld (files_row), a
+  ret
+
+; files_maxrow -> A = highest selectable row = file_count (when the trailing
+; empty slot is shown) else file_count-1, clamped to [0, FILES_SLOTS-1].
+files_maxrow:
+  ld a, (file_room)
+  or a
+  ld a, (file_count)
+  jr nz, fmx_cap             ; room: max = count
+  or a
+  jr z, fmx_cap              ; no room, count 0: max = 0
+  dec a                      ; no room: max = count-1
+fmx_cap:
+  cp FILES_SLOTS
+  ret c
+  ld a, FILES_SLOTS-1
   ret
 
 dl_files:                    ; header label
@@ -6915,6 +6887,17 @@ fl_draw_row:
   ld a, e
   cp FILES_SLOTS
   ret nc
+  ; only draw the packed list plus one trailing empty row (gated on heap room);
+  ; rows past that stay blank (draw_row already wiped them)
+  ld hl, file_count
+  ld a, e
+  cp (hl)
+  jr c, fld_show             ; E < count -> a saved song
+  jr nz, fld_blank           ; E > count -> blank
+  ld a, (file_room)          ; E == count -> trailing empty only if there's room
+  or a
+  jr z, fld_blank
+fld_show:
   xor a
   ld (text_attr), a
   ld a, e                    ; slot number at col 1
@@ -6982,12 +6965,13 @@ fld_pr:
   inc hl
   inc c
   djnz fld_nm
-  ; action menu word on the right (rows 0..3) when the menu is open
+fld_blank:
+  ; action menu word on the right (rows 0..4) when the menu is open
   ld a, (fmenu)
   or a
   ret z
   ld a, e
-  cp 4
+  cp 5
   ret nc
   xor a
   ld (text_attr), a
@@ -7000,17 +6984,16 @@ flm_na:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 15
+  ld c, 10                   ; left of the mini-map (col 25); names sit at 4..11
   call fl_set
   ld a, e
   add a, a
-  add a, a
-  add a, a                   ; E*8
+  add a, a                   ; E*4
   ld l, a
   ld h, 0
   ld de, fmenu_str
   add hl, de
-  ld b, 8
+  ld b, 4
 flm_w:
   ld a, (hl)
   push hl
@@ -7031,7 +7014,7 @@ cm_files:
   bit 1, c                   ; down
   jr z, cmf_menu_up
   ld a, (fmsel)
-  cp 3
+  cp 4
   jr nc, cmf_menu_up
   inc a
   ld (fmsel), a
@@ -7052,8 +7035,10 @@ cmf_normal:                  ; plain dpad: up/down move the slot cursor
   pop bc
   bit 1, c                   ; down
   jr z, cmf_up
+  call files_maxrow          ; B = highest selectable row (list + trailing empty)
+  ld b, a
   ld a, (files_row)
-  cp FILES_SLOTS-1
+  cp b
   jr nc, cmf_up
   inc a
   ld (files_row), a
@@ -7152,19 +7137,36 @@ fee_set:
   jp mark_dirty_a
 
 ; fp_files: 1-tap on FILES. In menu mode, run the selected action + close.
+; The trailing empty slot (files_row == file_count) is the "new file" target:
+; SAVE there appends; LOAD there blanks the working song (replaces the old NEW).
 fp_files:
   ld a, (fmenu)
   or a
   ret z                      ; not in the menu: nothing
   ld a, (fmsel)
   or a
-  jr z, fpx_save
+  jr z, fpx_save             ; 0 SAVE
   cp 1
-  jr z, fpx_load
+  jr z, fpx_load             ; 1 LOAD
   cp 2
-  jr z, fpx_delete
-  call song_new              ; 3 = NEW
-  jr fpx_done
+  jr z, fpx_clear            ; 2 CLEAR
+  cp 3
+  jr z, fpx_demo             ; 3 DEMO
+  jr fpx_close               ; 4 CANCEL (and anything else): close, no-op
+fpx_demo:
+  call song_init             ; ROM demo block into the working song
+  jr fpx_close
+fpx_load:
+  ld a, (files_row)          ; LOAD on the trailing empty slot = blank canvas
+  ld hl, file_count
+  cp (hl)
+  jr c, fpl_file
+  call song_new
+  jr fpx_close
+fpl_file:
+  ld a, (files_row)
+  call rle_song_load
+  jr fpx_close
 fpx_save:
   ld a, (files_row)          ; song_name = the slot's inline-edited name
   ld e, a
@@ -7175,17 +7177,23 @@ fpx_save:
   ld bc, 8
   ldir
   ld a, (files_row)
-  call rle_song_save
-  jr fpx_done
-fpx_load:
+  call rle_song_save         ; slot == file_count appends a new file
+  call config_save           ; persist OPTIONS (palette/sync/video/FM) too
+  jr fpx_refresh             ; the saved-song count may have grown
+fpx_clear:
+  ld a, (files_row)          ; CLEAR only acts on an existing file
+  ld hl, file_count
+  cp (hl)
+  jr nc, fpx_close           ; trailing empty / blank row: nothing to clear
   ld a, (files_row)
-  call rle_song_load
-  jr fpx_done
-fpx_delete:
-  ld a, (files_row)
-  call rle_song_delete
-fpx_done:
-  ld a, $08                  ; rle_song_* moved $FFFC; re-map SRAM for FILES
+  call rle_song_delete       ; shift the directory down (kept packed)
+fpx_refresh:
+  xor a
+  ld (fmenu), a
+  call files_refresh         ; recompute count/room, clamp cursor, re-map SRAM
+  jp mark_all_dirty
+fpx_close:
+  ld a, $08                  ; rle_* may have moved $FFFC; re-map SRAM bank 0
   ld ($FFFC), a
   xor a
   ld (fmenu), a
@@ -7206,10 +7214,11 @@ fe_charset:
   .db " ABCDEFGHIJKLMNOPQRSTUVWXYZ-_.!?#:+=*/@()<>0123456789"
 fe_charset_end:
 .DEFINE FE_CHARLEN fe_charset_end - fe_charset
-fmenu_str:                   ; action menu, 8 chars each (indexed E*8)
-  .db "SAVE    "
-  .db "LOAD    "
-  .db "DELETE  "
-  .db "NEW     "
+fmenu_str:                   ; action menu, 4 chars each (indexed E*4)
+  .db "SAVE"
+  .db "LOAD"
+  .db "CLEA"
+  .db "DEMO"
+  .db "CANC"
 
 .ENDS

@@ -323,6 +323,11 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
 .DEFINE SRAM_BANK0  $08              ; $FFFC: SRAM enable + bank 0
 .DEFINE SRAM_BANK1  $0C              ; SRAM enable + bank 1
 .DEFINE SD4_CAP     $8000            ; capacity (TODO: derive from sram_detect; 32K here)
+; NOTE: the OPTIONS config block lives at CFG_ADDR $BF60 = logical heap offset
+; $3F60 (16224) in bank 0, which sits inside this heap range. Compressed songs
+; bump to bank 1 long before reaching it, but a pathological near-raw blob could
+; in theory overwrite it. Fix someday: cap bank-0 heap below $3F60 (or relocate
+; the config). Mirror any change in tools/smdj4.js buildSav + SAVEFORMAT.md.
 
 ; map a logical SRAM offset HL -> set $FFFC to its 16 KB bank and
 ; return HL = $8000 + (off & $3FFF). No-straddle => map once per blob.
@@ -460,6 +465,114 @@ rle_dir_ensure:
   ret z
   jp rle_dir_init
 
+; rle_can_save -> Z + A=0 if there is room for one more SAVE_SIZE (worst-case)
+; blob, leaving rle_heapmax at the no-straddle placement offset; NZ + A=1 if the
+; SRAM is full. Reads the directory (bank 0). Shared by rle_song_save and the
+; FILES UI (trailing-empty-slot gate).
+rle_can_save:
+  call rle_heap_end                    ; rle_heapmax = heap_end (HL too)
+  ; no-straddle: if (heap_end & $3FFF) + SAVE_SIZE > $4000, bump to next bank
+  ld a, h
+  and $3F
+  ld d, a
+  ld e, l                              ; DE = heap_end within-bank offset
+  ld hl, SAVE_SIZE
+  add hl, de
+  ld a, h
+  cp $40
+  jr c, rcs_fits
+  jr nz, rcs_bump
+  ld a, l
+  or a
+  jr z, rcs_fits
+rcs_bump:
+  ld hl, (rle_heapmax)
+  ld a, h
+  and $C0
+  ld h, a
+  ld l, 0                              ; heap_end & ~$3FFF (bank base)
+  ld de, $4000
+  add hl, de                           ; next bank boundary
+  ld (rle_heapmax), hl
+rcs_fits:
+  ld hl, (rle_heapmax)                 ; capacity: heap_end + SAVE_SIZE > CAP?
+  ld de, SAVE_SIZE
+  add hl, de
+  ld de, SD4_CAP
+  ld a, e
+  sub l
+  ld a, d
+  sbc a, h                             ; CAP - (heap_end+SAVE_SIZE) ; carry if full
+  jr c, rcs_full
+  xor a                                ; Z = room
+  ret
+rcs_full:
+  ld a, 1                              ; NZ = full
+  ret
+
+; rle_dir_count -> A = number of valid ($A5) directory entries. bank 0.
+rle_dir_count:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld ix, SRAM_WIN + SD4_SUPER
+  ld b, SD4_DIRN
+  ld c, 0
+rdc_loop:
+  ld a, (ix+0)
+  cp $A5
+  jr nz, rdc_next
+  inc c
+rdc_next:
+  ld de, SD4_DIRENT
+  add ix, de
+  djnz rdc_loop
+  ld a, c
+  ret
+
+; rle_dir_pack: compact the directory so valid entries are contiguous at the
+; front (heap blobs are untouched; each entry's heap_off stays valid). Idempotent;
+; normalises any holes left by the old fixed-slot model. bank 0.
+rle_dir_pack:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld hl, SRAM_WIN + SD4_SUPER          ; src
+  ld de, SRAM_WIN + SD4_SUPER          ; dst
+  ld b, SD4_DIRN
+rdp_loop:
+  ld a, (hl)
+  cp $A5
+  jr z, rdp_copy
+  push de                              ; invalid: skip src, dst unchanged
+  ld de, SD4_DIRENT
+  add hl, de
+  pop de
+  jr rdp_next
+rdp_copy:
+  push bc
+  ld bc, SD4_DIRENT
+  ldir                                 ; (HL)->(DE), both += 32
+  pop bc
+rdp_next:
+  djnz rdp_loop
+  ; clear the tail (DE .. end-of-directory)
+  ld hl, SRAM_WIN + SD4_SUPER + SD4_DIRN*SD4_DIRENT
+  or a
+  sbc hl, de                           ; HL = tail byte count
+  ld a, h
+  or l
+  ret z
+  ld b, h
+  ld c, l                              ; BC = tail bytes
+  ex de, hl                            ; HL = dst (clear ptr)
+rdp_clr:
+  ld (hl), 0
+  inc hl
+  dec bc
+  ld a, b
+  or c
+  jr nz, rdp_clr
+  ret
+
 ; rle_heap_end -> HL (= rle_heapmax) = max(SD4_HEAP + off + len) over valid
 ; entries, else SD4_HEAP. Reads the directory (bank 0).
 rle_heap_end:
@@ -501,40 +614,8 @@ rle_song_save:
   ld hl, wave_ram
   call sram_sum                        ; DE = block checksum
   ld (rss_cksum), de
-  call rle_heap_end                    ; rle_heapmax = heap_end
-  ; no-straddle: if (heap_end & $3FFF) + SAVE_SIZE > $4000, bump to next bank
-  ld a, h
-  and $3F
-  ld d, a
-  ld e, l                              ; DE = heap_end within-bank offset
-  ld hl, SAVE_SIZE
-  add hl, de
-  ld a, h
-  cp $40
-  jr c, rss_fits
-  jr nz, rss_bump
-  ld a, l
-  or a
-  jr z, rss_fits
-rss_bump:
-  ld hl, (rle_heapmax)
-  ld a, h
-  and $C0
-  ld h, a
-  ld l, 0                              ; heap_end & ~$3FFF (bank base)
-  ld de, $4000
-  add hl, de                           ; next bank boundary
-  ld (rle_heapmax), hl
-rss_fits:
-  ld hl, (rle_heapmax)                 ; capacity: heap_end + SAVE_SIZE > CAP?
-  ld de, SAVE_SIZE
-  add hl, de
-  ld de, SD4_CAP
-  ld a, e
-  sub l
-  ld a, d
-  sbc a, h                             ; CAP - (heap_end+SAVE_SIZE) ; carry if full
-  jp c, rss_full
+  call rle_can_save                    ; rle_heapmax = no-straddle placement
+  jp nz, rss_full
   ld hl, (rle_heapmax)
   call rle_sram_map                    ; set bank, HL = physical dst
   ld (rss_dst), hl
@@ -621,9 +702,29 @@ rss_full:
   or 1                                 ; NZ
   ret
 
-; rle_song_delete: A = slot. Marks the entry free. heap_end recomputes on the
-; next save (trailing space reclaims); mid-heap holes await compaction (TODO).
+; rle_song_delete: A = slot. Removes the entry and shifts the following entries
+; down to keep the directory packed (heap blobs are untouched; the freed blob
+; leaves a hole in the heap, reclaimed only by trailing saves until compaction,
+; step 2). bank 0.
 rle_song_delete:
+  ld (rss_slot), a
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ; bytes to shift = (SD4_DIRN-1 - slot) * 32  -> BC
+  ld a, SD4_DIRN-1
+  ld hl, rss_slot
+  sub (hl)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                           ; (31-slot)*32
+  ld b, h
+  ld c, l                              ; BC = shift length
+  ; dst = entry(slot) -> DE ; src = entry(slot+1) -> HL
+  ld a, (rss_slot)
   ld l, a
   ld h, 0
   add hl, hl
@@ -632,14 +733,24 @@ rle_song_delete:
   add hl, hl
   add hl, hl                           ; slot*32
   ld de, SRAM_WIN + SD4_SUPER
-  add hl, de
-  ld a, SRAM_BANK0
-  ld ($FFFC), a
-  ld b, SD4_DIRENT                     ; clear the whole entry (valid + name + ...)
-rsd_clr:
-  ld (hl), 0
-  inc hl
-  djnz rsd_clr
+  add hl, de                           ; HL = entry(slot)
+  ld d, h
+  ld e, l                              ; DE = dst
+  push bc
+  ld bc, SD4_DIRENT
+  add hl, bc                           ; HL = entry(slot+1) = src
+  pop bc
+  ld a, b
+  or c
+  jr z, rsd_clrlast                    ; slot is the last entry: nothing to shift
+  ldir                                 ; shift down; DE -> entry(SD4_DIRN-1)
+rsd_clrlast:
+  ld b, SD4_DIRENT                     ; clear the now-stale last entry at DE
+rsd_z:
+  ld a, 0
+  ld (de), a
+  inc de
+  djnz rsd_z
   ret
 
 ; rle_name_default: song_name = 8 spaces (for a fresh/loaded-demo song).

@@ -65,7 +65,7 @@ endif
 BUILDID := $(shell h=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); git diff-index --quiet HEAD -- 2>/dev/null || h="$$h+"; printf '%s' "$$h" | tr 'a-z' 'A-Z')
 
 $(BUILD)/buildid.inc: FORCE | $(BUILD)
-	@printf '.BANK 1 SLOT 1\n.SECTION "BuildID" FREE\nstr_buildid: .db "%s", 0\n.ENDS\n' '$(BUILDID)' > $@.tmp
+	@printf '.BANK 0 SLOT 0\n.SECTION "BuildID" FREE\nstr_buildid: .db "%s", 0\n.ENDS\n' '$(BUILDID)' > $@.tmp
 	@cmp -s $@.tmp $@ 2>/dev/null || mv -f $@.tmp $@
 	@rm -f $@.tmp
 
