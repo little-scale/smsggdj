@@ -11,8 +11,11 @@ VTAG  := $(shell sed -n 's/^str_version:.*"\([^"]*\)".*/\1/p' src/main.asm | tr 
 ifeq ($(strip $(VTAG)),)
 VTAG  := dev
 endif
-VROM   := $(BUILD)/smsggdj_$(VTAG).sms
-VGGROM := $(BUILD)/smsggdj_$(VTAG).gg
+# short git hash for the filename (with a trailing + for an uncommitted tree),
+# so each build lands at a distinct name, e.g. build/smsggdj_v0_31_a1b2c3d.sms.
+GITHASH := $(shell h=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); git diff-index --quiet HEAD -- 2>/dev/null || h="$${h}+"; printf '%s' "$$h")
+VROM   := $(BUILD)/smsggdj_$(VTAG)_$(GITHASH).sms
+VGGROM := $(BUILD)/smsggdj_$(VTAG)_$(GITHASH).gg
 
 all: $(ROM) $(GGROM) $(VROM) $(VGGROM)
 
@@ -24,23 +27,6 @@ $(BUILD)/font.bin: tools/makefont.py | $(BUILD)
 
 $(BUILD)/notes.inc: tools/maketables.py | $(BUILD)
 	python3 tools/maketables.py $@
-
-# The demo song: a committed .smdj export (songs/demo.smdj) is baked
-# in (its 16-byte SMDJ3 header stripped to the 5376-byte block, then
-# expanded to the 6912-byte 52/40 layout via expanddemo.py); otherwise
-# makedemo.py composes one. Remove songs/demo.smdj for the procedural demo.
-ifneq ($(wildcard songs/demo.smdj),)
-$(BUILD)/demo.bin: songs/demo.smdj tools/expanddemo.py | $(BUILD)
-	tail -c +17 songs/demo.smdj | head -c 5376 | python3 tools/expanddemo.py > $@
-# the 8 echo settings live in the SMDJ3 header's reserved area (+7)
-$(BUILD)/demo_echo.bin: songs/demo.smdj | $(BUILD)
-	tail -c +8 songs/demo.smdj | head -c 8 > $@
-else
-$(BUILD)/demo.bin: tools/makedemo.py tools/expanddemo.py | $(BUILD)
-	python3 tools/makedemo.py $@.5376 && python3 tools/expanddemo.py < $@.5376 > $@
-$(BUILD)/demo_echo.bin: | $(BUILD)
-	head -c 8 /dev/zero > $@
-endif
 
 $(BUILD)/logo.inc: tools/makelogo.py art/smsggdj-logo.png | $(BUILD)
 	python3 tools/makelogo.py art/smsggdj-logo.png $(BUILD)/logo.bin $@
@@ -70,7 +56,7 @@ $(BUILD)/buildid.inc: FORCE | $(BUILD)
 	@rm -f $@.tmp
 
 SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm src/rle.asm
-GEN  := $(BUILD)/font.bin $(BUILD)/demo.bin $(BUILD)/demo_echo.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc
+GEN  := $(BUILD)/font.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc
 
 $(BUILD)/main.o: $(SRCS) $(GEN) | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm

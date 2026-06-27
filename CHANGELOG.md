@@ -5,11 +5,22 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.31 — unreleased
 
+### Added
+- **FILES screen scrolls** through all 32 song slots (12 visible at a time), with
+  a **song count** above the list and a **SRAM / FREE / SONG** space readout (in
+  KB) stacked under the mini-map.
+
 ### Changed
 - **Deleting a song now compacts the cartridge heap.** Clearing a song slides the
   remaining songs down to close the gap (across the 16 KB bank boundary when
   needed), so freed space is always reclaimed — no more stranded holes that only
   came back if you deleted from the top of the list.
+- **The groove number is now an editable field.** On the GROOVE screen, move the
+  cursor up past the top tick onto the groove number, then **hold 1 + Left/Right**
+  to pick the groove. This frees **2 + Left/Right** for navigation, so you can now
+  hop **FILES ↔ GROOVE** (FILES 2+Right → GROOVE, GROOVE 2+Left → FILES).
+- **DEMO removed.** The built-in demo song is gone; the FILES action menu is now
+  **SAVE / LOAD / CLEA / CANC**. (Fresh songs still boot with the preset waves.)
 
 ## v0.30 — 2026-06-27
 

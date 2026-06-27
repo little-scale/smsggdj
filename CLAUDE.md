@@ -16,10 +16,13 @@ make run      # launch the SMS ROM in Emulicious (bundled in tools/emulicious/)
 make clean
 ```
 
-`make` also emits **version-stamped copies** for distribution —
-`build/smsggdj_<ver>.sms` / `.gg` (e.g. `smsggdj_v0_27.sms`), where the tag is
-derived from `str_version` in `src/main.asm` (dots→`_`, lowercased, no spaces).
-The canonical `smsggdj.sms` / `.gg` names stay put for `make run` and tooling.
+`make` also emits **version + git-hash-stamped copies** for distribution —
+`build/smsggdj_<ver>_<hash>.sms` / `.gg` (e.g. `smsggdj_v0_31_a1b2c3d.sms`, with a
+trailing `+` on the hash for an uncommitted tree). The version tag is derived from
+`str_version` in `src/main.asm` (dots→`_`, lowercased, no spaces); the hash is the
+short `git rev-parse`, so each build of a distinct tree state lands at its own
+filename. The canonical `smsggdj.sms` / `.gg` names stay put for `make run` and
+tooling.
 
 The **boot splash shows a build stamp** under the version — the short git hash
 (with a trailing `+` for an uncommitted tree), generated into `build/buildid.inc`
