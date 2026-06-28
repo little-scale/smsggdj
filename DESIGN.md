@@ -269,9 +269,9 @@ Needs the SMS **FM Sound Unit** (ports `$F0`/`$F1`/`$F2`), enabled by **OPTIONS 
 |---|---|---|
 | VOL | 0–F / -- | set volume (feeds envelope stage) |
 | PITCH | ±7F | signed semitone offset (arpeggio chords live here) |
-| CMD+PARAM | any phrase command | `H xy` inside a table = loop to row x, y times (y=0 → forever) |
+| CMD+PARAM | any phrase command | `H xy` inside a table = loop to row y (low nibble) — the H row is **stepped over at advance time**, so it costs no table step and the loop target plays on its own step (guarded against an all-H spin) |
 
-Triggered three ways, like LSDJ: instrument assignment (restarts on note), `A xx` command mid-note, runs until note-off/next note.
+Triggered two ways: instrument assignment (restarts on note, runs until note-off/next note), or the `A xx` command as a **one-shot per-note override** — like `B` (wave) and `Y` (FM program), `A` is latched before the trigger and consumed by it, so it sets the table for *its own note only* and the instrument's table governs every other note (it never lingers as channel state). `A`'s table inherits the instrument's TBS speed. (`A` inside a *table*'s command column still switches the running table immediately — that path is unchanged.)
 
 **Advance modes (TBL SPD):** `1–F` = a row every N ticks (time-based, restarts at
 row 0 on every note). **`0` = per-note**: the table advances exactly one row per
@@ -286,14 +286,14 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 
 | Cmd | Name | Param | Effect |
 |---|---|---|---|
-| `A xx` | tAble | table # / 20=off | start/switch table |
+| `A xx` | tAble | table # / 20=off | run a table on this note (one-shot override, like `B`/`Y`) |
 | `B x`  | wave Bank | wave # 0-7 | set this note's wavetable, overriding the instrument's (one-shot, in PHRASE) |
 | `C xy` | Chord | +x, +y semitones | looping 0,x,y arpeggio (00 = off) |
 | `D xx` | Delay | ticks | delay note trigger |
 | `E xy` | Envelope | ATK x, DCY y | re-slope the AHD ramps live (HLD and the current stage are untouched) |
 | `F xx` | Finetune | signed | detune in period units |
 | `G xx` | Groove | groove # | switch the (global) groove from this row |
-| `H xx` | Hop | — | PHRASE: end **this track's** phrase **immediately** — the H row costs no tick; play jumps to row 0 (looping the phrase / stepping the chain) and processes it in the **same** tick, so a row of `H` is a zero-time loop marker (per-channel; param ignored). TABLE: loop |
+| `H xx` | Hop | — | PHRASE: end **this track's** phrase **immediately** — the H row costs no tick; play jumps to row 0 (looping the phrase / stepping the chain) and processes it in the **same** tick, so a row of `H` is a zero-time loop marker (per-channel; param ignored). TABLE: loop to row y — the H row is stepped over at advance time, so it costs no step and the loop target plays on its own step |
 | `K xx` | Kill | ticks | note cut after xx ticks (00 = instant; also aborts samples) |
 | `L xx` | sLide | speed | tone portamento toward this row's note |
 | `M xy` | aMp mod | speed x, depth y | tremolo override (LSDJ's M is master volume, which the PSG lacks — letter reused) |
@@ -319,7 +319,7 @@ Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its L
 
 Identical model to LSDJ: a groove is up to 16 tick-counts (1–15 ticks per phrase row). Swing = uneven pairs (`8,4`). The groove is the **global** tempo/swing clock; `G` switches which groove is active from a row. (Per-track grooves are a future addition — currently `G`, `T` and `W` are global; only `H` is per-channel, ending a single track's phrase early so tracks can run independent phrase lengths.)
 
-The groove is the single musical clock: tempo *is* the groove (ticks/row at the fixed 50/60 Hz frame rate), so there is no separate tempo store. The PROJECT **TMPO** field is a live readout derived from the active groove and steps it one tick at a time — i.e. it walks the achievable BPM rungs (NTSC flat groove: 60, 75, 90, 100, 112, 128, 150, 180, 225…), shifting every groove entry together so swing is preserved, never flattened. The `T` command still does direct BPM→groove entry mid-song (it flattens, by design — an explicit "set this tempo now"). Anything that should track the beat is expressed in rows against this grid (e.g. echo taps); only the sample/wave DAC feed uses raw frame-ticks. In sync-IN mode the engine **locks to a flat 6-tick row** (24 PPQN) and ignores the song's stored groove, so the song stays beat-aligned with the master at any tempo regardless of its groove (1 wire clock = 1 tick; groove 6 = 16th-note rows). The stored groove is untouched — it returns when SYNC leaves IN; `W` is also ignored while following. See §11.3.
+The groove is the single musical clock: tempo *is* the groove (ticks/row at the fixed 50/60 Hz frame rate), so there is no separate tempo store. The PROJECT **TMPO** field is a live readout derived from the active groove and steps it one tick at a time — i.e. it walks the achievable BPM rungs (NTSC flat groove: 60, 75, 90, 100, 112, 128, 150, 180, 225…), shifting every groove entry together so swing is preserved, never flattened. The `T` command still does direct BPM→groove entry mid-song (it flattens, by design — an explicit "set this tempo now"). Anything that should track the beat is expressed in rows against this grid (e.g. echo taps); only the sample/wave DAC feed uses raw frame-ticks. In sync-slave mode (IN/IN24) the engine's **row timing is clock-driven**, so it ignores the song's stored groove and the `W` command (a row advances per ÷1 or ÷6 received clocks, not by groove ticks). The stored groove is untouched — it governs again when SYNC leaves IN/IN24. See §11.3.
 
 ---
 
@@ -388,9 +388,23 @@ Wavetable synthesis through the same T3 DC-DAC as PCM samples, sharing the entir
 ## 11. Sync (controller port 2) — native master/slave
 
 Replaces the v0.2 MIDI-adapter-first plan: SMSGGDJ instances sync **directly to each
-other** over controller port 2, no adapter needed. PROJECT → `SYNC: OUT / PULSE /
-IN / OFF` (**OFF is the default** — the port is never driven unasked). The port only drives while the transport
+other** over controller port 2, no adapter needed. OPTIONS → `SYNC: OFF / OUT / PULSE /
+IN / IN24` (**OFF is the default** — the port is never driven unasked). The port only drives while the transport
 runs; stopping (or changing mode) releases the lines (`OUT ($3F), $FF`).
+
+**Reworked 2026-06-29 to mirror genmddj for cross-machine sync.** The mode set and
+numbering now match genmddj (`SYNC_OFF=0, OUT=1, PULSE=2, IN=3, MIDI=4 reserved,
+IN24=5`). The key change: **OUT/IN are now one clock per _row_** (not per tick), so
+two units lock in lockstep at any tempo; **IN24** keeps the old 2-bit **24-PPQN
+(÷6)** method for the ESP32 Ableton-Link bridge and other 24-PPQN senders. `MIDI`
+is a reserved genmddj slot, not selectable on SMSGGDJ (it behaves as OFF). The wire
+protocol (2-bit mod-4 counter on TR+TH) is unchanged, so a SMSGGDJ OUT drives a
+genmddj IN (and vice versa) directly, and either unit's IN24 follows the bridge.
+
+The engine now runs **one tick per frame in every mode**; a slave accumulates the
+master's received clocks and advances a row per ÷1 (IN) or ÷6 (IN24) — so a
+slave's envelopes/FX now run at true real-time (one pass/frame) instead of N/frame.
+*Re-verify IN24 against the ESP32 bridge on hardware after this change.*
 
 Wiring — three cable scenarios, all accepted by the same firmware (the IN
 reader takes counter bit 0 as **TR AND TL**, so a crossed or straight cable
@@ -406,14 +420,16 @@ TR/TH are software-direction pins: outputs via port `$3F` on the master, read
 back on port `$DD` on the slave (TR bit 3, TL bit 2, TH bit 7). **Export
 consoles only** — Japanese SMS hardware ignores `$3F` level drive.
 
-### 11.1 OUT — 2-bit tick counter on TR+TH
+### 11.1 OUT — 2-bit counter on TR+TH, one clock per row
 
-One count per **engine tick** while playing (nominally 24 PPQN: groove 6 gives
-24 ticks per quarter; the wire unit is ticks, so other grooves shift the
-effective PPQN). A naive one-line pulse would drop clocks when a 60 Hz master
-feeds a 50 Hz slave (poll rate must exceed toggle rate); the mod-4 counter is
-lossless up to 3 ticks per slave frame — region-proof in every pairing, no
-interrupts, tempo exact over time because clocks are counted, not timed.
+One count per **row advance** while playing (emitted in `engine_tick` right after
+`step_channels`). The clock follows the master's tempo directly, so a ÷1 (IN) slave
+steps with it and never runs ahead. A naive one-line pulse would drop clocks when a
+60 Hz master feeds a 50 Hz slave (poll rate must exceed toggle rate); the mod-4
+counter is lossless up to 3 clocks per slave frame — region-proof in every pairing,
+no interrupts, tempo exact over time because clocks are counted, not timed. (Before
+the 2026-06-29 rework OUT emitted one count per *tick* ≈ 24 PPQN; that 24-PPQN role
+now lives in IN24.)
 
 ### 11.2 PULSE — Volca / Pocket Operator sync out
 
@@ -421,24 +437,25 @@ TR carries a 5 V pulse, high for one tick, every 12 ticks = **2 PPQN at the
 default groove** (the analog-sync convention); TH stays an input. The SMS can
 drive a Volca/PO sync-in directly: tip = TR, sleeve = GND.
 
-### 11.3 IN semantics
+### 11.3 IN / IN24 semantics
 
+- **IN = ÷1 (one row per clock)** — follows an OUT master (SMSGGDJ or genmddj),
+  locked in lockstep at any tempo. **IN24 = ÷6 (24 PPQN)** — follows a 24-PPQN
+  sender (the ESP32 Link bridge, ares-link-sync, or any 24-PPQN counter); six
+  clocks advance one 16th-note row.
 - Play arms the transport (top bar shows **WAIT**, inverted); the first counter
-  change starts it and counts as exactly one tick, so the idle→counter jump is
-  never over-counted. Each frame the slave applies `(read − last) & 3` engine
-  ticks — catch-up runs multiple ticks in one frame when regions mismatch.
+  change starts it and counts as exactly one clock, so the idle→counter jump is
+  never over-counted. The row-clock head-start is seeded to `divisor−1`
+  (IN→0, IN24→5) so that first clock plays row 0 with no startup race.
+- Each frame the slave reads `(read − last) & 3` clocks and piles them into an
+  accumulator; it advances **one row per frame** when the accumulator reaches the
+  divisor, carrying any excess (a multi-clock frame is lossless, ≤1-frame lag).
 - Master stops → counter freezes → slave holds position silently mid-row;
   master resumes → both continue. No song-position pointer: each unit plays
   from its own cursor (LSDJ live-sync model).
-- Grooves/envelopes/tables consume ticks identically in both units; at the
-  default groove both run 16th-note rows in lockstep.
-- Jitter: slave ticks quantize to its own frame (≤20 ms, slowly wandering
-  between same-region units) — same order as LSDJ slave mode. A mid-frame
-  poll can halve this later if needed.
-- Under `SYNC: IN` the engine also locks to a flat **groove 6** (24 PPQN) and
-  ignores the song's stored groove and the `W` command (v0.24, non-destructive
-  — the stored groove returns on leaving IN), so any song stays beat-aligned at
-  one tick = 1/24 beat regardless of its own groove.
+- A slave's row timing is **clock-driven**, so its own stored groove and the `W`
+  command don't affect it (both are ignored while following, non-destructive).
+  Its envelopes/tables/FX run once per frame (true real-time), as on the master.
 
 ### 11.4 Ableton Link bridge (external)
 
@@ -447,11 +464,12 @@ counter on TR/TH can be the master. The companion project
 **[smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32)** is
 a Seeed XIAO ESP32-C3 that joins an **Ableton Link** session over WiFi, derives
 the 24 PPQN tick clock from the shared beat timeline (bar-aligned launch), and
-drives the counter into port 2 via open-drain GPIOs. SMSGGDJ in `SYNC: IN` then
-follows Live's tempo and transport. Verified on real PAL SMS1 hardware; wiring
-in HARDWARE.md. It relies on the flat-groove-6 lock above to stay aligned.
+drives the counter into port 2 via open-drain GPIOs. SMSGGDJ in **`SYNC: IN24`**
+then follows Live's tempo and transport (the bridge sends 24 PPQN and needs no
+reflash; before the 2026-06-29 rework this was plain `SYNC: IN`). Verified on real
+PAL SMS1 hardware; wiring in HARDWARE.md.
 
-The emulator-side counterpart is **[ares-link-sync](https://github.com/little-scale/ares-link-sync)** — a fork of the **ares** emulator that joins a Link session and presents the same 2-bit counter on the emulated controller port (frame-PLL'd to the Link timeline, bar-quantized launch), so a song in `SYNC: IN` follows Live with no hardware bridge. Same counter contract, same flat-groove-6 lock.
+The emulator-side counterpart is **[ares-link-sync](https://github.com/little-scale/ares-link-sync)** — a fork of the **ares** emulator that joins a Link session and presents the same 24-PPQN 2-bit counter on the emulated controller port (frame-PLL'd to the Link timeline, bar-quantized launch), so a song in **`SYNC: IN24`** follows Live with no hardware bridge. Same counter contract.
 
 ### 11.5 MIDI (future)
 

@@ -2668,19 +2668,32 @@ pc_st:
   call load_palette          ; applies immediately
   ld a, 3
   jp stg_mark_field
-stp_sync:                    ; 1 + L/R cycles the sync mode
+stp_sync:                    ; 1 + L/R cycles the sync mode (skips reserved MIDI)
   ld a, (ed_rep)
   ld c, a
   ld a, (sync_mode)
-  bit 3, c
-  jr z, psy_l
+  bit 3, c                   ; Right: forward (skip MIDI=4, wrap IN24->OFF)
+  jr z, psy_nr
   inc a
-psy_l:
-  bit 2, c
-  jr z, psy_cl
+  cp SYNC_MIDI
+  jr nz, psy_rw
+  inc a
+psy_rw:
+  cp SYNC_IN24+1
+  jr c, psy_nr
+  xor a
+psy_nr:
+  bit 2, c                   ; Left: back (skip MIDI, wrap OFF->IN24)
+  jr z, psy_set
   dec a
-psy_cl:
-  and $03
+  jp m, psy_lw
+  cp SYNC_MIDI
+  jr nz, psy_set
+  dec a
+  jr psy_set
+psy_lw:
+  ld a, SYNC_IN24
+psy_set:
   ld b, a
   ld a, (sync_mode)
   cp b
@@ -5923,9 +5936,9 @@ prd_sync:
   jp print_raw
 .ENDS
 
-; the BPM-from-groove math is cold draw code; moved to bank 0, which freed up
-; when PROJECT lost NEW/DEMO/SLOT (bank 1 is now tight with the FILES manager).
-.BANK 0 SLOT 0
+; the BPM-from-groove math is cold draw code; parked in bank 1 (always mapped)
+; to keep the full bank 0 from overflowing on the tighter GG build.
+.BANK 1 SLOT 1
 .SECTION "TempoCalc" FREE
 
 prd_tempo:                   ; BPM = rate * count / sum-of-ticks
@@ -6041,11 +6054,13 @@ str_slim:   .db "SLIM"
 str_deep:   .db "DEEP"
 str_fmoff:  .db "OFF "
 str_fmon:   .db "ON  "
-str_syncm:
-  .db "OUT   "
-  .db "PULSE "
-  .db "IN    "
-  .db "OFF   "
+str_syncm:                   ; indexed by sync_mode*6 (genmddj order)
+  .db "OFF   "                ; 0
+  .db "OUT   "                ; 1
+  .db "PULSE "                ; 2
+  .db "IN    "                ; 3
+  .db "MIDI  "                ; 4 (reserved; not reachable via the menu)
+  .db "IN24  "                ; 5
 str_psong:  .db "SONG"
 str_plive:  .db "LIVE"
 prj_stats:

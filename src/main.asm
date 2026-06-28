@@ -1006,7 +1006,7 @@ str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
 str_version:     .db "V0.33", 0
-str_syncsym:     .db $3E, $5C, $40, $20  ; > pulse < space
+str_syncsym:     .db $20, $3E, $5C, $40, $20, $40  ; OFF OUT> PULSE IN< MIDI IN24<
 str_rest:        .db "---"
 
 .ENDS

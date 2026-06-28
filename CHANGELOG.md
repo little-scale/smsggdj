@@ -3,7 +3,30 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.33 — unreleased
+## v0.33 — 2026-06-29
+
+### Added
+- **`SYNC: IN24` mode** (OPTIONS → SYNC) follows a **24-PPQN** source — the ESP32
+  Ableton Link bridge, ares-link-sync, or any 24-PPQN counter. This is what the
+  old `IN` did; plain `IN` is now the 1-clock-per-row mode (below). *If you use the
+  Link bridge, switch from IN to IN24.*
+
+### Changed
+- **Sync reworked to match genmddj (cross-machine sync).** `OUT`/`IN` are now
+  **one clock per row** — a SMSGGDJ `OUT` locks a genmddj (or another SMSGGDJ) `IN`
+  in lockstep at any tempo, and vice versa. The mode list/order now mirrors genmddj
+  (`OFF / OUT / PULSE / IN / IN24`). The wire protocol is unchanged.
+- **`F` (finetune) direction fixed.** Positive `F` now raises pitch (it was
+  lowering it) on PSG tone channels.
+- **The `A` (table) command is now a one-shot per-note override.** Like `B` (wave)
+  and `Y` (FM program), `A` now sets the table for *just the note it's on* and no
+  longer lingers as channel state — every other note follows the instrument's own
+  table. (`A` inside a table's command column still switches immediately, as before.)
+- **Table `H` (loop) no longer costs a step.** Like the phrase hop in v0.32, an
+  `H` in a table is stepped over instead of holding the current row for an extra
+  tick — the table loops straight to the target row, which plays on its own step.
+  So a looping table (e.g. a 2-step arp) runs tight with no wasted/held step, and
+  the playhead rests on the loop target.
 
 ## v0.32 — 2026-06-28
 

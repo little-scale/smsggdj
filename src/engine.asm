@@ -18,7 +18,7 @@
 ;   +6 active flag               +7 song row
 ;   +8 chain step ($FF = load)   +9 transpose (signed)
 ;   +10 phrase # ($FF = none)    +11 chain # ($FF = none)
-;   +12 pitched-noise flag       +13/+14 sweep accumulator
+;   +12 pitched-noise flag / FM voice-keyed-on flag   +13/+14 sweep accumulator
 ;   +15 vib phase  +16 trem phase
 ;   +17 sweep / +18 vib / +19 trem (cached at trigger)
 ;   +20 table # ($FF off)  +21 table row  +22 table tick ctr
@@ -80,10 +80,16 @@
 .DEFINE MODE_PHRASE 2
 
 ; sync over controller port 2 (TR = pin 9, TH = pin 7, GND = 8)
-.DEFINE SYNC_OUT    0          ; 2-bit tick counter out on TR+TH
-.DEFINE SYNC_PULSE  1          ; Volca/PO pulse out on TR
-.DEFINE SYNC_IN     2          ; follow another unit's counter
-.DEFINE SYNC_OFF    3          ; port untouched
+; Sync modes mirror genmddj for cross-machine parity. OUT/IN are 1-clock-per-row
+; (lock two units at any tempo); IN24 is the old 2-bit 24-PPQN method (the ESP32
+; Ableton-Link bridge still sends 24 PPQN). MIDI is a reserved genmddj slot, not
+; selectable on SMSGGDJ (it behaves as OFF if ever loaded).
+.DEFINE SYNC_OFF    0          ; port untouched
+.DEFINE SYNC_OUT    1          ; 2-bit counter out on TR+TH, one clock per row
+.DEFINE SYNC_PULSE  2          ; Volca/PO pulse out on TR (2 PPQN)
+.DEFINE SYNC_IN     3          ; follow an OUT master, one row per clock (/1)
+.DEFINE SYNC_MIDI   4          ; reserved (genmddj parity); unused on SMSGGDJ
+.DEFINE SYNC_IN24   5          ; follow a 24-PPQN sender, /6 (ESP32 Link bridge)
 .DEFINE PULSE_DIV   12         ; ticks per pulse (2 PPQN, groove 6)
 
 .DEFINE SONG_ROWS   128
@@ -104,10 +110,11 @@
   hop_now      db            ; H just fired on this channel: hop NOW, same tick
   hop_guard    db            ; per-tick hop budget (kills an all-H spin)
   cur_trig_ch  db            ; channel being processed (for WAV)
-  sync_mode    db            ; SYNC_* (0 = OUT, the default)
-  sync_cnt     db            ; master tick counter / pulse divider
+  sync_mode    db            ; SYNC_* (0 = OFF, the default)
+  sync_cnt     db            ; master row counter (OUT) / pulse divider (PULSE)
   sync_last    db            ; slave: counter value last frame
   sync_wait    db            ; slave: armed, waiting for a clock
+  sync_acc     db            ; slave: received clocks toward the next row
   sync_ticks   db            ; (scratch)
   play_mode    db            ; 0 = SONG, 1 = LIVE
   trk_rep      dsb 4         ; chain repeat count per track (legacy)
@@ -124,6 +131,7 @@
   echo_ring    dsb 64*4      ; T1 hist: period lo, hi, atten, note
   wav_ovr      db            ; B cmd: one-shot wave # ($FF = none)
   fm_ovr       db            ; Y cmd: one-shot FM program ($FF = none)
+  tbl_ovr      db            ; A cmd: one-shot table # for this note ($FF = none)
   proj_tsp     db            ; global transpose, signed semitones
   live_q       dsb 4         ; queued song row per track ($FF -)
   sram_ok      db            ; cart SRAM detected at boot
@@ -166,6 +174,7 @@ ep_seed:
   ld a, $FF
   ld (wav_ovr), a
   ld (fm_ovr), a
+  ld (tbl_ovr), a
   pop af
   ld a, $FF                  ; per-channel rows: first tick advances each to row 0
   ld (chan_row+0), a
@@ -311,9 +320,17 @@ ep_pclr:
   ; sync transport
   xor a
   ld (sync_cnt), a
-  ld a, (sync_mode)
-  cp SYNC_IN
+  ld (sync_acc), a
+  call sync_is_slave         ; IN or IN24: arm the slave (waits for the clock)
   jr nz, ep_nosl
+  ; row-clock head-start = divisor-1 so the FIRST clock plays row 0 with no
+  ; startup race: IN (/1) -> 0, IN24 (/6) -> 5.
+  ld a, (sync_mode)
+  cp SYNC_IN24
+  jr nz, ep_slatch
+  ld a, 5
+  ld (sync_acc), a
+ep_slatch:
   call sync_read             ; latch the line state at arm time:
   ld a, b                    ; stale levels must not count as a
   ld (sync_last), a          ; clock
@@ -359,49 +376,25 @@ es_vols:
   ret
 
 ; -------------------------------------------------------------
-; called once per frame; runs N engine ticks (tick source)
+; called once per frame: always runs exactly one engine tick. The ROW advance
+; inside engine_tick is groove-driven (master/off) or clock-driven (slave): a
+; slave accumulates the master's received clocks here and advances a row per
+; /1 (IN) or /6 (IN24) below.
 engine_frame:
   ld a, (play_state)
   or a
   ret z
-  ; tick source (design doc 5.1): MASTER/PULSE/OFF = one tick
-  ; per vblank; SLAVE = the delta of the master's 2-bit counter,
-  ; 0-3 ticks per frame - lossless at any region pairing
-  ld a, (sync_mode)
-  cp SYNC_IN
-  jr z, ef_slave
+  call sync_is_slave         ; IN or IN24?
+  jr nz, ef_tick
+  call sync_in_delta         ; A = clocks received this frame (0-3)
+  ld hl, sync_acc
+  add a, (hl)
+  ld (hl), a                 ; pile them toward the next row
+ef_tick:
   call engine_tick
-  call sync_out
-  jr ef_mute
-ef_slave:
-  call sync_read
-  ld a, (sync_last)
-  ld c, a
-  ld a, b
-  ld (sync_last), a
-  sub c
-  and $03
-  ld b, a                    ; B = clocks since last frame
-  ld a, (sync_wait)
-  or a
-  jr z, ef_run
-  ld a, b
-  or a
-  jr z, ef_mute              ; armed: no clock yet
-  xor a                      ; first change = transport start;
-  ld (sync_wait), a          ; force one tick so the idle ->
-  ld b, 1                    ; counter jump is not over-counted
-  ld a, 1
-  ld (state_dirty), a        ; WAIT -> PLAY
-ef_run:
-  ld a, b
-  or a
-  jr z, ef_mute              ; no clocks: hold position
-ef_tloop:
-  push bc
-  call engine_tick
-  pop bc
-  djnz ef_tloop
+  ld a, (sync_mode)          ; PULSE drives once per frame (2 PPQN)
+  cp SYNC_PULSE
+  call z, sync_pulse_out
 ef_mute:
   ; mute gate: muted tracks keep sequencing, output is silenced
   ld a, (mute_flags)
@@ -451,6 +444,13 @@ cnp_none:
   ld a, $FF
   ret
 
+.ENDS
+
+; sync I/O is cold per-frame code; park it in bank 1 (always mapped) so the
+; engine_tick row rework fits the tighter GG bank 0. Cross-bank calls are free.
+.BANK 1 SLOT 1
+.SECTION "Sync" FREE
+
 ; -------------------------------------------------------------
 ; sync I/O on controller port 2. Port $3F: low nibble = pin
 ; directions (0 = output), high nibble = levels; $FF = released.
@@ -476,31 +476,9 @@ sr_th:
   set 1, b
   ret
 
-; called after every internal tick while playing:
-; MASTER steps the 2-bit counter onto TR+TH; PULSE raises TR for
-; one tick every PULSE_DIV ticks (TH stays an input)
+; OUT: bump the 2-bit counter onto TR+TH. Called once per ROW advance (not per
+; frame), so the clock follows the master's tempo and a /1 slave stays locked.
 sync_out:
-  ld a, (sync_mode)
-  or a                       ; SYNC_OUT = 0
-  jr z, syo_master
-  cp SYNC_PULSE
-  ret nz
-  ld a, (sync_cnt)
-  or a
-  ld a, $FB                  ; tick 0: TR high (pulse edge)
-  jr z, syo_pw
-  ld a, $BB                  ; TR low
-syo_pw:
-  out ($3F), a
-  ld a, (sync_cnt)
-  inc a
-  cp PULSE_DIV
-  jr c, syo_pst
-  xor a
-syo_pst:
-  ld (sync_cnt), a
-  ret
-syo_master:
   ld a, (sync_cnt)
   inc a
   and $03
@@ -511,7 +489,71 @@ syo_master:
   out ($3F), a
   ret
 
+; PULSE: raise TR for one tick every PULSE_DIV ticks (2 PPQN). Called per frame.
+sync_pulse_out:
+  ld a, (sync_cnt)
+  or a
+  ld a, $FB                  ; tick 0: TR high (pulse edge)
+  jr z, syp_w
+  ld a, $BB                  ; TR low
+syp_w:
+  out ($3F), a
+  ld a, (sync_cnt)
+  inc a
+  cp PULSE_DIV
+  jr c, syp_st
+  xor a
+syp_st:
+  ld (sync_cnt), a
+  ret
+
+; IN/IN24 slave: A = clocks received this frame (0-3). Reads the counter delta,
+; and while armed (sync_wait) holds at 0 until the first clock, which counts as
+; exactly one and flips WAIT -> PLAY. Clobbers BC.
+sync_in_delta:
+  call sync_read             ; B = 2-bit counter
+  ld a, (sync_last)
+  ld c, a
+  ld a, b
+  ld (sync_last), a
+  sub c
+  and $03
+  ld b, a                    ; B = clocks since last frame
+  ld a, (sync_wait)
+  or a
+  jr z, sid_have             ; running: return B
+  ld a, b
+  or a
+  jr z, sid_zero             ; armed, no clock yet
+  xor a                      ; first clock = transport start
+  ld (sync_wait), a
+  inc a
+  ld (state_dirty), a        ; WAIT -> PLAY
+  ret                        ; A = 1 (don't over-count the idle->counter jump)
+sid_have:
+  ld a, b
+  ret
+sid_zero:
+  xor a
+  ret
+
+; Z if sync_mode is a slave (IN or IN24). Clobbers A.
+sync_is_slave:
+  ld a, (sync_mode)
+  cp SYNC_IN
+  ret z
+  cp SYNC_IN24
+  ret
+
+.ENDS
+
+.BANK 0 SLOT 0
+.SECTION "Engine1b" FREE
+
 engine_tick:
+  call sync_is_slave         ; IN/IN24: the external clock drives row advance
+  jr z, et_slave
+  ; --- master / off / pulse: groove-driven row advance ---
   ld hl, groove_cnt
   dec (hl)
   jr nz, et_fx
@@ -527,13 +569,6 @@ engine_tick:
   jr nz, et_gok
   ld a, 6                    ; safety for empty groove
 et_gok:
-  ld b, a                    ; SYNC IN: ignore the song's groove and lock
-  ld a, (sync_mode)          ; to a flat 6-tick row (24 PPQN) so external
-  cp SYNC_IN                 ; clock stays beat-aligned. The stored groove
-  ld a, b                    ; is untouched - it returns when SYNC leaves IN.
-  jr nz, et_gset
-  ld a, 6
-et_gset:
   ld (groove_cnt), a
   ; advance groove pos (wrap at 16 or on 0-terminator)
   call groove_base
@@ -555,6 +590,24 @@ et_gstore:
   ld (groove_pos), a
 
   ; advance + process every track at its own row (per-channel hop)
+  call step_channels
+  ld a, (sync_mode)          ; OUT: emit exactly one clock per row, so a /1
+  cp SYNC_OUT                ;   slave steps with us and never runs ahead
+  call z, sync_out
+  jr et_fx
+et_slave:
+  ; clock-driven: advance one row per /1 (IN) or /6 (IN24) received clocks
+  ld c, 1
+  ld a, (sync_mode)
+  cp SYNC_IN24
+  jr nz, et_sdiv
+  ld c, 6
+et_sdiv:
+  ld a, (sync_acc)
+  cp c
+  jr c, et_fx                ; not enough clocks yet: hold the row
+  sub c                      ; lossless: a multi-clock frame keeps the excess
+  ld (sync_acc), a
   call step_channels
 et_fx:
   call channels_fx
@@ -1247,11 +1300,13 @@ pr_nok:
   cp CMD_SLIDE
   jr z, prn_slide
   cp CMD_ITER
-  jr z, prn_iter
+  jp z, prn_iter
   cp CMD_WSET
-  jr z, prn_wset
+  jp z, prn_wset
   cp CMD_FMPROG
-  jr z, prn_fmprog
+  jp z, prn_fmprog
+  cp CMD_TBL
+  jp z, prn_tbl
   cp CMD_PROB
   jp z, prn_prob
   cp CMD_JTRANS
@@ -1272,6 +1327,10 @@ prn_wset:                    ; set this note's wavetable, then trigger
 prn_fmprog:                  ; set this note's FM program, then trigger
   ld a, d
   ld (fm_ovr), a
+  jr prn_norm
+prn_tbl:                     ; A cmd: latch a one-shot table override for this
+  ld a, d                    ; note (>=NUM_TABLES = off), consumed by the trigger
+  ld (tbl_ovr), a
   jr prn_norm
 prn_delay:
   ld a, d
@@ -1427,6 +1486,8 @@ pr_cmd:
   jr z, pr_next              ; applied in the trigger peek above
   cp CMD_FMPROG
   jr z, pr_next              ; applied in the trigger peek above
+  cp CMD_TBL
+  jr z, pr_next              ; A is a one-shot, resolved in the trigger peek
   cp CMD_PROB
   jr z, pr_next              ; Z (probability) is resolved in the trigger peek
   cp CMD_JTRANS
@@ -1445,9 +1506,8 @@ prc_hop:
   ld (hop_now), a            ; H row costs no time (step_channels re-processes
   jp pr_next                 ; row 0 immediately). Per-channel: only cur_trig_ch.
 prc_wait:
-  ld a, (sync_mode)          ; W shortens a row; that fights the SYNC IN
-  cp SYNC_IN                 ; 6-tick lock, so ignore it while following
-  jp z, pr_next
+  call sync_is_slave         ; W shortens a row via groove_cnt; a slave's rows
+  jp z, pr_next              ; are clock-driven, so it has no effect -- skip it
   ld a, d
   or a
   jr nz, prc_wst
@@ -1637,6 +1697,7 @@ xc_kill:
   jr nz, xc_klater
   ld (ix+2), 0               ; K00: cut now
   ld (ix+4), STG_IDLE        ; envelope done
+  ld (ix+12), 0              ; FM voice off (stops fm_pitch_mod re-keying it)
   ld a, (cur_trig_ch)
   call smp_kill_owned        ; K00 also cuts the sample
   ld a, (cur_trig_ch)        ; ...and keys off the FM channel (harmless
@@ -1749,6 +1810,220 @@ st_ok:
   pop bc
   ret
 
+; tbl_skip_hops: advance ix+21 (the table's next row) past any H rows, so an H
+; costs no table step *and* the pointer rests on the real loop target (which
+; then plays on its own step). Detected at advance time -- the H row is never
+; applied. Guarded against an all-H / self-referential spin. Clobbers A/HL/DE,
+; preserves BC/IX. (Bank 1, always mapped -- callable from the bank-0 hot path.)
+tbl_skip_hops:
+  xor a
+  ld (hop_guard), a
+tsh_loop:
+  ld a, (ix+20)
+  cp NUM_TABLES
+  ret nc                     ; no table running
+  ld l, a                    ; HL = tables + tbl*64 + row*4 + 2 (command column)
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld a, (ix+21)
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld de, tables
+  add hl, de
+  inc hl
+  inc hl
+  ld a, (hl)                 ; command column
+  cp CMD_HOP
+  ret nz                     ; real row: stop here, it gets applied next step
+  inc hl
+  ld a, (hl)                 ; param low nibble = loop target row
+  and $0F
+  ld (ix+21), a
+  ld a, (hop_guard)
+  inc a
+  ld (hop_guard), a
+  cp 16
+  ret nc                     ; pathological hop chain: bail
+  jr tsh_loop
+
+; fm_pitch_mod: per-tick FM pitch modulation (F/P/V on FM). *** CURRENTLY
+; DISABLED *** -- the cf_out hook that calls it is commented out. It never
+; produced an audible wobble despite the write path, the V param, and the phase
+; counter all being verified working in isolation. Left intact as a starting
+; point; see FM_VIBRATO_NOTES.md for the full investigation before re-enabling.
+;
+; FM doesn't use the PSG period, so the bend is recomputed here in F-number space
+; and written to the YM2413 each tick. ix+13/14 (the PSG sweep acc, unused on FM)
+; holds the accumulated P bend. c = channel, ix = struct; ends at cf_vol (keeps
+; c). fm_w clobbers only A, so DE/HL survive across the two register writes.
+; Offset = finetune - (bendacc >> 4) - vibrato; + raises pitch (more fnum).
+fm_pitch_mod:
+  ; Modulate whenever a note has played (cf_out already filtered ix+0==$FF).
+  ; The voice may have keyed off (hold expired / K) and be ringing out -- we
+  ; still bend its pitch, but write key-on=0 in that case (ix+12) so the pitch
+  ; updates without re-triggering the envelope.
+  ld a, (ix+17)              ; accumulate the P sweep (signed/tick) into 13/14
+  or a
+  jr z, fmpm_gate
+  ld e, a
+  rlca
+  sbc a, a
+  ld d, a
+  ld l, (ix+13)
+  ld h, (ix+14)
+  add hl, de
+  ld (ix+13), l
+  ld (ix+14), h
+fmpm_gate:
+  ld a, (ix+17)
+  or (ix+27)
+  jr nz, fmpm_go
+  ld a, (ix+18)
+  and $0F                    ; vibrato depth active?
+  jr nz, fmpm_go
+  ld a, (ix+13)
+  or (ix+14)
+  jp z, cf_vol               ; keyed on but nothing bending: leave the pitch
+fmpm_go:
+  ; build the signed fnum offset in HL = finetune - (acc>>4) - vibrato
+  ld a, (ix+27)              ; HL = sign-extended finetune (+ = up)
+  ld l, a
+  rlca
+  sbc a, a
+  ld h, a
+  ld e, (ix+13)              ; DE = acc >> 4 (signed)
+  ld d, (ix+14)
+  ld b, 4
+fmpm_sra:
+  sra d
+  rr e
+  djnz fmpm_sra
+  or a
+  sbc hl, de                 ; HL = finetune - acc>>4   (+P = down)
+  call fm_vib_delta          ; A = signed vib_tables value (0 if depth 0)
+  ld e, a
+  rlca
+  sbc a, a
+  ld d, a
+  or a
+  sbc hl, de                 ; HL -= vibrato  (period-domain delta -> fnum sign)
+  ex de, hl                  ; DE = signed fnum offset
+fmpm_lookup:
+  ld a, (ix+24)              ; base note = clamp(note + table semitone offset)
+  add a, (ix+0)
+  jp p, fmpm_nn
+  xor a
+fmpm_nn:
+  cp NOTE_COUNT
+  jr c, fmpm_nok
+  ld a, NOTE_COUNT-1
+fmpm_nok:
+  add a, a
+  ld l, a
+  ld h, 0
+  push de
+  ld de, (fm_note_ptr)
+  add hl, de
+  pop de
+  ld a, (hl)                 ; fnum low
+  inc hl
+  ld b, (hl)                 ; block<<1 | fnum8
+  ld l, a
+  ld a, b
+  and $01
+  ld h, a                    ; HL = 9-bit base fnum
+  ld a, b
+  rrca
+  and $07
+  ld b, a                    ; B = block 0-7
+  add hl, de                 ; fnum += offset
+  bit 7, d                   ; offset negative?
+  jr nz, fmpm_neg
+fmpm_ovf:
+  ld a, h
+  cp 2                       ; fnum >= 512: carry into the next block
+  jr c, fmpm_wr
+  srl h
+  rr l
+  inc b
+  ld a, b
+  cp 8
+  jr c, fmpm_ovf
+  ld hl, 511                 ; block maxed: clamp
+  ld b, 7
+  jr fmpm_wr
+fmpm_neg:
+  bit 7, h                   ; underflowed below 0: floor the fnum
+  jr z, fmpm_wr
+  ld hl, 0
+fmpm_wr:
+  ld d, c                    ; D = channel (fm_w preserves DE)
+  ld e, b                    ; E = block
+  ld a, d
+  add a, $10
+  ld c, a
+  ld b, l                    ; $10+ch = fnum low
+  call fm_w
+  ld a, e
+  add a, a                   ; block << 1
+  bit 0, h
+  jr z, fmpm_nf8
+  inc a                      ; | fnum8
+fmpm_nf8:
+  or $30                     ; | key-on | sustain (held: bend without re-keying)
+  ld b, a
+  ld a, d
+  add a, $20
+  ld c, a                    ; $20+ch = block | fnum8 | key-on
+  call fm_w
+  ld c, d                    ; restore c = channel for cf_vol
+  jp cf_vol
+
+; fm_vib_delta: A = signed vibrato delta from ix+18 (speed|depth) and ix+15
+; (phase), advancing the phase -- the same vib_tables lookup the PSG path uses.
+; Returns 0 when depth is 0. Preserves HL/IX; clobbers A/BC/DE.
+fm_vib_delta:
+  ld a, (ix+18)
+  and $0F
+  ret z                      ; depth 0: no vibrato
+  push hl
+  ld b, a                    ; depth
+  ld a, (ix+18)
+  and $F0
+  rrca
+  rrca                       ; speed * 4
+  ld c, a
+  ld a, (ix+15)
+  add a, c
+  ld (ix+15), a              ; advance phase
+  rrca
+  rrca
+  rrca
+  and $1F                    ; step 0-31
+  ld c, a
+  ld l, b
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; depth * 32
+  ld b, 0
+  add hl, bc
+  ld bc, vib_tables
+  add hl, bc
+  ld a, (hl)                 ; signed delta
+  pop hl
+  ret
+
 .ENDS
 
 .BANK 0 SLOT 0
@@ -1799,9 +2074,22 @@ trigger_note:
   inc hl
   ld a, (ix+20)              ; old table # (compare before overwrite)
   ld e, a
-  ld a, (hl)                 ; +9 table # ($FF = none)
-  ld (ix+20), a
+  ld a, (hl)                 ; +9 instrument table # ($FF = none)
+  ld (ix+20), a              ; default: the instrument's own table
   inc hl
+  ; one-shot A override: a row's A command wins for THIS note only, then is
+  ; consumed -- so A behaves like B (wave) / Y (FM), not as sticky state.
+  ld a, (tbl_ovr)
+  cp $FF
+  jr z, tn_tovrdone
+  cp NUM_TABLES
+  jr c, tn_tovrset
+  ld a, $FF                  ; A>=NUM_TABLES = table off
+tn_tovrset:
+  ld (ix+20), a
+  ld a, $FF
+  ld (tbl_ovr), a            ; consume the one-shot
+tn_tovrdone:
   ld a, (hl)                 ; +10 table speed; TBS 0 = advance one row
   ld (ix+23), a              ;   per triggered note, else ticks/row
   ld (ix+22), 1              ; arm: one table row applies this trigger
@@ -2027,6 +2315,8 @@ tn_fm_p:
   ld c, a
   ld b, d
   call fm_w                  ; key-on | sustain | block | fnum8
+  ld (ix+12), 1              ; FM voice keyed on (gates fm_pitch_mod; ix+12 is
+                             ;   the pitched-noise flag, free on FM channels)
   ; HLD: F (or 0) = ring per the FM patch envelope; 1-E = auto key-off
   ; after nibble*2 ticks (handled by ahd_process / STG_FMHOLD)
   call ahd_hldval            ; a = instrument HLD nibble
@@ -2232,10 +2522,12 @@ cpd_vib:
   add hl, bc
   ex de, hl
 cpd_clamp:
-  ; finetune (F command), signed period units
+  ; finetune (F command), signed period units. Positive F raises pitch, so it
+  ; SUBTRACTS from the period (period is inverse-frequency): negate, then add.
   ld a, (ix+27)
   or a
   jr z, cpd_fdone
+  neg
   ld c, a
   rlca
   sbc a, a
@@ -2449,12 +2741,17 @@ cf_tadv:
   inc a
   and $0F
   ld (ix+21), a
-  jr cf_env
+  call tbl_skip_hops         ; step over any H row(s): the loop point rests on
+  jr cf_env                  ; the real target, which plays on its own step
 cf_thop:
+  ; reached only if the *current* row is itself H (e.g. the first row after a
+  ; trigger). Redirect, skip any chained H, then apply the real target now.
   inc hl
   ld a, (hl)                 ; jump target row (loop point)
   and $0F
   ld (ix+21), a
+  call tbl_skip_hops
+  jp ct_apply
 
 cf_env:
   ; --- arp phase (C command): cycle 0,x,y each tick ---
@@ -2491,6 +2788,11 @@ cf_not2:
   ld a, (ix+0)
   cp $FF
   jr z, cf_vol
+  ; NOTE: live FM pitch modulation (F/P/V on FM) is implemented in fm_pitch_mod
+  ; below but currently DISABLED -- it never produced an audible wobble despite
+  ; the write path, param, and phase all verified working. See
+  ; FM_VIBRATO_NOTES.md before re-enabling (re-add: call chan_is_fm / jp z,
+  ; fm_pitch_mod / reload ix+0 here).
   push bc
   call calc_period           ; note -> DE with sweep/vib applied
   pop bc
@@ -2767,8 +3069,11 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   cp 8                       ; pal_sel 0-7?
   jr nc, cfgl_done
   ld (pal_sel), a
-  ld a, b
-  and 3                      ; sync_mode 0-3
+  ld a, b                    ; sync_mode 0-5 (else fall back to OFF)
+  cp SYNC_IN24+1
+  jr c, cfgl_syncok
+  xor a
+cfgl_syncok:
   ld (sync_mode), a
   ld a, d
   and 1                      ; fm_on 0/1
@@ -3084,6 +3389,7 @@ ahd_fmhold:
   ret nz
   ld a, STG_IDLE
   ld (ix+4), a
+  ld (ix+12), 0              ; FM voice keyed off: stop fm_pitch_mod re-keying it
   push bc
   ld a, c
   add a, $20                 ; $20 + channel = key-off register

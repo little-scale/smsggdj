@@ -81,7 +81,7 @@ column lands back on its own column type so nothing gets scrambled.
 Hold **2** and press the D-pad to move around this map:
 
 ```
-   [OPTIONS][PROJECT]                   [WAVE]
+   [OPTIONS][PROJECT]           [WAVE]
    [ SONG ][ CHAIN ][PHRASE][ INSTR ][ TABLE ]
    [ FILES][GROOVE ]          [ ECHO ]
 ```
@@ -290,14 +290,14 @@ take a two-digit parameter `xy`.
 
 | Cmd | Name | What it does |
 |---|---|---|
-| `A` | Table | Start/switch a table (`A20` = off) |
+| `A` | Table | Run a table on **this note** (`A0`–`AF` pick the table, `A20` = none) — a one-shot override like `B`/`Y`: it wins for the note it's on, then the instrument's own table governs again. Put it next to a note |
 | `B` | Wave bank | Set this note's wavetable 0–7, overriding the instrument's wave (`B0`–`B7`, just that note) |
 | `C` | Chord | Looping arpeggio: note, +x, +y semitones (`C00` off) |
 | `D` | Delay | Delay the note by a number of ticks |
 | `E` | Envelope | Re-slope the AHD ramps live: `Exy` sets ATK = x, DCY = y (hold is left alone) |
-| `F` | Finetune | Detune slightly |
+| `F` | Finetune | Detune slightly (positive = sharper) |
 | `G` | Groove | Switch groove from this row (this track) |
-| `H` | Hop | PHRASE: end this track's phrase **immediately** — the H row takes no time, play jumps straight back to row 0 in the same tick (only this channel). Put `H` on the row *after* your last step to loop tightly with no wasted 16th. TABLE: loop |
+| `H` | Hop | PHRASE: end this track's phrase **immediately** — the H row takes no time, play jumps straight back to row 0 in the same tick (only this channel). Put `H` on the row *after* your last step to loop tightly with no wasted 16th. TABLE: loop back to a row — **also immediate**, so a looping table runs with no wasted step (great for tight arps) |
 | `I` | Iteration | An 8-bit play mask over **this phrase's play count**: on the Nth play of the phrase the note sounds if bit (N mod 8) is set. `IFF` = always, `I00` = never, `I55`/`IAA` = odd/even plays, `I0F` = first four of eight, `IF0` = last four. Lets one phrase vary across its repeats without cloning |
 | `J` | Jump (transpose) | A sibling to `I`: `Jxy` transposes the note by **x semitones** (`0`–`7` up, `8`–`F` = −8…−1, so `F` = −1) on the plays whose **(play mod 4)** bit is set in the 4-bit mask **y**. `J00` never, `J2F` = +2 always, `J21` = +2 on every 4th play; varies pitch across a phrase's repeats without cloning |
 | `K` | Kill | Cut the note after xy ticks (`K00` = instant; also stops samples) |
@@ -305,7 +305,7 @@ take a two-digit parameter `xy`.
 | `M` | Amp mod | Tremolo: speed x, depth y |
 | `N` | Noise | Override noise mode/rate for this note |
 | `O` | Output (pan) | **Game Gear stereo:** `O11` centre, `O10` left, `O01` right |
-| `P` | Pitch bend | Continuous bend |
+| `P` | Pitch bend | Continuous bend (positive bends down) |
 | `R` | Retrigger | Re-fire the note every y ticks, stepping volume by x |
 | `S` | Speed | Sample playback rate: `S01` = 2× (up an octave, half length), `S02` = ½× (down an octave), `S03` = 4× (up two octaves); `S00` = normal |
 | `T` | Tempo | Set tempo in BPM |
@@ -447,21 +447,27 @@ Settings that belong to the *machine*, not the song:
 ## 12. Syncing to other gear
 
 SMSGGDJ can lock its tempo to another machine over **controller port 2**
-(Master System) — useful for jamming with another SMSGGDJ, a Game Gear, or
-analog-clock gear. Set it on **OPTIONS → SYNC**:
+(Master System) — useful for jamming with another SMSGGDJ, a **genmddj** (Mega
+Drive), a Game Gear, or analog-clock gear. Set it on **OPTIONS → SYNC**:
 
 - **OFF** — no sync (default).
-- **OUT** — this unit is the **master**; it sends a clock while playing.
-- **IN** — this unit **follows** an incoming clock. Press Play and it waits
-  (top bar shows **WAIT**) until the clock starts, then locks on. While
-  following, the song plays at a fixed **groove 6** (24 ticks/beat) so it
-  stays beat-aligned at any tempo — your stored groove is untouched and
-  returns when you leave IN.
+- **OUT** — this unit is the **master**; it sends one clock per row while
+  playing. Another SMSGGDJ (or a genmddj) set to **IN** locks to it at any tempo.
 - **PULSE** — sends a simple analog-style pulse (2 PPQN) for gear like
   Volca / Pocket Operator.
+- **IN** — this unit **follows** an **OUT** master (one row per clock). Press
+  Play and it waits (top bar shows **WAIT**) until the clock starts, then locks
+  on. While following, the master's clock drives the timing, so your stored
+  groove and the `W` command are ignored (and restored when you leave IN).
+- **IN24** — follows a **24-PPQN** source (six clocks per 16th-note row): the
+  **ESP32 Ableton Link bridge**, ares-link-sync, or any 24-PPQN sender. Same
+  WAIT-then-lock behaviour as IN. *(Before v0.33 this was just "IN".)*
+
+Cross-sync with **genmddj** uses the identical wire protocol: SMSGGDJ `OUT` ↔
+genmddj `IN`, and either unit's `IN24` follows the Link bridge.
 
 The top bar shows a small arrow by the transport: ▶ when sending (OUT), ◀
-when following (IN), a pulse mark for PULSE.
+when following (IN or IN24), a pulse mark for PULSE.
 
 **Cables:** Master-to-Master uses a straight 3-wire link on port 2 (pins 9,
 7, 8). Master System to Game Gear uses a Master Link cable. Game Gear to Game
@@ -469,7 +475,7 @@ Gear uses a standard Gear-to-Gear cable. The slave unit reads whichever cable
 is plugged in automatically. (Sending a clock as master needs an *export*
 Master System — Japanese units can't drive the port.)
 
-**Ableton Link:** with `SYNC: IN` you can follow Ableton Live (or any Link
+**Ableton Link:** with `SYNC: IN24` you can follow Ableton Live (or any Link
 app) using the companion **smsggdj-link-esp32** bridge — a small ESP32 board
 that joins your Link session over WiFi and feeds the clock into port 2.
 SMSGGDJ then plays in time with Live's tempo and transport. Build and wiring
