@@ -625,10 +625,35 @@ rhe_next:
   ld hl, (rle_heapmax)
   ret
 
+; rss_free_old: if the target slot (rss_slot) already holds a valid blob,
+; invalidate its entry and compact the heap so the upcoming save reuses that
+; space. Without this, re-saving the same slot orphans the old blob every time
+; and the heap (free space) only ever shrinks. New-file slots ($A5 absent) are
+; left alone. bank 0; leaves bank 0 mapped (rle_compact does).
+rss_free_old:
+  ld a, SRAM_BANK0
+  ld ($FFFC), a
+  ld a, (rss_slot)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                           ; slot*32
+  ld de, SRAM_WIN + SD4_SUPER
+  add hl, de                           ; HL = entry(slot)
+  ld a, (hl)
+  cp $A5
+  ret nz                               ; empty slot: nothing to reclaim
+  ld (hl), 0                           ; invalidate -> old blob becomes a hole
+  jp rle_compact                       ; slide later blobs down to close it
+
 ; rle_song_save: A = slot. Packs wave_ram into the heap (no-straddle),
 ; writes the directory entry. Z = saved, NZ = SRAM full. Caller smp_abort's.
 rle_song_save:
   ld (rss_slot), a
+  call rss_free_old                    ; reclaim this slot's previous blob first
   ld hl, wave_ram
   call sram_sum                        ; DE = block checksum
   ld (rss_cksum), de
