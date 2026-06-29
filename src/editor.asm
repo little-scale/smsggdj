@@ -6891,15 +6891,15 @@ cc_set:
 cmd_order:
   .db CMD_NONE, CMD_TBL, CMD_WSET, CMD_ARP, CMD_DELAY, CMD_ENV
   .db CMD_FINE, CMD_GRV, CMD_HOP, CMD_ITER, CMD_JTRANS, CMD_KILL
-  .db CMD_SLIDE, CMD_TREM, CMD_NOI, CMD_PAN, CMD_PB, CMD_RETRIG
+  .db CMD_SLIDE, CMD_TREM, CMD_NOI, CMD_PAN, CMD_PB, CMD_ECHO, CMD_RETRIG
   .db CMD_SPEED, CMD_TPO, CMD_VIB, CMD_WAIT, CMD_VOL, CMD_FMPROG, CMD_PROB
 ; command id -> rank (inverse of cmd_order)
 cmd_rank:
-  .db 0, 11, 8, 1, 3, 5, 6, 7, 14, 16, 19, 20, 21, 13, 4, 12, 17, 15, 9, 18, 2, 22, 23, 24, 10
+  .db 0, 11, 8, 1, 3, 5, 6, 7, 14, 16, 20, 21, 22, 13, 4, 12, 18, 15, 9, 19, 2, 23, 24, 25, 10, 17
 
 ; command id -> display letter
 cmd_chars:
-  .db "-KHACEFGNPTVWMDLROISBXYZJ"
+  .db "-KHACEFGNPTVWMDLROISBXYZJQ"
 
 .ENDS
 

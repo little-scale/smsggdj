@@ -54,13 +54,14 @@
 .DEFINE CMD_RETRIG  16         ; R: retrigger every param ticks
 .DEFINE CMD_PAN     17         ; O: GG stereo - x = left, y = right
 .DEFINE CMD_ITER    18         ; I: play when (repeats mod x) == y
-.DEFINE CMD_SPEED   19         ; S: sample speed (0 norm, 1 2x, 2 half)
+.DEFINE CMD_SPEED   19         ; S: sample speed (0 1x, 1 2x, 2 4x, 3 .5x)
 .DEFINE CMD_WSET    20         ; B: set this note's wavetable (0-7)
 .DEFINE CMD_VOL     21         ; X: set this note's volume (AHD peak 0-F)
 .DEFINE CMD_FMPROG  22         ; Y: set this note's FM program (patch 1-15)
 .DEFINE CMD_PROB    23         ; Z: chance the note triggers (00 never .. FF always)
 .DEFINE CMD_JTRANS  24         ; J: signed transpose (x) on plays masked by y (mod 4)
-.DEFINE CMD_COUNT   25
+.DEFINE CMD_ECHO    25         ; Q: echo on/off (00 off, else on) - gates the ECHO screen's echo
+.DEFINE CMD_COUNT   26
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
@@ -118,6 +119,7 @@
   sync_acc     db            ; slave: received clocks toward the next row
   sync_ticks   db            ; (scratch)
   play_mode    db            ; 0 = SONG, 1 = LIVE
+  echo_gate    db            ; Q command: 0 mutes echo live (config kept), 1 = on
   trk_rep      dsb 4         ; chain repeat count per track (legacy)
   phrase_plays dsb NUM_PHRASES ; per-phrase play count (I command)
   echo_mode    db            ; 0 off, 1 = T2, 2 = T2+T3
@@ -177,6 +179,8 @@ ep_seed:
   ld (rng_state), hl
   xor a
   ld (hop_now), a            ; immediate-hop flag clear
+  inc a
+  ld (echo_gate), a          ; echo enabled per the saved config until a Q mutes it
   ld a, $FF
   ld (wav_ovr), a
   ld (fm_ovr), a
@@ -654,6 +658,9 @@ echo_pass:
   inc hl
   ld a, (chst+0)             ; T1's base note index ($FF = none)
   ld (hl), a
+  ld a, (echo_gate)          ; Q command muted it? keep the ring warm, emit nothing
+  or a
+  jp z, echo_adv
   ld a, (echo_mode)
   or a
   jp z, echo_adv             ; off: just keep the ring warm
@@ -1567,6 +1574,16 @@ exec_command:
   jp z, xc_speed
   cp CMD_VOL
   jp z, xc_vol
+  cp CMD_ECHO
+  jp z, xc_echo
+  ret
+xc_echo:                     ; Q xx: echo on/off. 00 mutes the echo live; any
+  ld a, d                    ; non-zero turns it back on. The ECHO screen's
+  or a                       ; mode/taps/etc. are left untouched (just gated),
+  jr z, xe_set               ; so it survives stop and save unchanged.
+  ld a, 1
+xe_set:
+  ld (echo_gate), a
   ret
 xc_vol:                      ; X xx: set this note's volume (0-F). PSG: the
   ld a, d                    ; AHD peak the attack ramps to. FM: live volume.
