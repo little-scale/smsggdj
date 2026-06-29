@@ -2175,16 +2175,31 @@ tn_sspd:
   ld a, (cur_trig_ch)
   ld (smp_owner), a
   ld a, (smp_count)
-  ld d, a
   or a
   jr z, tn_squiet            ; empty pool: just silence the host
-  ld a, (ix+0)
-tn_smod:
+  ld d, a                    ; D = sample count
+  ; kit system: 8 kits of 8 -> sample = kit*8 + (note & 7). kit = instrument
+  ; record +2 (0-7); slots past the loaded count are empty -> silence.
+  ld a, (ix+1)               ; HL = instruments + instr*16 + 2  (the kit byte)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld l, a
+  ld h, 0
+  ld bc, instruments+2
+  add hl, bc
+  ld a, (hl)
+  and 7                      ; kit 0-7
+  add a, a
+  add a, a
+  add a, a                   ; kit * 8
+  ld e, a
+  ld a, (ix+0)               ; note
+  and 7                      ; within-kit slot 0-7
+  add a, e                   ; sample = kit*8 + (note & 7)
   cp d
-  jr c, tn_sgo
-  sub d
-  jr tn_smod
-tn_sgo:
+  jr nc, tn_squiet           ; past the loaded samples -> empty slot, silence
   call smp_play
 tn_squiet:
   ; the note only selects the sample (played on T3): the host

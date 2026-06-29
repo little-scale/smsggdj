@@ -34,7 +34,7 @@
   wav_cur      db            ; wave # loaded in wav_buf
   winc_ptr     dw            ; region pitch-increment table
   smp_count    db            ; samples in the pool (boot-cached)
-  smp_speed    db            ; PCM playback speed: 0 norm, 1 2x, 2 half
+  smp_speed    db            ; PCM playback speed: 0 1x, 1 2x, 2 4x, 3 .5x
   smp_hold     db            ; 0.5x: toggle - feed every other tick
 .ENDS
 
@@ -53,12 +53,12 @@ smp_feed_any:
   ; fixed, so this only changes pitch/length, not the IRQ timing)
   ld a, (smp_speed)
   or a
-  jr z, smp_feed_one         ; 0 normal: one nibble per tick
+  jr z, smp_feed_one         ; 0 = 1x: one nibble per tick
   dec a
   jr z, sfa_2x               ; 1 = 2x: skip every other sample
   dec a
-  jr nz, sfa_4x              ; 3 = 4x: skip three of every four
-  ld a, (smp_hold)           ; 2 = 0.5x: feed every other tick
+  jr z, sfa_4x               ; 2 = 4x: skip three of every four
+  ld a, (smp_hold)           ; 3 = 0.5x: feed every other tick
   xor 1                      ; (the DAC holds its level between)
   ld (smp_hold), a
   ret nz

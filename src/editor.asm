@@ -725,18 +725,18 @@ iwsd_w4:
 iwsd_w6:
   ld a, 6
   ret
-iwsd_smp:                    ; SMP path: INST TYPE TSP(6) RATE(12)
+iwsd_smp:                    ; SMP down: INST TYPE KIT(5) RATE(12) TSP(13)
   ld a, e
   cp 2
   ret c                      ; 0,1 unchanged
-  cp 7
-  jr c, iwsd_s6              ; 2..6 -> 6 (TSP)
-  cp 12
-  ret nc                     ; 12 unchanged
-  ld a, 12                   ; 7..11 -> 12 (RATE)
+  cp 6
+  jr c, iwsd_s5              ; 2..5 -> 5 (KIT)
+  cp 13
+  ret nc                     ; 13 (TSP) unchanged
+  ld a, 12                   ; 6..12 -> 12 (RATE)
   ret
-iwsd_s6:
-  ld a, 6
+iwsd_s5:
+  ld a, 5
   ret
 iwsd_fm:                     ; FM: INST TYPE VOL HLD(4) TSP(6) TBL(10) TBS(11) PROG(12)
   ld a, e
@@ -800,15 +800,18 @@ iwsu_w2:
 iwsu_w4:
   ld a, 4
   ret
-iwsu_smp:                    ; SMP up: RATE(12) TSP(6) TYPE INST
+iwsu_smp:                    ; SMP up: TSP(13) RATE(12) KIT(5) TYPE INST
   ld a, e
   cp 2
   ret c                      ; 0,1 unchanged
-  cp 7
-  jr c, iwsu_s1              ; 2..6 -> 1 (TYPE)
+  cp 5
+  jr c, iwsu_s1              ; 2..4 -> 1 (TYPE)
   cp 12
-  ret nc                     ; 12 unchanged
-  ld a, 6                    ; 7..11 -> 6 (TSP)
+  jr c, iwsu_sk              ; 5..11 -> 5 (KIT)
+  ld a, 12                   ; 12 unchanged; 13 -> 12 (RATE)
+  ret
+iwsu_sk:
+  ld a, 5
   ret
 iwsu_s1:
   ld a, 1
@@ -960,7 +963,7 @@ ins_max_row:
   cp 3
   jr z, imr_wav
   cp 2
-  jr z, imr_wav              ; SMP shares the WAV form (field 12 = RATE)
+  jr z, imr_smp              ; SMP: + RATE(12) + TSP(13)
   cp 4
   jr z, imr_fm               ; FM: + PROG (12) + PRESET (14)
   cp 5
@@ -978,6 +981,9 @@ imr_noise:
   ret
 imr_wav:
   ld a, 12                   ; WAV: + WAVE selector
+  ret
+imr_smp:
+  ld a, 13                   ; SMP: RATE(12) + TSP(13)
   ret
 
 ; HL = current instrument record (preserves DE: callers hold
@@ -1675,8 +1681,15 @@ inp_edit:
   jp z, ine_tbs
   cp 12
   jp z, ine_f11
+  cp 13
+  jp z, ine_f13
   cp 14
   jp z, ine_preset
+  jp ine_rate
+ine_f13:                     ; field 13: SMP transpose (+8), else NOISE rate
+  ld a, (hl)                 ; type at +0 (HL = instrument record)
+  cp 2
+  jp z, ine_tsp
   jp ine_rate
 
 ; INST: which instrument the form edits (L/R +-1, U/D +-4)
@@ -2112,7 +2125,10 @@ ine_spd:                     ; field 4 = HLD (+3 low nibble; F = inf)
   ld (hl), a
   jp ine_mark
 
-ine_len:                     ; field 5 = DCY (+2 low nibble)
+ine_len:                     ; field 5 = DCY (+2 low nibble), or KIT on SMP
+  ld a, (hl)                 ; type at +0
+  cp 2
+  jr z, ine_kit
   inc hl
   inc hl
   ld a, (hl)
@@ -2122,6 +2138,24 @@ ine_len:                     ; field 5 = DCY (+2 low nibble)
   ld a, (hl)
   and $F0
   or d
+  ld (hl), a
+  jp ine_mark
+ine_kit:                     ; SMP: kit 0-7 in +2, L/R cycles (wraps)
+  inc hl
+  inc hl
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (hl)
+  and 7
+  bit 3, c                   ; Right: +1
+  jr z, ink_l
+  inc a
+ink_l:
+  bit 2, c                   ; Left: -1
+  jr z, ink_st
+  dec a
+ink_st:
+  and 7                      ; wrap 0-7
   ld (hl), a
   jp ine_mark
 
@@ -2515,7 +2549,8 @@ str_wave:   .db "WAVE", 0
 str_wavlbl: .db "WAVE", 0
 str_spdlbl: .db "RATE", 0
 str_fmlbl:  .db "PROG", 0
-str_smpspd: .db "NORM2X  HALF4X  "
+str_kitlbl: .db "KIT ", 0
+str_smpspd: .db "1X  2X  4X  .5X "
 str_blank7: .db "       ", 0
 str_sp1:    .db " ", 0
 
@@ -5986,7 +6021,7 @@ tmd_zero:
 
 .ENDS
 
-.BANK 0 SLOT 0
+.BANK 1 SLOT 1
 .SECTION "ProjDraw2" FREE
 
 prd_video:
@@ -6357,6 +6392,10 @@ idr_map:
   xor a
   ld (text_attr), a
   ld a, (ed_field)
+  cp 5
+  jr z, idrl_f5              ; field 5: KIT on SMP, else DCY
+  cp 13
+  jr z, idrl_f13             ; field 13: TSP on SMP, else RATE (NOISE)
   cp 12
   jr nz, idr_lblidx
   call ins_ptr
@@ -6369,6 +6408,24 @@ idr_map:
   jr z, idrl_fm
   ld a, 12                   ; NOISE field 12: ins_lbls[12]
   jr idr_lblidx
+idrl_f5:
+  call ins_ptr
+  ld a, (hl)
+  cp 2                       ; SMP -> "KIT", else DCY (ins_lbls[5])
+  jr z, idrl_kit
+  ld a, 5
+  jr idr_lblidx
+idrl_f13:                    ; SMP -> "TSP" (ins_lbls[6]), else RATE (ins_lbls[13])
+  call ins_ptr
+  ld a, (hl)
+  cp 2
+  ld a, 6
+  jr z, idr_lblidx
+  ld a, 13
+  jr idr_lblidx
+idrl_kit:
+  ld hl, str_kitlbl
+  jr idr_lblgo
 idrl_wav:
   ld hl, str_wavlbl
   jr idr_lblgo
@@ -6449,8 +6506,15 @@ idr_addr:
   jp z, idr_tbs
   cp 12
   jp z, idr_f11
+  cp 13
+  jp z, idr_f13
   cp 14
   jp z, idr_preset
+  jp idr_rate
+idr_f13:                     ; field 13: SMP transpose (+8), else NOISE rate
+  ld a, (hl)                 ; type at +0 (HL = instrument record)
+  cp 2
+  jp z, idr_tsp
   jp idr_rate
 idr_inst:
   ld a, (cur_instr)
@@ -6595,11 +6659,20 @@ idr_spd:                     ; field 4 = HLD (+3 low nibble; F = inf)
   ld a, (hl)
   and $0F
   jp print_hex_nib
-idr_len:                     ; field 5 = DCY (+2 low nibble)
+idr_len:                     ; field 5 = DCY (+2 low nibble), or KIT 0-7 on SMP
+  ld a, (hl)                 ; type at +0
+  cp 2
+  jr z, idr_kit
   inc hl
   inc hl
   ld a, (hl)
   and $0F
+  jp print_hex_nib
+idr_kit:                     ; SMP: kit 0-7 in +2, shown 0-7
+  inc hl
+  inc hl
+  ld a, (hl)
+  and 7
   jp print_hex_nib
 idr_mode:
   inc hl
@@ -6687,10 +6760,10 @@ r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE (no ATK/DCY/tables)
   .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
-r2f_smp:                     ; grid row -> field (INST/TYPE/TSP/RATE)
-  .db 0, 1, $FF, 6, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_smp:                     ; field -> grid row (TSP=6 shown; 2-5,7-11 skipped)
-  .db 0, 1, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 4
+r2f_smp:                     ; grid row -> field (INST/TYPE/-/KIT/RATE/TSP)
+  .db 0, 1, $FF, 5, 12, 13, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_smp:                     ; field -> grid row (blank row2; KIT=5 r3, RATE=12 r4, TSP=13 r5)
+  .db 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 5
 r2f_fm:                      ; FM, grouped: INST/TYPE/VOL/HLD | TSP | TBL/TBS | PROG/PRST
   .db 0, 1, 2, 4, $FF, 6, $FF, 10, 11, $FF, 12, 14, $FF, $FF, $FF, $FF
 f2r_fm:                      ; field -> grid row (spacers after HLD, TSP, TBS)
