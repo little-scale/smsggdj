@@ -16,6 +16,10 @@ usage:
                       (2-4 = louder/denser, 99 ~= 1-bit loudness)
     --no-dither       plain nearest-level quantization
     --no-norm         skip per-file normalization
+    --no-trim         keep trailing silence (default: trim it)
+    --trim-db DB      trailing-silence floor in dBFS (default -48);
+                      strips the silent tail/pad to reclaim pool space.
+                      The feeder hard-mutes on end, so the cut is clickless.
     --preview         write NAME.preview.wav rendered through the
                       exact level table (what the console will play)
     --pool-in POOL.bin  skip conversion: bake a pre-built 96 KB
@@ -23,6 +27,7 @@ usage:
                       tools/patcher.html); emits the same pool.inc
 """
 import math
+import os
 import struct
 import sys
 import wave
@@ -85,6 +90,18 @@ def convert(samples, dither=True, gate=1):
     return out
 
 
+def trim_tail(samples, thresh):
+    """Drop the trailing run below `thresh` (the digital-silence pad / decayed
+    tail), keeping the attack and body. Leading silence is left intact so the
+    note's onset timing is unchanged (cf. genmddj makesamples.py). The feeder's
+    sf_end hard-mutes T3 ($DF) the instant the data ends, so no rest terminator
+    is needed for a clickless stop."""
+    i = len(samples)
+    while i > 0 and abs(samples[i - 1]) < thresh:
+        i -= 1
+    return samples[:i] if i else samples[:1]
+
+
 def main():
     args = sys.argv[1:]
     if not args or "-o" not in args:
@@ -104,8 +121,12 @@ def main():
     gate = int(opt("--gate", 1))
     dither = not opt("--no-dither", False, has_val=False)
     norm = not opt("--no-norm", False, has_val=False)
+    trim = not opt("--no-trim", False, has_val=False)
+    trim_db = float(opt("--trim-db", -48.0))   # trailing-silence floor
+    trim_th = 10.0 ** (trim_db / 20.0)
     preview = opt("--preview", False, has_val=False)
     pool_in = opt("--pool-in")
+    kits_dir = opt("--kits")   # build 4 kits x 8 from a folder of subfolders
 
     if pool_in:
         BANK, POOL_BANKS = 16384, 6
@@ -134,20 +155,51 @@ def main():
     # MAX_SAMPLES dir entries x 10: bank, offset lo/hi ($8000-
     # based), length lo/hi, name[5]. Samples never cross a bank.
     # The browser patcher rewrites this region in place.
-    MAX_SAMPLES = 32
+    MAX_SAMPLES = 64
     POOL_BANKS = 6             # banks 2-7 = 96 KB
     BANK = 16384
     DIR_END = 8 + MAX_SAMPLES * 10
 
-    converted = []
-    for path in args:
-        if path.endswith(".preview.wav"):
-            continue           # our own audition renders
+    # --kits: lay the pool out as KITS x PER_KIT fixed slots so the engine can
+    # index sample = kit*PER_KIT + (note mod PER_KIT). Each kit owns its block
+    # even if short (missing slots stay empty -> silence). Kits and the WAVs
+    # inside them are taken in alphanumeric order from the folder tree.
+    KITS, PER_KIT = 8, 8
+    if kits_dir:
+        subdirs = sorted(d for d in os.listdir(kits_dir)
+                         if not d.startswith(".")
+                         and os.path.isdir(os.path.join(kits_dir, d)))
+        slot_paths = []                    # KITS*PER_KIT entries: path or None
+        for ki in range(KITS):
+            wavs = []
+            if ki < len(subdirs):
+                kd = os.path.join(kits_dir, subdirs[ki])
+                wavs = sorted(os.path.join(kd, f) for f in os.listdir(kd)
+                              if f.lower().endswith(".wav")
+                              and not f.startswith(".")
+                              and not f.lower().endswith(".preview.wav"))
+            print("kit %d: %s (%d sample%s)"
+                  % (ki, subdirs[ki] if ki < len(subdirs) else "(none)",
+                     len(wavs), "" if len(wavs) == 1 else "s"))
+            for si in range(PER_KIT):
+                slot_paths.append(wavs[si] if si < len(wavs) else None)
+    else:
+        slot_paths = [p for p in args if not p.endswith(".preview.wav")]
+
+    slots = []                             # (name, packed) or None per slot
+    for path in slot_paths:
+        if path is None:
+            slots.append(None)
+            continue
         mono, src = load_wav(path)
         mono = resample(mono, src, rate)
         if norm and mono:
             peak = max(0.0001, max(abs(s) for s in mono))
             mono = [s / peak for s in mono]
+        full = len(mono)
+        if trim and mono:
+            mono = trim_tail(mono, trim_th)   # on the clean (pre-gain) signal
+        cut = full - len(mono)
         if gain != 1.0:
             mono = [max(-1.0, min(1.0, s * gain)) for s in mono]
         codes = convert(mono, dither, gate)
@@ -158,10 +210,12 @@ def main():
         if len(packed) > BANK - DIR_END:
             sys.exit("%s: %d bytes - samples may not exceed one "
                      "bank (%d)" % (path, len(packed), BANK - DIR_END))
-        name = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-        converted.append((name, packed))
+        base = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        name = base.split(" ", 1)[1] if (base[:1].isdigit() and " " in base) else base
+        slots.append((name, packed))
         secs = len(codes) / float(rate)
-        print("%-12s %6d bytes  %.2fs" % (name, len(packed), secs))
+        tag = "  -%d trimmed" % cut if cut else ""
+        print("  %-12s %6d bytes  %.2fs%s" % (name, len(packed), secs, tag))
         if preview:
             pv = wave.open(name + ".preview.wav", "wb")
             pv.setnchannels(1)
@@ -171,14 +225,18 @@ def main():
                 int(LEVELS[c] * 255) for c in codes))
             pv.close()
 
-    if len(converted) > MAX_SAMPLES:
-        sys.exit("too many samples (max %d)" % MAX_SAMPLES)
+    if len(slots) > MAX_SAMPLES:
+        sys.exit("too many sample slots (max %d)" % MAX_SAMPLES)
 
-    # first-fit placement, no bank crossing
+    # first-fit placement, no bank crossing; empty slots get a length-0 entry
     pool = bytearray([0xFF]) * (POOL_BANKS * BANK)
     free = [DIR_END] + [0] * (POOL_BANKS - 1)   # next free per bank
     index = []
-    for name, packed in converted:
+    for slot in slots:
+        if slot is None:
+            index.append(("", 0, 0, 0))         # empty slot
+            continue
+        name, packed = slot
         for b in range(POOL_BANKS):
             if free[b] + len(packed) <= BANK:
                 index.append((name, 2 + b, 0x8000 + free[b],
@@ -199,8 +257,9 @@ def main():
 
     open(out_bin, "wb").write(pool)
     used = sum(free) - DIR_END
-    print("pool: %d samples, %d bytes used of %d (%.1f%%) -> %s" %
-          (len(index), used, POOL_BANKS * BANK - DIR_END,
+    nreal = sum(1 for s in slots if s is not None)
+    print("pool: %d samples in %d slots, %d bytes used of %d (%.1f%%) -> %s" %
+          (nreal, len(index), used, POOL_BANKS * BANK - DIR_END,
            100.0 * used / (POOL_BANKS * BANK - DIR_END), out_bin))
 
     if out_asm:

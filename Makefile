@@ -33,15 +33,22 @@ $(BUILD)/logo.inc: tools/makelogo.py art/smsggdj-logo.png | $(BUILD)
 
 
 
-# A pre-built pool (samples/pool.bin, e.g. exported from
-# tools/patcher.html) is baked straight in; otherwise samples/*.wav
-# are converted. Remove samples/pool.bin to go back to the WAVs.
+# Sample pool: built from the samples/ KIT FOLDERS (up to 8 kits x 8 samples), taken
+# in alphanumeric order (kits = subfolders, samples = WAVs inside). The engine
+# maps sample = kit*8 + (note mod 8). A pre-built pool (samples/pool.bin, e.g.
+# exported from tools/patcher.html) still overrides if present.
+# (The kit WAV paths contain spaces, so the rule depends on the samples/ tree
+#  rather than listing files; run `make clean` after editing a WAV in place.)
 ifneq ($(wildcard samples/pool.bin),)
 $(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsggdj_sample.py samples/pool.bin | $(BUILD)
 	python3 tools/smsggdj_sample.py --pool-in samples/pool.bin -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 else
-$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsggdj_sample.py $(wildcard samples/*.wav) | $(BUILD)
-	python3 tools/smsggdj_sample.py samples/*.wav -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
+# SAMPLE_GAIN: post-normalize gain with hard clipping. Each sample is peak-
+# normalized then driven SAMPLE_GAIN x (and clipped) for a louder/denser pool
+# on the 4-bit log DAC. Override per build, e.g. `make SAMPLE_GAIN=4`.
+SAMPLE_GAIN ?= 10
+$(BUILD)/pool.bin $(BUILD)/pool.inc: tools/smsggdj_sample.py samples | $(BUILD)
+	python3 tools/smsggdj_sample.py --kits samples --gain $(SAMPLE_GAIN) -o $(BUILD)/pool.bin --asm $(BUILD)/pool.inc
 endif
 
 # Build stamp: short git hash (with a trailing + if the working tree has
