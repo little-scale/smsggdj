@@ -104,16 +104,21 @@ tools/      Python build tools + the browser apps:
               migrate.html      SMDJ3 -> SMDJ4 save migrator
               palette.html      browser UI-palette recolourer
               fmpatch.html      browser FM custom-preset editor
-samples/    sample sources; samples/pool.bin (if present) is the baked bank
+samples/    sample sources: one subfolder per kit (up to 8 kits x 8 WAVs);
+            samples/pool.bin (if present) overrides as a pre-baked bank
 art/        the logo art
 ```
 
 ## Sample bank
 
-The committed `samples/pool.bin` is the production sample bank (tuned in the
-patcher) and is baked into every build. To build from raw recordings instead,
-delete `samples/pool.bin` and put WAVs in `samples/` — `make` converts them.
-The pool is identical in both flavours, so one bank serves `.sms` and `.gg`.
+The pool is built from **kit folders** under `samples/` — up to **8 kits of 8
+samples**, taken in alphanumeric order (one subfolder per kit, WAVs inside). An
+SMP instrument's **KIT** field picks the kit and the note maps chromatically to
+the 8 slots, so one instrument is a whole drum kit. `make` trims each sample's
+trailing silence and applies a gain (`make SAMPLE_GAIN=N`, default 10) for a
+punchier 4-bit DAC. A committed `samples/pool.bin` (tuned in the patcher) still
+overrides as a pre-baked bank if present. The pool is identical in both
+flavours, so one bank serves `.sms` and `.gg`.
 
 ## License
 

@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.34 — unreleased
+## v0.34 — 2026-06-30
 
 ### Added
 - **`Q` command — echo on/off mid-song.** `Q00` mutes the echo, any non-zero
