@@ -78,7 +78,7 @@
   fl_slot      db            ; FILES draw scratch: absolute slot of the drawn row
   name_col     db            ; FILES name-edit cursor (0..7)
   fmenu        db            ; FILES action menu: 0 = slots, 1 = menu open
-  fmsel        db            ; FILES menu selection (0..4 = SAVE/LOAD/CLEAR/DEMO/CANCEL)
+  fmsel        db            ; FILES menu selection (0..5 = SAVE/LOAD/CLEA/PRGP/PRGC/CANC)
   file_count   db            ; FILES: number of saved songs (directory kept packed)
   file_room    db            ; FILES: 1 = room for one more (trailing empty shown)
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
@@ -7105,6 +7105,8 @@ str_sram:  .db "SRAM", 0
 str_free:  .db "FREE", 0
 str_size:  .db "SONG", 0
 str_songs: .db "SONGS", 0
+str_sure:  .db "SURE "
+str_freed: .db "FREED ", 0
 
 ; fl_entry: A = slot -> HL = directory entry ptr (SRAM). Preserves DE.
 fl_entry:
@@ -7233,7 +7235,7 @@ fld_menu:
   ld a, e
   sub FILES_LIST_TOP
   ret c
-  cp 4
+  cp FMENU_N
   ret nc
   ld (fl_slot), a            ; reuse the draw scratch as the action index
   xor a
@@ -7248,16 +7250,30 @@ flm_na:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 10                   ; left of the mini-map (col 25); names sit at 4..11
+  ld c, 9                    ; left of the mini-map (col 25); names sit at 4..11
   call fl_set
+  ld a, (purge_ui)           ; armed purge item shows "SURE" instead of its label
+  cp 3
+  jr c, flm_lbl
+  cp $80
+  jr nc, flm_lbl
+  ld hl, fl_slot
+  cp (hl)
+  jr nz, flm_lbl
+  ld hl, str_sure
+  jr flm_draw
+flm_lbl:
   ld a, (fl_slot)
+  ld b, a
   add a, a
-  add a, a                   ; index*4
+  add a, a
+  add a, b                   ; index*5
   ld l, a
   ld h, 0
   ld de, fmenu_str
   add hl, de
-  ld b, 4
+flm_draw:
+  ld b, 5
 flm_w:
   ld a, (hl)
   push hl
@@ -7269,7 +7285,7 @@ flm_w:
   djnz flm_w
   ret
 
-fld_count:                   ; "nn SONGS" on the row above the list
+fld_count:                   ; "nn SONGS" (or "FREED nn" after a purge)
   xor a
   ld (text_attr), a
   ld a, e
@@ -7277,12 +7293,20 @@ fld_count:                   ; "nn SONGS" on the row above the list
   ld b, a
   ld c, 1
   call fl_set
+  ld a, (purge_ui)
+  cp $80
+  jr z, flc_freed
   ld a, (file_count)
   call fsp_dec2
   ld a, ' '
   call print_char
   ld hl, str_songs
   jp fsp_str
+flc_freed:
+  ld hl, str_freed           ; "FREED " + nn (same 8-wide footprint)
+  call fsp_str
+  ld a, (purge_freed)
+  jp fsp_dec2
 
 ; cm_files: up/down = slot cursor; left/right = name cursor (wraps 0..7).
 ; When the menu is open, up/down move the menu selection instead.
@@ -7290,10 +7314,12 @@ cm_files:
   ld a, (fmenu)
   or a
   jr z, cmf_normal
+  xor a                      ; any menu move cancels a pending purge confirm/result
+  ld (purge_ui), a
   bit 1, c                   ; down
   jr z, cmf_menu_up
   ld a, (fmsel)
-  cp 3
+  cp FMENU_N-1
   jr nc, cmf_menu_up
   inc a
   ld (fmsel), a
@@ -7426,13 +7452,43 @@ fp_files:
   or a
   ret z                      ; not in the menu: nothing
   ld a, (fmsel)
+  cp 3
+  jr z, fpx_prgp             ; 3 PRGP: purge unreachable phrases (2-tap confirm)
+  cp 4
+  jr z, fpx_prgc             ; 4 PRGC: purge unused chains (2-tap)
+  xor a                      ; SAVE/LOAD/CLEA/CANC clear any purge confirm/result
+  ld (purge_ui), a
+  ld a, (fmsel)
   or a
   jr z, fpx_save             ; 0 SAVE
   cp 1
   jr z, fpx_load             ; 1 LOAD
   cp 2
   jr z, fpx_clear            ; 2 CLEAR
-  jr fpx_close               ; 3 CANCEL (and anything else): close, no-op
+  jr fpx_close               ; 5 CANCEL (and anything else): close, no-op
+fpx_prgp:
+  ld a, (purge_ui)
+  cp 3
+  jr z, fpp_runp             ; second tap (armed) -> run it
+  ld a, 3                    ; first tap -> arm: the word shows SURE
+  ld (purge_ui), a
+  jp mark_all_dirty
+fpp_runp:
+  call purge_phrases
+  jr fpp_done
+fpx_prgc:
+  ld a, (purge_ui)
+  cp 4
+  jr z, fpp_runc
+  ld a, 4
+  ld (purge_ui), a
+  jp mark_all_dirty
+fpp_runc:
+  call purge_chains
+fpp_done:
+  ld a, $80                  ; show FREED nn (menu stays open)
+  ld (purge_ui), a
+  jp mark_all_dirty
 fpx_load:
   ld a, (files_row)          ; LOAD on the trailing empty slot = blank canvas
   ld hl, file_count
@@ -7482,6 +7538,7 @@ fc_files:
   ld (fmenu), a
   xor a
   ld (fmsel), a
+  ld (purge_ui), a           ; clear any pending purge confirm/result
   jp mark_all_dirty
 
 str_files:   .db "FILES", 0
@@ -7490,10 +7547,216 @@ fe_charset:
   .db " ABCDEFGHIJKLMNOPQRSTUVWXYZ-_.!?#:+=*/@()<>0123456789"
 fe_charset_end:
 .DEFINE FE_CHARLEN fe_charset_end - fe_charset
-fmenu_str:                   ; action menu, 4 chars each (indexed E*4)
-  .db "SAVE"
-  .db "LOAD"
-  .db "CLEA"
-  .db "CANC"
+fmenu_str:                   ; action menu, 5 chars each (indexed E*5)
+  .db "SAVE "
+  .db "LOAD "
+  .db "CLEAR"
+  .db "PURGP"                ; purge unreachable phrases
+  .db "PURGC"                ; purge unused chains
+  .db "CANC "
+.DEFINE FMENU_N 6
+
+; ---- PURGE: blank orphaned (unreferenced) chains / phrases so they drop out of
+; the compressed save and free their pool slots. Clear-only -- never renumber, so
+; every song->chain#/chain->phrase# reference stays valid. Acts on the working
+; song in RAM; the user saves afterwards to bank the smaller image. purge_freed
+; counts only records that were non-empty and got blanked. Returns A = freed.
+
+; HL = chains + C*32
+purge_chain_ptr:
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; *32
+  ld de, chains
+  add hl, de
+  ret
+
+; HL = phrase_pool + C*64
+purge_phrase_ptr:
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; *64
+  ld de, phrase_pool
+  add hl, de
+  ret
+
+; clear purge_used[0..NUM_PHRASES-1] (covers chains too: 52 >= 40)
+purge_clear_used:
+  ld hl, purge_used
+  ld b, NUM_PHRASES
+  xor a
+pcu_l:
+  ld (hl), a
+  inc hl
+  djnz pcu_l
+  xor a
+  ld (purge_freed), a
+  ret
+
+purge_chains:
+  call purge_clear_used
+  ; mark every chain placed in the SONG
+  ld hl, song
+  ld de, SONG_ROWS*4
+pgc_scan:
+  ld a, (hl)
+  inc hl
+  cp NUM_CHAINS              ; $FF (empty) or out of range -> no chain
+  jr nc, pgc_snext
+  push hl
+  ld c, a
+  ld b, 0
+  ld hl, purge_used
+  add hl, bc
+  ld (hl), 1
+  pop hl
+pgc_snext:
+  dec de
+  ld a, d
+  or e
+  jr nz, pgc_scan
+  ; blank unused, non-empty chains
+  ld c, 0
+pgc_blank:
+  ld a, c
+  cp NUM_CHAINS
+  jr nc, pgc_ret
+  ld b, 0
+  ld hl, purge_used
+  add hl, bc
+  ld a, (hl)
+  or a
+  jr nz, pgc_bnext           ; referenced -> keep
+  call purge_chain_ptr       ; HL = chain
+  ; empty already? (all 16 steps' phrase# == $FF)
+  push hl
+  ld b, 16
+pgc_emp:
+  ld a, (hl)
+  inc a                      ; $FF -> 0
+  jr nz, pgc_ne
+  inc hl
+  inc hl
+  djnz pgc_emp
+  pop hl                     ; already blank -> nothing freed
+  jr pgc_bnext
+pgc_ne:
+  pop hl
+  ld b, 32                   ; blank: 32 x $FF
+pgc_fill:
+  ld (hl), $FF
+  inc hl
+  djnz pgc_fill
+  ld hl, purge_freed
+  inc (hl)
+pgc_bnext:
+  inc c
+  jr pgc_blank
+pgc_ret:
+  ld a, (purge_freed)
+  ret
+
+purge_phrases:
+  call purge_clear_used
+  ; mark phrases reachable from the SONG (song -> placed chains -> their steps)
+  ld hl, song
+  ld de, SONG_ROWS*4
+pgp_scan:
+  ld a, (hl)
+  inc hl
+  cp NUM_CHAINS
+  jr nc, pgp_snext
+  push hl
+  push de
+  ld c, a
+  call purge_chain_ptr       ; HL = chain c
+  ld b, 16
+pgp_step:
+  ld a, (hl)                 ; phrase #
+  cp NUM_PHRASES
+  jr nc, pgp_stn
+  push hl
+  push bc
+  ld c, a
+  ld b, 0
+  ld hl, purge_used
+  add hl, bc
+  ld (hl), 1
+  pop bc
+  pop hl
+pgp_stn:
+  inc hl
+  inc hl
+  djnz pgp_step
+  pop de
+  pop hl
+pgp_snext:
+  dec de
+  ld a, d
+  or e
+  jr nz, pgp_scan
+  ; blank unreachable, non-empty phrases
+  ld c, 0
+pgp_blank:
+  ld a, c
+  cp NUM_PHRASES
+  jr nc, pgp_ret
+  ld b, 0
+  ld hl, purge_used
+  add hl, bc
+  ld a, (hl)
+  or a
+  jr nz, pgp_bnext
+  call purge_phrase_ptr      ; HL = phrase
+  ; empty already? (every row note==0 && instr==$FF && cmd==0)
+  push hl
+  ld b, 16
+pgp_emp:
+  ld a, (hl)                 ; note
+  or a
+  jr nz, pgp_ne
+  inc hl
+  ld a, (hl)                 ; instr
+  inc a
+  jr nz, pgp_ne              ; instr != $FF
+  inc hl
+  ld a, (hl)                 ; cmd
+  or a
+  jr nz, pgp_ne
+  inc hl
+  inc hl
+  djnz pgp_emp
+  pop hl                     ; already blank
+  jr pgp_bnext
+pgp_ne:
+  pop hl
+  ld b, 16                   ; blank: 16 rows of 0,$FF,0,0
+pgp_fill:
+  ld (hl), 0
+  inc hl
+  ld (hl), $FF
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld (hl), 0
+  inc hl
+  djnz pgp_fill
+  ld hl, purge_freed
+  inc (hl)
+pgp_bnext:
+  inc c
+  jr pgp_blank
+pgp_ret:
+  ld a, (purge_freed)
+  ret
 
 .ENDS

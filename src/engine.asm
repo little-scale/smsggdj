@@ -138,6 +138,11 @@
   sram_slots   db            ; save slots available (0/1/3/6)
   sd4_cap      dw            ; SMDJ4 heap capacity in bytes (from the detected size)
   rng_state    dw            ; 16-bit LFSR for the Z (probability) command
+  purge_used   dsb NUM_PHRASES ; PURGE: per-record "referenced" flags (reused for
+                              ;   chains; 52 >= 40, and the two never run at once)
+  purge_freed  db            ; PURGE: count of records blanked by the last run
+  purge_ui     db            ; PURGE FILES-menu state: 0 idle, 3/4 = PRGC/PRGP
+                              ;   armed ("SURE"), $80 = result shown ("FREED nn")
   chst         dsb 4*32      ; channel state structs (stride 32)
 .ENDS
 
