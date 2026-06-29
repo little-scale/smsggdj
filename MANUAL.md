@@ -164,7 +164,10 @@ Each instrument has a **type**, set on the INSTR screen:
 - **NOISE** — the noise channel. White or periodic noise, at fixed rates or
   **pitched** (which borrows tone-3 to tune it — great for periodic-noise
   bass).
-- **SMP** — plays a **sample** from the ROM's sample bank (drums, vocals…). A **RATE** field plays it at NORM / 2× / HALF speed (the `S` command overrides per note).
+- **SMP** — plays a **sample** from the ROM's sample bank (drums, vocals…). The pool
+  is **up to 8 kits of 8 samples**; the **KIT** field (0–7) picks the kit and the note maps
+  chromatically to the 8 slots (wrapping every octave). A **RATE** field plays it at
+  **1× / 2× / 4× / .5×** speed (the `S` command overrides per note). **TSP** transposes.
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 - **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit**; enable it in
   **OPTIONS → FM**). **PROG** picks one of the chip's 15 ROM patches, **VOL**
@@ -228,7 +231,8 @@ NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
   instead — the row carries over from note to note (restarting only when you
   change which table the instrument uses), so a looping table (`H`) runs against
   the phrase for arpeggios and polymeter. See §6.
-- **MODE** / **RATE** — wavetable selection (WAV) / sample speed (SMP).
+- **KIT** — drum kit (SMP only, 0–7): picks which 8-sample kit the note plays from.
+- **MODE** / **RATE** — wavetable selection (WAV) / sample speed (SMP: 1×/2×/4×/.5×).
 
 Not every type shows every field — the INSTR screen only lists the ones that
 do something for that type:
@@ -306,7 +310,7 @@ take a two-digit parameter `xy`.
 | `N` | Noise | Override noise mode/rate for this note |
 | `O` | Output (pan) | **Game Gear stereo:** `O11` centre, `O10` left, `O01` right |
 | `P` | Pitch bend | Continuous bend (positive bends down) |
-| `R` | Retrigger | Re-fire the note every y ticks, stepping volume by x |
+| `R` | Retrigger | Re-fire the note every y ticks; x fades the volume each re-fire (TONE/NOISE — ignored on samples) |
 | `S` | Speed | Sample playback rate: `S01` = 2× (up an octave, half length), `S02` = ½× (down an octave), `S03` = 4× (up two octaves); `S00` = normal |
 | `T` | Tempo | Set tempo in BPM |
 | `V` | Vibrato | One-shot vibrato: speed x, depth y |
@@ -314,6 +318,7 @@ take a two-digit parameter `xy`.
 | `X` | Volume | Set this note's volume `0`–`F` (accent). Use it on a note — the attack ramps to that level |
 | `Y` | FM program | Set this note's FM patch `1`–`15`, overriding an FM instrument's PROG (for FM voices) |
 | `Z` | Probability | Chance the note triggers: `Z00` never, `ZFF` always, in between rolls a fresh random each play (`Z80` ≈ 50/50) |
+| `Q` | Echo on/off | `Q00` mutes the echo, any non-zero (`Q01`) turns it back on — live, for echo'd vs dry sections. Your ECHO-screen settings (mode, taps, feedback…) are untouched, just gated; echo starts **on** each time you press play |
 
 ### Varying a phrase — the I / J / Z trio
 
@@ -410,7 +415,18 @@ and **tap 1** runs it and closes the menu:
   song instead (a fresh start).
 - **CLEA** (clear) — delete the selected song and close the gap (the remaining
   songs slide down to reclaim the space).
+- **PRGP** (purge phrases) — blank every phrase **not reachable** from the SONG
+  (song → chain → phrase), freeing those phrase slots and shrinking the save. Acts
+  on the **working song** (not the selected save slot) — save afterwards to bank it.
+- **PRGC** (purge chains) — blank every chain **not placed in the SONG**, freeing
+  those chain slots. Also acts on the working song.
 - **CANC** — close the menu, do nothing.
+
+**PRGC** and **PRGP** delete on-the-side ideas (a chain you never placed, a phrase
+you never used), so they ask first: the word shows **`SURE`** — tap **1** again to
+go through (any d-pad move cancels). After running, the header shows **`FREED nn`**
+(how many records were reclaimed). They only blank *unused* records and never
+renumber the rest, so nothing in your song breaks.
 
 On a real flashcart with a battery, SAVE persists instantly. In an emulator,
 the `.sav` file is usually written when you **quit the emulator** — so save

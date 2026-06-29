@@ -224,16 +224,15 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 |---|---|---|
 | SLOT 0–B | preset # | maps each note in an octave to a ROM-defined drum preset (periodic-noise kick drops, white-burst snares, tick hats, tone-drop toms) — free, no user tables consumed |
 
-### SMP (sample) — new in v0.2 (RATE added post-v0.2)
+### SMP (sample) — new in v0.2 (RATE added post-v0.2; KITS in v0.34)
 | Param | Range | Meaning |
 |---|---|---|
-| MAP | SINGLE / KIT | SINGLE: note column ignored (or selects nothing), plays SAMPLE; KIT: each note in an octave maps to a sample slot |
-| SAMPLE | pool slot # | which sample (SINGLE mode) |
-| VOL OFS | 0–7 | software attenuation added to every nibble at ring-refill time (2 dB steps — free at playback time, §10.3) |
-| LOOP | ON/OFF | loop sample to end of note |
-| ENV/TBL | — | tables and the AHD envelope do **not** run during sample playback v1 (volume is the DAC); `K` still cuts |
+| KIT | 0–7 | which **8-sample kit** the note plays from. The pool is laid out as **up to 8 kits × 8** (built alphanumerically from `samples/`, one subfolder per kit). The played sample = `kit*8 + (note mod 8)` — i.e. the note maps chromatically to the 8 slots, wrapping every octave from the lowest. Empty slots (past the loaded count) are silent. |
+| RATE | 1× / 2× / 4× / .5× | playback speed; stored 0–3 = `1×/2×/4×/.5×` (the `S` command overrides per note, §"command set"). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. |
+| TSP | signed | transpose in semitones, applied to the note before the kit-slot mapping |
+| ENV/TBL | — | tables and the AHD envelope do **not** run during sample playback (volume is the DAC); `K` still cuts |
 
-Notes on SMP: playback rate is fixed (§10.4); pitched sample playback via phase accumulator is a v2 stretch. The note table maps to sample slots in KIT mode, mirroring the KIT type.
+Form field order is **KIT, RATE, TSP**. Pitched sample playback via phase accumulator remains a future stretch (the kit mapping is chromatic slot selection, not resampling).
 
 ### WAV (wavetable) — post-v0.2 addendum
 | Param | Range | Meaning |
@@ -299,8 +298,8 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `M xy` | aMp mod | speed x, depth y | tremolo override (LSDJ's M is master volume, which the PSG lacks — letter reused) |
 | `N xy` | Noise | x=mode, y=rate | override noise mode/rate; on T3: release from STEAL for this note |
 | `P xx` | Pitch bend | signed | continuous bend, period units per tick |
-| `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks, stepping volume by x |
-| `S xx` | Speed | 0-3 | sample playback speed — 0 normal, 1 = 2× (octave up, half length, decimated), 2 = ½× (octave down, nibble-held), 3 = 4× (two octaves up, every 4th sample). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. Live (can re-speed a playing sample). The SMP instrument's RATE field is the per-note default |
+| `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks. **x** fades the AHD peak by x each re-fire on **TONE/NOISE** (ignored on SMP/WAV — pointless on the 4-bit DAC). The re-fire restores the source note, so kit/sample slots and transposed notes re-trigger correctly |
+| `S xx` | Speed | 0-3 | sample playback speed — 0 = 1× (normal), 1 = 2× (octave up, half length, decimated), 2 = 4× (two octaves up, every 4th sample), 3 = ½× (octave down, nibble-held). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. Live (can re-speed a playing sample). The SMP instrument's RATE field is the per-note default |
 | `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. The `.gg` build writes the stereo port; the `.sms` build only tracks state (port $06 is memory control on an SMS) — one song pans wherever panning exists |
 | `I xx` | Iteration | 8-bit play mask | play this row's note only on the repeats whose bit is set: on repeat N, play if bit (N mod 8) of the mask is set. `I00` never, `IFF` always, `I55`/`IAA` odd/even repeats, `I0F` first four of eight, `IF0` last four — phrase variation without cloning. The index is **this phrase's play count** (how many times it has played this song, mod 8), accumulating across the whole arrangement; reset only at play-start |
 | `T xx` | Tempo | BPM (hex) | set global tempo — converts BPM→groove using the **active tick rate** (region-true) |
@@ -310,6 +309,7 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `Y xx` | FM program | patch 1–15 | set this note's FM program/patch, overriding the FM instrument's PROG (one-shot, like `B` for wavetables) |
 | `Z xx` | Probability | chance 00–FF | the note triggers with probability xx/256 — `Z00` never, `ZFF` always, `Z80` ≈ 50/50. A fresh roll of a 16-bit Galois LFSR (taps $B400, seeded from the frame counter at play-start) each time the row plays. Resolved in the trigger peek; the command slot is a no-op |
 | `J xy` | Jump (transpose) | x = signed semitones, y = mask | sibling to `I`: transpose the note by x semitones (`0`–`7` = +, `8`–`F` = −8…−1) on the plays whose **(play count mod 4)** bit is set in y. `J00` never, `J2F` always +2, `J21`/`J28` = +2 once every 4 plays. Same per-phrase play count as `I`, but varies pitch instead of gating the note |
+| `Q xx` | Echo on/off | 00 = off, else on | gates the global echo post-pass live (`echo_gate`) without touching the saved ECHO config (mode/taps/feedback/transpose/stereo). The delay ring stays warm while muted, so re-enabling resumes cleanly. Reset to **on** at play-start, so a song with no `Q` echoes per its config |
 
 Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `B` (wave-bank select) is new — no LSDJ equivalent. `Z` (probability) and `J` (probabilistic transpose) are the SMSGGDJ variation trio with `I`.
 
@@ -343,7 +343,7 @@ Linear PCM must be pre-mapped to these levels — that correction is the convers
 - T3 conflict matrix: pitched noise needs T3's *period*; samples need T3's period **= 1**. They cannot coexist. Priority: **sample > pitched noise** — while a sample plays on T3, pitched-noise instruments fall back to their nearest fixed rate (same fallback as `NOI MODE = FREE`); the steal glyph shows on the meter. Putting `SMP CH = T1` avoids the conflict entirely at the cost of a melodic channel.
 
 ### 10.3 Data path
-- Sample pool lives in **banked ROM**: banks 2-7 (96 KB ≈ 24 s), implemented post-v0.2. The pool is **self-describing** (the contract for external patchers — file offset $8000, 96 KB): bank 2 starts `"SMPL"`, version, count, rate (word), then 32 directory entries × 10 bytes — bank, offset (word, $8000-based), length (word), name (5 ch). Samples never cross a bank (≤ ~16 KB ≈ 4 s each); placement is first-fit. The engine caches the count at boot and reads directory entries at trigger time (interrupts held while the directory bank is paged); the playing sample's bank stays in slot 2, owned by the feeder. **SRAM mapping covers the pool banks**, so save/load abort any in-flight sample first.
+- Sample pool lives in **banked ROM**: banks 2-7 (96 KB ≈ 24 s), implemented post-v0.2. The pool is **self-describing** (the contract for external patchers — file offset $8000, 96 KB): bank 2 starts `"SMPL"`, version, count, rate (word), then 64 directory entries × 10 bytes (was 32 before the 8-kit expansion — KITS×PER_KIT = 8×8) — bank, offset (word, $8000-based), length (word), name (5 ch). The browser tools (`patcher.html`, `savetool.html`) still assume 32 and need bumping to match if used. Samples never cross a bank (≤ ~16 KB ≈ 4 s each); placement is first-fit. The engine caches the count at boot and reads directory entries at trigger time (interrupts held while the directory bank is paged); the playing sample's bank stays in slot 2, owned by the feeder. **SRAM mapping covers the pool banks**, so save/load abort any in-flight sample first.
 - Slot 2 is shared with song SRAM, so playback never reads ROM directly when SRAM is active: a **256-byte page-aligned ring buffer** in internal RAM is refilled once per frame (~160 samples/frame at 7.8 kHz/50 Hz) by briefly paging ROM into slot 2, unpacking, and restoring SRAM.
 - Refill-time unpacking does all per-sample work for free at playback time: split the two nibbles, add the instrument's VOL OFS (clamp at 0xF), and pre-OR the PSG latch/channel command bits — the ring holds **ready-to-OUT bytes**. Refill cost ≈ 5–7 k cycles/frame.
 - No SRAM present → song is in internal RAM, slot 2 is free, samples stream straight from ROM (no ring needed).

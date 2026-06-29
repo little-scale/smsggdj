@@ -5,6 +5,54 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.34 — unreleased
 
+### Added
+- **`Q` command — echo on/off mid-song.** `Q00` mutes the echo, any non-zero
+  (`Q01`) turns it back on, so you can drop echo into a chorus and pull it out for
+  a verse. It just gates the effect live — your ECHO-screen settings (mode, taps,
+  feedback, transpose, stereo) are untouched and saved as-is, and echo starts on
+  each time you press play. Works from phrase and table columns.
+- **Sample KITS.** The pool is now organised as **up to 8 kits of 8 samples**, built
+  in alphanumeric order from the `samples/` folder (one subfolder per kit, WAVs
+  inside). A new **KIT** field (0–7) on the SMP instrument picks the kit; the note
+  then maps chromatically to the 8 slots, wrapping every octave from the lowest. So
+  one SMP instrument is a whole drum kit played across the keyboard.
+- **Sample baking now trims trailing silence and applies a louder gain.** The pool
+  builder strips each sample's silent tail (the feeder hard-mutes on end, so it's
+  clickless) and drives the samples harder (peak-normalize → ×gain with clipping)
+  for a punchier 4-bit DAC. Tunable via `make SAMPLE_GAIN=N`.
+- **PURGE — reclaim unused chains/phrases.** The FILES action menu gains **PRGC**
+  (purge chains not placed in the SONG) and **PRGP** (purge phrases not reachable
+  from the SONG). Both blank the orphaned records so they drop out of the
+  compressed save and free their pool slots — handy when you've left scratch ideas
+  lying around. Two-tap to confirm (the word shows `SURE`); a `FREED nn` count
+  shows after. Acts on the working song — save afterwards to bank the smaller image.
+
+### Fixed
+- **Re-saving a song no longer leaks SRAM free space.** Saving over an existing
+  slot used to orphan the slot's previous data blob (the heap only grew, so
+  repeated saves ate free space). Save now frees the old blob and compacts the
+  heap first — and since compaction closes *all* holes, the first save after this
+  fix reclaims any space already lost to earlier re-saves.
+- **A retriggered sample no longer freezes the UI after you stop.** Stopping now
+  clears each channel's pending retrigger/delay and idles its envelope, so the
+  stopped "audition" pass can't keep re-firing a note. Previously an `R` on a
+  sample track left the retrigger running after Stop, machine-gunning the sample
+  and pinning the playback IRQ — which throttled screen redraws so hard that
+  navigating (e.g. CHAIN → PHRASE) looked dead.
+
+### Changed
+- **`R` (retrigger) fixed for kits/samples + volume step added.** Each retrigger
+  now re-fires the note you played, so on a kit/sample instrument the correct
+  slot repeats (it used to re-trigger the kit's last sample). The `R xy` **x**
+  nibble now works: it fades the volume a step per re-fire on **TONE/NOISE** (great
+  for echo/roll fades); it's ignored on samples (pointless on the 4-bit DAC). Also
+  fixes a latent double-transpose on retriggered tone notes.
+- **SMP RATE field renamed and reordered.** The sample-speed values now read
+  **1X / 2X / 4X / .5X** (cycled in that order with Left/Right), replacing the old
+  NORM/2X/HALF/4X labels. The SMP form fields are laid out **KIT, RATE, TSP**.
+- **`SYNC: IN24` shows a `<<` glyph** in the top bar (vs `<` for plain IN), so the
+  two follow modes are distinguishable at a glance.
+
 ## v0.33 — 2026-06-29
 
 ### Added
