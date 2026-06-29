@@ -110,6 +110,7 @@
   hop_now      db            ; H just fired on this channel: hop NOW, same tick
   hop_guard    db            ; per-tick hop budget (kills an all-H spin)
   cur_trig_ch  db            ; channel being processed (for WAV)
+  retrig_v     dsb 4         ; R vol-step per channel: x<<4 | running AHD peak
   sync_mode    db            ; SYNC_* (0 = OFF, the default)
   sync_cnt     db            ; master row counter (OUT) / pulse divider (PULSE)
   sync_last    db            ; slave: counter value last frame
@@ -365,14 +366,22 @@ es_lq:
 es_lqn:
   inc hl
   djnz es_lq
-  ; zero channel volumes so the prelisten fx pass stays silent
-  ld hl, chst+2
+  ; quiesce the channels so the stopped prelisten fx pass can't keep firing
+  ; notes: zero the volume, idle the envelope, and drop any pending retrigger
+  ; (R) / delayed note (D). A leftover retrigger would otherwise re-trigger
+  ; every frame while stopped -- e.g. restarting a sample forever, which pins
+  ; the line IRQ and starves the UI.
+  ld ix, chst
   ld de, 32
   ld b, 4
 es_vols:
-  ld (hl), 0
-  add hl, de
+  ld (ix+2), 0               ; musical volume
+  ld (ix+4), STG_IDLE        ; envelope finished -> cf_env no-ops
+  ld (ix+28), 0              ; delayed-note counter (D)
+  ld (ix+31), 0              ; retrigger (R)
+  add ix, de
   djnz es_vols
+  call smp_abort             ; kill any sample still feeding through the DAC
   ld a, $0F                  ; silence all channels
   ld (psg_vols), a
   ld (psg_vols+1), a
@@ -1318,6 +1327,8 @@ pr_nok:
   jp z, prn_jump
 prn_norm:
   ld (ix+0), b
+  ld (ix+29), b              ; stash the raw note so R (retrigger) can re-fire
+                             ; it cleanly (SMP/WAV blank ix+0 after playing)
   push hl
   push bc
   call trigger_note
@@ -1363,6 +1374,7 @@ prn_slide:
   ld d, (hl)
   push de
   ld (ix+0), b
+  ld (ix+29), b              ; stash raw note for retrigger (R)
   push bc
   call trigger_note
   pop bc
@@ -1636,17 +1648,36 @@ xc_trem:
   ld a, d
   ld (ix+19), a
   ret
-xc_retrig:
+xc_retrig:                   ; R xy: x = vol step (TONE/NOISE), y = interval ticks
   ld a, d
-  and $0F
-  ret z
-  ld d, a                    ; pack counter|interval
+  and $0F                    ; y = interval
+  ret z                      ; Rx0 / R00: no retrigger
+  ld e, a                    ; pack counter|interval (both = y)
   rlca
   rlca
   rlca
   rlca
-  or d
+  or e
   ld (ix+31), a
+  ; volume-step state: (x<<4) | starting AHD peak, per channel. Each retrigger
+  ; fades the peak by x (TONE/NOISE only; see retrig_volstep). Stored for all
+  ; types but only applied where it makes sense.
+  ld a, d
+  and $F0                    ; x already in the high nibble
+  ld c, a
+  ld a, (ix+4)               ; current AHD peak (hi nibble) -> low nibble
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F
+  or c                       ; B = (x<<4) | peak
+  ld b, a
+  ld a, (cur_trig_ch)
+  ld hl, retrig_v
+  add a, l
+  ld l, a
+  ld (hl), b
   ret
 xc_pan:
   ; O xy on channel C: x = left enable, y = right enable. The GG
@@ -2613,6 +2644,61 @@ calc_trem:
   xor a
   ret
 
+; Retrigger volume step (R command's x param). TONE/NOISE only: on each
+; retrigger, fade the AHD peak by x. retrig_v[ch] = x<<4 | running-peak; the
+; peak is decremented (clamped at 0) and written into the channel's AHD peak
+; (ix+4 high nibble, stage kept in the low nibble). Useless on a 4-bit sample
+; DAC, so SMP/WAV/FM/FMDRUM (type >= 2) are skipped. Preserves IX.
+retrig_volstep:
+  ld a, (ix+1)               ; instrument type at record +0
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld l, a
+  ld h, 0
+  ld de, instruments
+  add hl, de
+  ld a, (hl)
+  cp 2                       ; SMP/WAV/FM/FMDRUM: no volume step
+  ret nc
+  ld a, (cur_trig_ch)
+  ld hl, retrig_v
+  add a, l
+  ld l, a                    ; HL -> retrig_v[ch]
+  ld b, (hl)                 ; B = x<<4 | peak
+  ld a, b
+  rrca
+  rrca
+  rrca
+  rrca
+  and $0F                    ; x = step
+  ret z                      ; x = 0: plain retrigger, keep the instrument peak
+  ld c, a                    ; C = x
+  ld a, b
+  and $0F                    ; current peak
+  sub c                      ; peak - x
+  jr nc, rvs_st
+  xor a                      ; clamp at 0
+rvs_st:
+  ld c, a                    ; C = new peak
+  ld a, b
+  and $F0                    ; keep x
+  or c
+  ld (hl), a                 ; store x<<4 | new-peak
+  ld a, c
+  rlca
+  rlca
+  rlca
+  rlca
+  and $F0                    ; new peak in the high nibble
+  ld c, a
+  ld a, (ix+4)
+  and $0F                    ; keep the AHD stage
+  or c
+  ld (ix+4), a
+  ret
+
 ; -------------------------------------------------------------
 ; per-tick: envelopes, length, write PSG shadows
 channels_fx:
@@ -2635,6 +2721,9 @@ cf_loop:
   pop bc
 cf_retrig:
   ; --- retrigger (R command): counter hi, interval lo ---
+  ld a, (play_state)         ; sequencer effect only: never re-fire during the
+  or a                       ; stopped prelisten fx pass (would machine-gun a
+  jr z, cf_table             ; sample and pin the line IRQ)
   ld a, (ix+31)
   or a
   jr z, cf_table
@@ -2645,7 +2734,12 @@ cf_retrig:
   ld d, a
   push bc
   push de
+  ld a, (ix+29)              ; restore the source note: SMP/WAV blank ix+0 to
+  ld (ix+0), a               ; $FF after a hit, so re-read it to re-fire the
+                             ; right kit slot / wave pitch (and avoid re-adding
+                             ; transpose to an already-transposed ix+0)
   call trigger_note          ; (resets +31; restored below)
+  call retrig_volstep        ; TONE/NOISE: fade the AHD peak by x
   pop de
   pop bc
   ld a, d
