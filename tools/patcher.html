@@ -47,7 +47,7 @@
   .kithdr { display: flex; align-items: center; gap: 10px; font-weight: 700;
             color: #9ecbff; margin: 4px 0 6px; }
   .kithdr .dim { font-weight: 400; }
-  .kithdr button { margin-left: auto; }
+  .kithdr button:first-of-type { margin-left: auto; }
   .empty { color: #6b7886; font-size: 12px; border: 1px dashed #2d3742;
            border-radius: 8px; padding: 8px 12px; margin: 6px 0; cursor: pointer; }
   .empty.armed { border-color: #58a6ff; color: #d8e0e8; }
@@ -63,7 +63,8 @@
 4: download the patched ROM. Nothing leaves this page.</p>
 <p class="dim">The pool is <b>8 kits of 8 samples</b>. An SMP instrument's <b>KIT</b>
 field picks the kit; the note maps chromatically to the 8 slots — <b>slot 0 = the
-lowest note</b>, wrapping every octave. Empty slots are silent.</p>
+lowest note</b>, wrapping every octave. Empty slots are silent. Each kit can be
+saved/loaded on its own as a <b>.smskit</b> file to reuse across ROMs.</p>
 
 <div class="zone" id="romzone">drop .sms / .gg here (or click)</div>
 <input type="file" id="romfile" accept=".sms,.gg" hidden>
@@ -71,6 +72,7 @@ lowest note</b>, wrapping every octave. Empty slots are silent.</p>
 
 <div class="zone" id="sndzone" style="display:none">drop sound files here (or click)</div>
 <input type="file" id="sndfile" multiple hidden>
+<input type="file" id="kitfile" accept=".smskit" hidden>
 
 <div id="samples"></div>
 
@@ -342,6 +344,58 @@ function exportPool() {
   if (pool) dl(pool, "pool.bin");
 }
 
+// ----- a single kit as a portable .smskit artifact ------------------
+// "SMSKIT"(6) ver(1) count(1) rate(u16) | 8 dir entries (name5 + len2) |
+// packed PCM concatenated in slot order. Empty slot = len 0, spaces.
+const KIT_MAGIC = "SMSKIT", KIT_DIR = 10 + PER_KIT * 7;
+function buildKit(k) {
+  const base = k * PER_KIT, dirs = [], datas = [];
+  for (let pos = 0; pos < PER_KIT; pos++) {
+    const it = slots[base + pos], packed = it ? it.packed : new Uint8Array(0);
+    dirs.push({ nm: (it ? it.name : "").toUpperCase().padEnd(5).slice(0, 5),
+                len: packed.length });
+    datas.push(packed);
+  }
+  let total = KIT_DIR;
+  for (const d of datas) total += d.length;
+  const out = new Uint8Array(total);
+  for (let i = 0; i < 6; i++) out[i] = KIT_MAGIC.charCodeAt(i);
+  out[6] = 1; out[7] = datas.filter(d => d.length).length;
+  out[8] = RATE & 255; out[9] = RATE >> 8;
+  let p = 10;
+  dirs.forEach(e => {
+    for (let c = 0; c < 5; c++) out[p + c] = e.nm.charCodeAt(c);
+    out[p + 5] = e.len & 255; out[p + 6] = e.len >> 8; p += 7;
+  });
+  let q = KIT_DIR;
+  datas.forEach(d => { out.set(d, q); q += d.length; });
+  return out;
+}
+function exportKit(k) {
+  if (!slots.slice(k * PER_KIT, k * PER_KIT + PER_KIT).some(Boolean))
+    return alert("kit " + k + " is empty");
+  dl(buildKit(k), "kit" + k + ".smskit");
+}
+function importKit(k, buf) {
+  const d = new Uint8Array(buf);
+  if (d.length < KIT_DIR || String.fromCharCode(...d.slice(0, 6)) !== KIT_MAGIC)
+    return alert("not a .smskit file");
+  const base = k * PER_KIT;
+  let q = KIT_DIR;
+  for (let pos = 0; pos < PER_KIT; pos++) {
+    const e = 10 + pos * 7;
+    const nm = String.fromCharCode(...d.slice(e, e + 5)).trim();
+    const len = d[e + 5] | (d[e + 6] << 8);
+    if (!len) { slots[base + pos] = null; continue; }
+    slots[base + pos] = { kind: "rom", tag: "imported",
+                          name: nm || ("SMP" + pos), packed: d.slice(q, q + len) };
+    q += len;
+  }
+  render();
+}
+let pendKit = 0;
+function pickKit(k) { pendKit = k; document.getElementById("kitfile").click(); }
+
 function drawWave(cv, it) {
   const g = cv.getContext("2d"), W = cv.width = cv.clientWidth * 2,
         H = cv.height = 128;
@@ -376,7 +430,7 @@ function moveSel(i, pos) {
 function cardInner(it, i, pos) {
   const head = `<span class="slotno">slot ${pos}${pos === 0 ? " (lowest note)" : ""}</span>`;
   if (it.kind === "rom")
-    return `${head}<b>${it.name}</b><span class="tag">in ROM</span>
+    return `${head}<b>${it.name}</b><span class="tag">${it.tag || "in ROM"}</span>
       <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
       <div class="row" style="margin-top:6px">
         ${moveSel(i, pos)}
@@ -451,9 +505,13 @@ function render() {
     const hdr = document.createElement("div");
     hdr.className = "kithdr";
     hdr.innerHTML = `KIT ${k} <span class="dim">${used}/${PER_KIT} slots</span>` +
-      `<button data-addkit="${k}">+ add sound</button>`;
+      `<button data-addkit>+ add sound</button>` +
+      `<button data-expkit>export .smskit</button>` +
+      `<button data-impkit>import .smskit</button>`;
     grp.appendChild(hdr);
     hdr.querySelector("[data-addkit]").onclick = () => pick(base, base + PER_KIT);
+    hdr.querySelector("[data-expkit]").onclick = () => exportKit(k);
+    hdr.querySelector("[data-impkit]").onclick = () => pickKit(k);
     for (let pos = 0; pos < PER_KIT; pos++) {
       const i = base + pos, it = slots[i];
       const card = document.createElement("div");
@@ -542,6 +600,15 @@ _sz.ondragover = e => { e.preventDefault(); _sz.classList.add("armed"); };
 _sz.ondragleave = () => _sz.classList.remove("armed");
 _sz.ondrop = e => { e.preventDefault(); _sz.classList.remove("armed");
                     addSounds([...e.dataTransfer.files], 0, MAX_SAMPLES); };
+const _kf = document.getElementById("kitfile");
+_kf.onchange = async () => {
+  if (_kf.files[0]) {
+    const used = slots.slice(pendKit * PER_KIT, pendKit * PER_KIT + PER_KIT).some(Boolean);
+    if (!used || confirm(`Replace kit ${pendKit} with this .smskit?`))
+      importKit(pendKit, await _kf.files[0].arrayBuffer());
+  }
+  _kf.value = "";
+};
 document.getElementById("download").onclick = buildRom;
 document.getElementById("exportpool").onclick = exportPool;
 const rebuildAll = () => { for (const s of slots) if (s) rebuild(s); render(); };

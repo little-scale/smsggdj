@@ -11,6 +11,10 @@ The git history has the full detail; this is the curated summary.
   load a ROM, see each kit's 8 slots, drop sounds into a specific kit, move samples
   between kit/slot, and download. Empty slots are written as length-0 entries, so
   partially-filled kits stay aligned. Slot 0 is the lowest note in a kit.
+- **Export/import a single kit as a `.smskit` file.** Each kit in the patcher has
+  **export / import .smskit** buttons, so you can save a tuned drum kit on its own
+  and drop it into any other ROM (parallel to a song's `.smdj`). It carries the 8
+  slots' console-ready samples + names; empty slots are preserved.
 
 ## v0.34 — 2026-06-30
 
