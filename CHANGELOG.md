@@ -6,6 +6,9 @@ The git history has the full detail; this is the curated summary.
 ## v0.35 — unreleased
 
 ### Changed
+- **The `SMP` instrument type is now called `KIT`.** Same instrument (sample drum
+  kit, with KIT / RATE / TSP fields) — just a clearer name in the TYPE field, the
+  patcher, and the docs.
 - **Sample patcher (`tools/patcher.html`) is kit-aware.** It now lays the pool out
   as **8 kits × 8 slots** (the directory index is the engine's `kit*8 + slot`):
   load a ROM, see each kit's 8 slots, drop sounds into a specific kit, move samples

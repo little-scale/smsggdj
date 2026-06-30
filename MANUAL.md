@@ -164,10 +164,11 @@ Each instrument has a **type**, set on the INSTR screen:
 - **NOISE** — the noise channel. White or periodic noise, at fixed rates or
   **pitched** (which borrows tone-3 to tune it — great for periodic-noise
   bass).
-- **SMP** — plays a **sample** from the ROM's sample bank (drums, vocals…). The pool
-  is **up to 8 kits of 8 samples**; the **KIT** field (0–7) picks the kit and the note maps
-  chromatically to the 8 slots (wrapping every octave). A **RATE** field plays it at
-  **1× / 2× / 4× / .5×** speed (the `S` command overrides per note). **TSP** transposes.
+- **KIT** — a **drum kit of samples** from the ROM's sample bank (drums, vocals…).
+  The pool is **up to 8 kits of 8 samples**; the **KIT** field (0–7) picks which kit
+  and the note maps chromatically to the 8 slots (wrapping every octave). A **RATE**
+  field plays it at **1× / 2× / 4× / .5×** speed (the `S` command overrides per
+  note). **TSP** transposes. *(This type was called **SMP** before v0.35.)*
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 - **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit**; enable it in
   **OPTIONS → FM**). **PROG** picks one of the chip's 15 ROM patches, **VOL**
@@ -231,8 +232,8 @@ NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
   instead — the row carries over from note to note (restarting only when you
   change which table the instrument uses), so a looping table (`H`) runs against
   the phrase for arpeggios and polymeter. See §6.
-- **KIT** — drum kit (SMP only, 0–7): picks which 8-sample kit the note plays from.
-- **MODE** / **RATE** — wavetable selection (WAV) / sample speed (SMP: 1×/2×/4×/.5×).
+- **KIT** — drum kit (KIT type only, 0–7): picks which 8-sample kit the note plays from.
+- **MODE** / **RATE** — wavetable selection (WAV) / sample speed (KIT: 1×/2×/4×/.5×).
 
 Not every type shows every field — the INSTR screen only lists the ones that
 do something for that type:
@@ -242,7 +243,7 @@ do something for that type:
 - **WAV** — VOL, **HLD** (the wave's length), TSP, TBL/TBS, and a WAVE (0–7)
   selector. ATK/DCY don't show — the wave is gated on/off by volume, so the
   ramps are inaudible; HLD `F` rings the wave until the next note.
-- **SMP** — only **TYPE** and **RATE**. A sample plays as a raw stream on T3,
+- **KIT** — **KIT**, **RATE** and **TSP**. A sample plays as a raw stream on T3,
   so the envelope, pitch mods, volume and tables don't apply; shape
   loudness/fades at convert time in the patcher instead.
 

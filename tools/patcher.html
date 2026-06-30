@@ -61,10 +61,10 @@
 <p class="dim">1: load your <b>.sms</b> or <b>.gg</b> (128 KB). 2: drop sounds into a
 <b>kit</b> — any format the browser can decode. 3: trim, drive, audition.
 4: download the patched ROM. Nothing leaves this page.</p>
-<p class="dim">The pool is <b>8 kits of 8 samples</b>. An SMP instrument's <b>KIT</b>
-field picks the kit; the note maps chromatically to the 8 slots — <b>slot 0 = the
-lowest note</b>, wrapping every octave. Empty slots are silent. Each kit can be
-saved/loaded on its own as a <b>.smskit</b> file to reuse across ROMs.</p>
+<p class="dim">The pool is <b>8 kits of 8 samples</b>. On a <b>KIT</b> instrument the
+<b>KIT</b> field picks which kit; the note maps chromatically to the 8 slots —
+<b>slot 0 = the lowest note</b>, wrapping every octave. Empty slots are silent.
+Each kit can be saved/loaded on its own as a <b>.smskit</b> file to reuse across ROMs.</p>
 
 <div class="zone" id="romzone">drop .sms / .gg here (or click)</div>
 <input type="file" id="romfile" accept=".sms,.gg" hidden>
@@ -142,7 +142,7 @@ function loadRom(buf, name) {
     if (!len) continue;                       // empty slot
     const name5 = String.fromCharCode(...d.slice(e + 5, e + 10)).trim();
     const fileOff = (bank - 2) * BANK + (off - 0x8000) + POOL_OFF;
-    slots[i] = { kind: "rom", name: name5 || ("SMP" + i),
+    slots[i] = { kind: "rom", name: name5 || ("S" + i),
                  packed: d.slice(fileOff, fileOff + len) };
     real++;
   }
@@ -388,7 +388,7 @@ function importKit(k, buf) {
     const len = d[e + 5] | (d[e + 6] << 8);
     if (!len) { slots[base + pos] = null; continue; }
     slots[base + pos] = { kind: "rom", tag: "imported",
-                          name: nm || ("SMP" + pos), packed: d.slice(q, q + len) };
+                          name: nm || ("S" + pos), packed: d.slice(q, q + len) };
     q += len;
   }
   render();

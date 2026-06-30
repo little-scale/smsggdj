@@ -195,7 +195,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 ### Common to all types
 | Param | Range | Meaning |
 |---|---|---|
-| TYPE | TONE / NOISE / KIT / SMP | |
+| TYPE | TONE / NOISE / KIT / WAV / FM / FMDRM | (FM/FMDRM are SMS-only, see the FM addendum) |
 | NAME | 5 chars | shown in PHRASE column hint |
 | VOL | 0–F | peak / hold volume (F = loudest) |
 | ATK | 0–F | attack: ticks per volume step on the way up (0 = instant). Full ramp = VOL × ATK ticks |
@@ -219,12 +219,10 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 | RATE | F0 / F1 / F2 / PITCHED | clk/512, /1024, /2048, or CH3-period-driven |
 | (PITCHED) | — | note column tracks pitch via T3 divider. PERIODIC+PITCHED = **bass instrument** |
 
-### KIT (drum kit)
-| Param | Range | Meaning |
-|---|---|---|
-| SLOT 0–B | preset # | maps each note in an octave to a ROM-defined drum preset (periodic-noise kick drops, white-burst snares, tick hats, tone-drop toms) — free, no user tables consumed |
-
-### SMP (sample) — new in v0.2 (RATE added post-v0.2; KITS in v0.34)
+### KIT (sample drum kit) — the type was named **SMP** in v0.2–v0.34, renamed **KIT** in v0.35
+(An earlier design sketched a *PSG-synthesized* drum kit — ROM-defined kick/snare/hat
+presets per note — but that was dropped in favour of these sample kits plus the
+FMDRM rhythm-mode drums.)
 | Param | Range | Meaning |
 |---|---|---|
 | KIT | 0–7 | which **8-sample kit** the note plays from. The pool is laid out as **up to 8 kits × 8** (built alphanumerically from `samples/`, one subfolder per kit). The played sample = `kit*8 + (note mod 8)` — i.e. the note maps chromatically to the 8 slots, wrapping every octave from the lowest. Empty slots (past the loaded count) are silent. |
@@ -298,8 +296,8 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `M xy` | aMp mod | speed x, depth y | tremolo override (LSDJ's M is master volume, which the PSG lacks — letter reused) |
 | `N xy` | Noise | x=mode, y=rate | override noise mode/rate; on T3: release from STEAL for this note |
 | `P xx` | Pitch bend | signed | continuous bend, period units per tick |
-| `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks. **x** fades the AHD peak by x each re-fire on **TONE/NOISE** (ignored on SMP/WAV — pointless on the 4-bit DAC). The re-fire restores the source note, so kit/sample slots and transposed notes re-trigger correctly |
-| `S xx` | Speed | 0-3 | sample playback speed — 0 = 1× (normal), 1 = 2× (octave up, half length, decimated), 2 = 4× (two octaves up, every 4th sample), 3 = ½× (octave down, nibble-held). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. Live (can re-speed a playing sample). The SMP instrument's RATE field is the per-note default |
+| `R xy` | Retrig | vol-delta x, rate y | retrigger every y ticks. **x** fades the AHD peak by x each re-fire on **TONE/NOISE** (ignored on KIT/WAV — pointless on the 4-bit DAC). The re-fire restores the source note, so kit/sample slots and transposed notes re-trigger correctly |
+| `S xx` | Speed | 0-3 | sample playback speed — 0 = 1× (normal), 1 = 2× (octave up, half length, decimated), 2 = 4× (two octaves up, every 4th sample), 3 = ½× (octave down, nibble-held). Walks the sample data faster/slower at a fixed output clock, so no IRQ-timing change. Live (can re-speed a playing sample). The KIT instrument's RATE field is the per-note default |
 | `O xy` | Output (pan) | x = left, y = right | Game Gear stereo (post-v0.2): `O11` centre, `O10` left, `O01` right. Per-channel, persists, works from tables. The `.gg` build writes the stereo port; the `.sms` build only tracks state (port $06 is memory control on an SMS) — one song pans wherever panning exists |
 | `I xx` | Iteration | 8-bit play mask | play this row's note only on the repeats whose bit is set: on repeat N, play if bit (N mod 8) of the mask is set. `I00` never, `IFF` always, `I55`/`IAA` odd/even repeats, `I0F` first four of eight, `IF0` last four — phrase variation without cloning. The index is **this phrase's play count** (how many times it has played this song, mod 8), accumulating across the whole arrangement; reset only at play-start |
 | `T xx` | Tempo | BPM (hex) | set global tempo — converts BPM→groove using the **active tick rate** (region-true) |
@@ -338,7 +336,7 @@ A:  1.000 .794  .631  .501  .398  .316  .251  .200  .158  .126  .100  .079  .063
 Linear PCM must be pre-mapped to these levels — that correction is the conversion tool's job (§10.5), not the Z80's. Effective dynamic range ≈ 28 dB; the log spacing actually flatters low-level detail (µ-law-like).
 
 ### 10.2 Channel allocation & arbitration
-- Samples are **SMP instruments on a tone track** — no fifth track. Host channel = PROJECT setting `SMP CH` (T1/T2/T3/**OFF**, default T3). OFF removes all sample overhead.
+- Samples are **KIT instruments on a tone track** — no fifth track. Host channel = PROJECT setting `SMP CH` (T1/T2/T3/**OFF**, default T3). OFF removes all sample overhead.
 - While a sample plays, the host channel's tone/volume belong to the DAC; a tracker note on that track stops the sample (and vice versa — last trigger wins).
 - T3 conflict matrix: pitched noise needs T3's *period*; samples need T3's period **= 1**. They cannot coexist. Priority: **sample > pitched noise** — while a sample plays on T3, pitched-noise instruments fall back to their nearest fixed rate (same fallback as `NOI MODE = FREE`); the steal glyph shows on the meter. Putting `SMP CH = T1` avoids the conflict entirely at the cost of a melodic channel.
 
@@ -522,7 +520,7 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 6. Instruments (TONE/NOISE/KIT) + INSTR screen; tables + TABLE screen.
 7. Full command set, GROOVE screen, copy/paste/clone.
 8. SRAM detect + save/load, PROJECT screen (incl. VIDEO/SYNC/SMP CH settings).
-9. **Sample subsystem:** conversion tool first, then line-IRQ/VBlank hybrid player, SMP instruments, ring streaming. Hardware-verify early — emulator PSG-DAC accuracy varies.
+9. **Sample subsystem:** conversion tool first, then line-IRQ/VBlank hybrid player, KIT (sample) instruments, ring streaming. Hardware-verify early — emulator PSG-DAC accuracy varies.
 10. **MIDI sync:** adapter firmware + port protocol, SLAVE tick source, transport semantics. Hardware loopback test rig.
 11. Polish: meters, key hints, demo song, dual-region hardware regression pass.
 

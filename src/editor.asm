@@ -6797,7 +6797,7 @@ ins_lbls:
   .db "RATE", 0
   .db "PRST", 0              ; field 14: FM custom-preset selector
 str_tone:   .db "TONE "
-str_smp:    .db "SMP  "
+str_smp:    .db "KIT  "
 str_wavt:   .db "WAV  "
 str_fm:     .db "FM   "
 str_fmdrum: .db "FMDRM"
