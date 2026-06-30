@@ -122,6 +122,7 @@
   blk_h        db
   blk_data     dsb 64        ;   up to 4 cols x 16 rows
   label_dirty  db
+  vstamp_clr   db            ; 1 = strip the OPTIONS version stamp's col-0 tile
   ed_rep       db
   tmp_note     db
   tmp_instr    db
@@ -550,6 +551,7 @@ sn_switch:
   call z, files_enter
   ld a, 1
   ld (label_dirty), a
+  ld (vstamp_clr), a         ; a transition may have left a stale version "V"
   ld hl, drawn_a
   ld a, $FF
   ld (hl), a
@@ -5377,6 +5379,24 @@ draw_labels:
   ld c, 1
   ld hl, str_blank
   call print_at
+  ; on leaving OPTIONS, strip the version stamp's col-0 "V" (markers own col 0,
+  ; so the per-row wipe leaves it). Flag-gated so a mid-screen label redraw on
+  ; another screen can't erase a col-0 marker.
+  ld a, (vstamp_clr)
+  or a
+  jr z, dl_novc
+  xor a
+  ld (vstamp_clr), a
+  ld a, (scr_mode)
+  cp SCR_SET
+  jr z, dl_novc              ; OPTIONS draws its own version stamp
+  ld b, GRID_ROW
+  ld c, 0
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, ' '
+  call print_char
+dl_novc:
 .IFDEF TARGET_GG
   ; the name-row wipe takes the transport text with it
   ld a, 1
