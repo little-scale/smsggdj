@@ -70,6 +70,10 @@ The git history has the full detail; this is the curated summary.
   shows after. Acts on the working song — save afterwards to bank the smaller image.
 
 ### Fixed
+- **Screen changes no longer drag the tempo while playing.** The screen redraw is
+  now throttled to one row per frame during playback (and skips rows on the
+  label-draw frame), so a redraw can't overrun a frame and slow the sequencer.
+  The redraw is a bit slower to settle while playing — but the tempo stays steady.
 - **Echo no longer bursts noise on the first play of a fresh load.** The play-start
   routine that silences the echo delay line was stepping 3 bytes per entry instead
   of 4, so it cleared only about a third of the ring — the rest replayed garbage as

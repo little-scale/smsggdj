@@ -5114,10 +5114,18 @@ edf_nofl:
   call draw_labels
   call playhead_update
   ld d, 1
+  ld a, (play_state)         ; playing: the label burst alone is plenty this
+  or a                       ;   frame -- draw no rows, spread them over later
+  jr z, edr_flush0           ;   frames so the sequencer tick stays on time
+  ld d, 0
   jr edr_flush0
 edr_nolbl:
   call playhead_update
-  ld d, 3                    ; rows-per-frame budget
+  ld d, 3                    ; idle: redraw fast (no music to drag)
+  ld a, (play_state)         ; playing: 1 row/frame so a frame's VRAM burst can't
+  or a                       ;   overrun and slow the tempo. Slower redraw, but
+  jr z, edr_flush0           ;   the sequencer keeps a steady rate.
+  ld d, 1
 edr_flush0:
   ld e, 0                    ; row
 edr_fl:
