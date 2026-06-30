@@ -1185,10 +1185,13 @@ bt_loop:
   ld de, song
   add hl, de
   ld a, (hl)
-  cp $FF
-  pop af
-  ret z                      ; row above empty: current A is the block top
-  dec a                      ; row above populated: move up, keep scanning
+  cp $FF                     ; (test before pop af: pop reloads F and would clobber Z)
+  jr nz, bt_up               ; row above populated: keep scanning up
+  pop af                     ; row above empty: current candidate is the block top
+  ret
+bt_up:
+  pop af                     ; A = current candidate
+  dec a                      ; move up to it and continue
   jr bt_loop
 
 ; -------------------------------------------------------------
