@@ -1025,6 +1025,8 @@ at_song:
   ld a, (hl)
   cp $FF
   jr z, ats_norm             ; nothing queued: normal advance / chain loop
+  cp $FE
+  jr z, ats_norm             ; queued stop: not at the bar -- handled at chain end
   ld (ix+7), a               ; take the queued song row now
   ld (hl), $FF
   call mark_vis_a            ; clear its queued marker (A = the row)
@@ -1050,7 +1052,7 @@ at_nextrow:
   ld a, (play_mode)
   or a
   jr z, at_adv
-  ; ---- LIVE: take the queued row, else loop this chain ----
+  ; ---- LIVE: take the queued row, stop, else loop this chain ----
   ld hl, live_q
   ld e, c
   ld d, 0
@@ -1058,10 +1060,20 @@ at_nextrow:
   ld a, (hl)
   cp $FF
   jr z, at_load              ; nothing queued: reload = loop
+  cp $FE
+  jr z, ats_stop             ; queued stop reached chain end: deactivate the track
   ld (ix+7), a
   ld (hl), $FF
   call mark_vis_a            ; marker off (A = the queued row)
   jr at_load
+ats_stop:
+  ld (hl), $FF               ; consume the stop
+  ld (ix+6), 0               ; chain finished: deactivate the track
+  ld (ix+10), $FF
+  ld (ix+2), 0               ; release the note: ix+2=0 + idle stage -> ahd_process
+  ld (ix+4), STG_IDLE        ;   silences the channel cleanly (no psg_vols fight)
+  ld a, (ix+7)
+  jp mark_vis_a              ; redraw the playing row (drop the stop glyph)
 at_adv:
   ld a, (eng_len)
   ld d, a
@@ -1157,15 +1169,33 @@ live_queue:
   ld a, (ix+6)
   or a
   jr z, lq_arm
-  ld a, (ix+7)               ; starting the chain that is already
-  cp b                       ; playing = stop the track
+  ld a, (ix+7)               ; cursor on the chain that is already playing?
+  cp b
   jr nz, lq_q
-  ld a, c
-  jp live_track_stop
+  ; toggle a queued stop on this track -- consumed at chain end (let the loop
+  ; finish) rather than immediately. Tap the playing cell again to cancel.
+  ld a, (hl)
+  cp $FE
+  jr z, lqs_cancel
+  cp $FF
+  jr z, lqs_set
+  call mark_vis_a            ; a swap was queued here: clear its marker first
+lqs_set:
+  ld (hl), $FE               ; $FE = stop pending (vs a 0-7F row, $FF = nothing)
+  ld a, (ix+7)
+  jp mark_vis_a              ; stop glyph on the playing row
+lqs_cancel:
+  ld (hl), $FF
+  ld a, (ix+7)
+  jp mark_vis_a
 lq_q:
   ld a, (hl)
   cp $FF
   jr z, lq_on
+  cp $FE
+  jr nz, lqq_clr
+  ld a, (ix+7)               ; old queue was a stop: clear the playing-row marker
+lqq_clr:
   call mark_vis_a            ; re-queue: clear the old marker
 lq_on:
   ld a, b
@@ -1181,25 +1211,31 @@ lq_arm:
 ; stop track A immediately (header gesture)
 live_track_stop:
   ld c, a
-  ld hl, live_q
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a
   ld e, a
+  ld d, 0
+  ld ix, chst
+  add ix, de                 ; IX = channel (needed for a $FE stop's marker row)
+  ld hl, live_q
+  ld e, c
   ld d, 0
   add hl, de
   ld a, (hl)                 ; clear a pending queue + marker
   cp $FF
   jr z, lts_ch
+  cp $FE
+  jr nz, lts_clrm
+  ld a, (ix+7)               ; a queued stop's marker sits on the playing row
+lts_clrm:
+  push hl
   call mark_vis_a
+  pop hl
   ld (hl), $FF
 lts_ch:
-  ld a, c
-  add a, a
-  add a, a
-  add a, a
-  add a, a
-  add a, a
-  ld e, a
-  ld ix, chst
-  add ix, de
   ld (ix+6), 0
   ld (ix+10), $FF
   ld (ix+2), 0               ; volume 0: the wave gate sees it

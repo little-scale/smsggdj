@@ -374,12 +374,15 @@ Instead of playing straight down, each chain **loops**, and you trigger
 changes by hand:
 
 - On the SONG screen while playing, **2-hold + 1** on a cell **queues** it
-  for that track. It swaps in when the current chain finishes (so changes
-  land on the beat). A small triangle marks a queued cell; a solid triangle
-  marks what's playing.
-- Queue an **empty** cell to stop that track at the next boundary.
-- **2-hold + 1** on the cell that's *already playing* stops that track now.
-- **PAUSE / START** stops everything.
+  for that track. It swaps in at the **next bar** (phrase boundary), so changes
+  land on the beat. A hollow `<` marks a queued cell; a solid `>` marks what's
+  playing.
+- Queue an **empty** cell to stop that track at the next bar.
+- **2-hold + 1** on the cell that's *already playing* queues a **stop at the end
+  of that chain** — the loop plays out, then the track drops away. An `X` marks
+  the playing cell while the stop is pending; tap again to cancel.
+- For an instant stop: **PAUSE / START** stops everything; the **track header**
+  gesture (2-hold + 1 on the header row) stops a single track immediately.
 
 Switch back to **MODE: SONG** for normal start-to-finish playback.
 

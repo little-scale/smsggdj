@@ -5643,6 +5643,14 @@ sdr_next:
   cp b
   jr nz, sdr_nmk
   ld b, '>'                  ; solid: playing
+  ld hl, live_q              ; ...show a stop glyph if a chain-end stop is queued
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  cp $FE
+  jr nz, sdr_mk
+  ld b, 'X'                  ; playing, queued to stop at chain end
 sdr_mk:
   ld a, b
   ld (tmp_cmd), a            ; stash the glyph

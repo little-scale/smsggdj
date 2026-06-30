@@ -6,6 +6,11 @@ The git history has the full detail; this is the curated summary.
 ## v0.35 — unreleased
 
 ### Added
+- **LIVE: stopping a chain now waits for the chain to finish.** In LIVE mode,
+  2-hold + 1 on the cell that's already playing used to kill the track instantly;
+  it now queues a **stop at chain end**, so the loop plays out before the track
+  drops (an `X` marks the pending stop; tap again to cancel). The track-header
+  gesture still stops a track immediately, and PAUSE still stops everything.
 - **Hear an edit in context: 2-hold + double-tap 1.** While editing a chain or
   phrase, a quick double-tap of 1 (holding 2) plays the **whole song from the
   contextual row** instead of soloing what you're looking at — so you can A/B a
