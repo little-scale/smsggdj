@@ -393,6 +393,13 @@ function importKit(k, buf) {
   }
   render();
 }
+function clearKit(k) {
+  const base = k * PER_KIT;
+  if (!slots.slice(base, base + PER_KIT).some(Boolean)) return;   // already empty
+  if (!confirm(`Empty all 8 slots of kit ${k}?`)) return;
+  for (let pos = 0; pos < PER_KIT; pos++) slots[base + pos] = null;
+  render();
+}
 let pendKit = 0;
 function pickKit(k) { pendKit = k; document.getElementById("kitfile").click(); }
 
@@ -507,11 +514,13 @@ function render() {
     hdr.innerHTML = `KIT ${k} <span class="dim">${used}/${PER_KIT} slots</span>` +
       `<button data-addkit>+ add sound</button>` +
       `<button data-expkit>export .smskit</button>` +
-      `<button data-impkit>import .smskit</button>`;
+      `<button data-impkit>import .smskit</button>` +
+      `<button data-clrkit>clear kit</button>`;
     grp.appendChild(hdr);
     hdr.querySelector("[data-addkit]").onclick = () => pick(base, base + PER_KIT);
     hdr.querySelector("[data-expkit]").onclick = () => exportKit(k);
     hdr.querySelector("[data-impkit]").onclick = () => pickKit(k);
+    hdr.querySelector("[data-clrkit]").onclick = () => clearKit(k);
     for (let pos = 0; pos < PER_KIT; pos++) {
       const i = base + pos, it = slots[i];
       const card = document.createElement("div");
