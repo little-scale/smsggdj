@@ -5,6 +5,13 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.35 — unreleased
 
+### Changed
+- **Sample patcher (`tools/patcher.html`) is kit-aware.** It now lays the pool out
+  as **8 kits × 8 slots** (the directory index is the engine's `kit*8 + slot`):
+  load a ROM, see each kit's 8 slots, drop sounds into a specific kit, move samples
+  between kit/slot, and download. Empty slots are written as length-0 entries, so
+  partially-filled kits stay aligned. Slot 0 is the lowest note in a kit.
+
 ## v0.34 — 2026-06-30
 
 ### Added

@@ -42,13 +42,28 @@
   .stat { float: right; color: #8b98a5; }
   .tag { font-size: 11px; background: #24323e; border-radius: 4px;
          padding: 1px 6px; margin-left: 6px; color: #9ecbff; }
+  .kit { border: 1px solid #2d3742; border-radius: 10px; padding: 6px 10px 10px;
+         margin: 14px 0; }
+  .kithdr { display: flex; align-items: center; gap: 10px; font-weight: 700;
+            color: #9ecbff; margin: 4px 0 6px; }
+  .kithdr .dim { font-weight: 400; }
+  .kithdr button { margin-left: auto; }
+  .empty { color: #6b7886; font-size: 12px; border: 1px dashed #2d3742;
+           border-radius: 8px; padding: 8px 12px; margin: 6px 0; cursor: pointer; }
+  .empty.armed { border-color: #58a6ff; color: #d8e0e8; }
+  .slotno { font-size: 11px; color: #6b7886; margin-right: 6px; }
+  select { background: #0b0f13; color: #d8e0e8; border: 1px solid #2d3742;
+           border-radius: 4px; padding: 2px 4px; }
 </style>
 </head>
 <body>
 <h1><span>SMSGGDJ</span> sample patcher</h1>
-<p class="dim">1: load your <b>.sms</b> or <b>.gg</b> (128 KB). 2: drop sounds —
-any format the browser can decode. 3: trim, drive, audition.
+<p class="dim">1: load your <b>.sms</b> or <b>.gg</b> (128 KB). 2: drop sounds into a
+<b>kit</b> — any format the browser can decode. 3: trim, drive, audition.
 4: download the patched ROM. Nothing leaves this page.</p>
+<p class="dim">The pool is <b>8 kits of 8 samples</b>. An SMP instrument's <b>KIT</b>
+field picks the kit; the note maps chromatically to the 8 slots — <b>slot 0 = the
+lowest note</b>, wrapping every octave. Empty slots are silent.</p>
 
 <div class="zone" id="romzone">drop .sms / .gg here (or click)</div>
 <input type="file" id="romfile" accept=".sms,.gg" hidden>
@@ -81,9 +96,12 @@ any format the browser can decode. 3: trim, drive, audition.
 <script>
 "use strict";
 // ---- the pool contract (must match tools/smsggdj_sample.py) ----
-const POOL_OFF = 0x8000, BANK = 16384, POOL_BANKS = 6, MAX_SAMPLES = 32;
+const POOL_OFF = 0x8000, BANK = 16384, POOL_BANKS = 6;
+const KITS = 8, PER_KIT = 8, MAX_SAMPLES = KITS * PER_KIT;   // 8 kits x 8 slots
 const DIR_END = 8 + MAX_SAMPLES * 10, RATE = 7813;
 const MAX_SAMPLE = BANK - DIR_END;
+// directory index <-> kit/slot: index = kit*PER_KIT + slot (the engine's mapping)
+const kitOf = i => (i / PER_KIT) | 0, slotOf = i => i % PER_KIT;
 // unipolar DAC: attenuation n = 10^(-n/10), 15 = off
 const LEVELS = []; for (let n = 0; n < 15; n++) LEVELS.push(10 ** (-n / 10));
 LEVELS.push(0);
@@ -91,7 +109,13 @@ LEVELS.push(0);
 let rom = null, romName = ".sms";
 let globalGain = 1;             // multiplies into every new sample
 let globalTanh = 0;            // extra soft-limit on every new sample
-const items = [];           // {name, kind:'rom'|'new', ...}
+// fixed 64-slot grid; slots[kit*8+slot] = sample or null (empty). The directory
+// is written in this exact order so the engine's kit*8+note&7 index lines up.
+const slots = new Array(MAX_SAMPLES).fill(null);
+const firstEmpty = (lo = 0, hi = MAX_SAMPLES) => {
+  for (let i = lo; i < hi; i++) if (!slots[i]) return i;
+  return -1;
+};
 let ac = null;
 const ctx = () => ac || (ac = new (window.AudioContext || window.webkitAudioContext)());
 
@@ -104,30 +128,30 @@ function loadRom(buf, name) {
   if (magic !== "SMPL") return alert("this ROM has no  sample pool " +
     "(needs a build with the banked pool)");
   rom = d; romName = name;
-  // absorb the existing pool as keepable items
-  items.length = 0;
-  const count = d[POOL_OFF + 5];
+  // absorb the existing pool into the slot grid (directory index = kit*8+slot;
+  // length-0 entries are empty slots). Older flat pools just land as kits 0..N.
+  slots.fill(null);
+  const count = Math.min(d[POOL_OFF + 5], MAX_SAMPLES);
+  let real = 0;
   for (let i = 0; i < count; i++) {
     const e = POOL_OFF + 8 + i * 10;
     const bank = d[e], off = d[e + 1] | (d[e + 2] << 8),
           len = d[e + 3] | (d[e + 4] << 8);
+    if (!len) continue;                       // empty slot
     const name5 = String.fromCharCode(...d.slice(e + 5, e + 10)).trim();
     const fileOff = (bank - 2) * BANK + (off - 0x8000) + POOL_OFF;
-    items.push({ kind: "rom", name: name5 || ("SMP" + i),
-                 packed: d.slice(fileOff, fileOff + len), keep: true });
+    slots[i] = { kind: "rom", name: name5 || ("SMP" + i),
+                 packed: d.slice(fileOff, fileOff + len) };
+    real++;
   }
   document.getElementById("rominfo").innerHTML =
     `<div class="card rom"><b>${name}</b> — ${d.length} bytes, pool ` +
-    `${count} sample(s)<span class="tag">checksum range: ` +
+    `${real} sample(s)<span class="tag">checksum range: ` +
     `${["8K","16K","32K","48K","64K","128K"][ (d[0x7fff] & 15) - 10 ] || "ext"}</span>` +
-    (count ? ` <button id="clearrom">remove all in-ROM</button>` : "") +
+    (real ? ` <button id="clearrom">empty all slots</button>` : "") +
     `</div>`;
   const cr = document.getElementById("clearrom");
-  if (cr) cr.onclick = () => {
-    for (let i = items.length - 1; i >= 0; i--)
-      if (items[i].kind === "rom") items.splice(i, 1);
-    render();
-  };
+  if (cr) cr.onclick = () => { slots.fill(null); render(); };
   document.getElementById("sndzone").style.display = "";
   document.getElementById("capacity").style.display = "";
   render();
@@ -249,42 +273,50 @@ function audition(packed) {
 
 // ------------------------------------------------- packing/UI
 function placement() {
-  // first-fit, no bank crossing; returns null on overflow
-  const kept = items.filter(i => i.kind === "rom" ? i.keep : true);
-  if (kept.length > MAX_SAMPLES) return null;
-  const free = [DIR_END, 0, 0, 0, 0, 0], place = [];
-  for (const it of kept) {
+  // place each filled slot's data first-fit (no bank crossing); the directory
+  // keeps its slot order (index = kit*8+slot), empty slots get a length-0 entry.
+  // place[i] = {it, bank, off} for a filled slot, or null for an empty one.
+  const free = [DIR_END, 0, 0, 0, 0, 0], place = new Array(MAX_SAMPLES).fill(null);
+  for (let i = 0; i < MAX_SAMPLES; i++) {
+    const it = slots[i];
+    if (!it) continue;
     if (!it.packed || it.packed.length > MAX_SAMPLE) return null;
     let done = false;
     for (let b = 0; b < POOL_BANKS; b++)
       if (free[b] + it.packed.length <= BANK) {
-        place.push({ it, bank: 2 + b, off: 0x8000 + free[b] });
+        place[i] = { it, bank: 2 + b, off: 0x8000 + free[b] };
         free[b] += it.packed.length; done = true; break;
       }
     if (!done) return null;
   }
-  return { place, used: free.reduce((a, v) => a + v, 0) - DIR_END };
+  const count = slots.reduce((a, s) => a + (s ? 1 : 0), 0);
+  return { place, count, used: free.reduce((a, v) => a + v, 0) - DIR_END };
 }
 
-// build the 96 KB pool image (banks 2-7): SMPL header, 32-entry
-// directory (zero-padded), then first-fit sample data. Byte-for-
-// byte the pool region the ROM carries and smsggdj_sample.py emits.
+// build the 96 KB pool image (banks 2-7): SMPL header, 64-entry directory in
+// kit*8+slot order (empty slots = length-0 entries), then first-fit sample
+// data. Byte-for-byte the pool region smsggdj_sample.py --kits emits.
 function buildPool() {
   const p = placement();
   if (!p) return null;
   const pool = new Uint8Array(POOL_BANKS * BANK).fill(0xff);
-  pool.fill(0, 8, DIR_END);          // directory zero-padded
-  pool.set([0x53, 0x4d, 0x50, 0x4c, 1, p.place.length,
+  pool.fill(0, 8, DIR_END);          // directory zero-padded (empty entries)
+  pool.set([0x53, 0x4d, 0x50, 0x4c, 1, MAX_SAMPLES,
             RATE & 255, RATE >> 8], 0);
-  p.place.forEach((pl, i) => {
+  for (let i = 0; i < MAX_SAMPLES; i++) {
     const e = 8 + i * 10;
+    const pl = p.place[i];
+    if (!pl) {                       // empty slot: bank/off/len 0, space-padded name
+      for (let c = 0; c < 5; c++) pool[e + 5 + c] = 0x20;
+      continue;
+    }
     pool[e] = pl.bank;
     pool[e + 1] = pl.off & 255; pool[e + 2] = pl.off >> 8;
     pool[e + 3] = pl.it.packed.length & 255; pool[e + 4] = pl.it.packed.length >> 8;
     const nm = (pl.it.name || "SMPL").toUpperCase().padEnd(5).slice(0, 5);
     for (let c = 0; c < 5; c++) pool[e + 5 + c] = nm.charCodeAt(c);
     pool.set(pl.it.packed, (pl.bank - 2) * BANK + (pl.off - 0x8000));
-  });
+  }
   return pool;
 }
 
@@ -332,68 +364,115 @@ function drawWave(cv, it) {
 function fmtBytes(b) { return b < 1024 ? b + " B" : (b / 1024).toFixed(1) + " K"; }
 function secs(it) { return (it.packed.length * 2 / RATE).toFixed(2) + "s"; }
 
+function moveSel(i, pos) {
+  const kopt = Array.from({ length: KITS }, (_, k) =>
+    `<option value="${k}" ${k === kitOf(i) ? "selected" : ""}>kit ${k}</option>`).join("");
+  const sopt = Array.from({ length: PER_KIT }, (_, s) =>
+    `<option value="${s}" ${s === pos ? "selected" : ""}>slot ${s}</option>`).join("");
+  return `<label>move <select data-k="movekit">${kopt}</select>` +
+         `<select data-k="moveslot">${sopt}</select></label>`;
+}
+
+function cardInner(it, i, pos) {
+  const head = `<span class="slotno">slot ${pos}${pos === 0 ? " (lowest note)" : ""}</span>`;
+  if (it.kind === "rom")
+    return `${head}<b>${it.name}</b><span class="tag">in ROM</span>
+      <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
+      <div class="row" style="margin-top:6px">
+        ${moveSel(i, pos)}
+        <button data-k="play">audition</button>
+        <button data-k="del">remove</button></div>`;
+  return `${head}<input type="text" maxlength="5" value="${it.name}" data-k="name">
+    <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
+    <canvas></canvas>
+    <div class="row">
+      <label>trim <input type="range" min="0" max="1" step="0.001" value="${it.trim0}" data-k="trim0">
+             <input type="range" min="0" max="1" step="0.001" value="${it.trim1}" data-k="trim1"></label>
+      <label>gain <input type="range" min="0.1" max="8" step="0.1" value="${it.gain}" data-k="gain">
+             <span data-v="gain">${it.gain.toFixed(1)}×</span></label>
+      <label>tanh <input type="range" min="0" max="8" step="0.1" value="${it.tanh}" data-k="tanh">
+             <span data-v="tanh">${it.tanh ? it.tanh.toFixed(1) : "off"}</span></label>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" ${it.norm ? "checked" : ""} data-k="norm"> normalize</label>
+      <label><input type="checkbox" ${it.dither ? "checked" : ""} data-k="dither"> dither</label>
+      <label>gate <input type="number" min="0" max="4" value="${it.gate}" data-k="gate"></label>
+      <label>fade in <input type="number" min="0" max="500" value="${it.fadein}" data-k="fadein"> ms</label>
+      <label>fade out <input type="number" min="0" max="2000" value="${it.fadeout}" data-k="fadeout"> ms</label>
+      ${moveSel(i, pos)}
+      <button data-k="play">audition</button>
+      <button data-k="del">remove</button>
+    </div>`;
+}
+
+function move(i, target) {
+  if (target === i) return;
+  const t = slots[target]; slots[target] = slots[i]; slots[i] = t;  // swap
+  render();
+}
+
+function wireCard(card, it, i, cv) {
+  card.addEventListener("input", e => {
+    const k = e.target.dataset.k; if (!k) return;
+    if (k === "movekit" || k === "moveslot") {
+      const kit = +card.querySelector('[data-k="movekit"]').value;
+      const slot = +card.querySelector('[data-k="moveslot"]').value;
+      move(i, kit * PER_KIT + slot); return;
+    }
+    if (k === "name") { it.name = e.target.value; return; }
+    if (k === "norm" || k === "dither") it[k] = e.target.checked;
+    else it[k] = parseFloat(e.target.value) || 0;
+    if (k === "trim0") it.trim0 = Math.min(it.trim0, it.trim1 - 0.001);
+    if (k === "trim1") it.trim1 = Math.max(it.trim1, it.trim0 + 0.001);
+    rebuild(it);
+    if (cv) drawWave(cv, it);
+    card.querySelector(".stat").textContent = fmtBytes(it.packed.length) + " · " + secs(it);
+    const gv = card.querySelector('[data-v="gain"]');
+    if (gv) gv.textContent = it.gain.toFixed(1) + "×";
+    const tv = card.querySelector('[data-v="tanh"]');
+    if (tv) tv.textContent = it.tanh ? it.tanh.toFixed(1) : "off";
+    updateCap();
+  });
+  card.addEventListener("click", e => {
+    const k = e.target.dataset.k;
+    if (k === "play") audition(it.packed);
+    if (k === "del") { slots[i] = null; render(); }
+  });
+}
+
 function render() {
   const box = document.getElementById("samples");
   box.innerHTML = "";
-  items.forEach((it, idx) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    if (it.kind === "rom") {
-      card.innerHTML = `<b>${it.name}</b><span class="tag">in ROM</span>
-        <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
-        <div class="row" style="margin-top:6px">
-          <label><input type="checkbox" ${it.keep ? "checked" : ""} data-k="keep"> keep</label>
-          <button data-k="play">audition</button>
-          <button data-k="del">remove</button></div>`;
-    } else {
-      card.innerHTML = `<input type="text" maxlength="5" value="${it.name}" data-k="name">
-        <span class="stat">${fmtBytes(it.packed.length)} · ${secs(it)}</span>
-        <canvas></canvas>
-        <div class="row">
-          <label>trim <input type="range" min="0" max="1" step="0.001" value="${it.trim0}" data-k="trim0">
-                 <input type="range" min="0" max="1" step="0.001" value="${it.trim1}" data-k="trim1"></label>
-          <label>gain <input type="range" min="0.1" max="8" step="0.1" value="${it.gain}" data-k="gain">
-                 <span data-v="gain">${it.gain.toFixed(1)}×</span></label>
-          <label>tanh <input type="range" min="0" max="8" step="0.1" value="${it.tanh}" data-k="tanh">
-                 <span data-v="tanh">${it.tanh ? it.tanh.toFixed(1) : "off"}</span></label>
-        </div>
-        <div class="row">
-          <label><input type="checkbox" ${it.norm ? "checked" : ""} data-k="norm"> normalize</label>
-          <label><input type="checkbox" ${it.dither ? "checked" : ""} data-k="dither"> dither</label>
-          <label>gate <input type="number" min="0" max="4" value="${it.gate}" data-k="gate"></label>
-          <label>fade in <input type="number" min="0" max="500" value="${it.fadein}" data-k="fadein"> ms</label>
-          <label>fade out <input type="number" min="0" max="2000" value="${it.fadeout}" data-k="fadeout"> ms</label>
-          <button data-k="play">audition</button>
-          <button data-k="del">remove</button>
-        </div>`;
-    }
-    box.appendChild(card);
-    const cv = card.querySelector("canvas");
-    if (cv) drawWave(cv, it);
-    card.addEventListener("input", e => {
-      const k = e.target.dataset.k; if (!k) return;
-      if (k === "name") { it.name = e.target.value; return; }
-      if (k === "keep") { it.keep = e.target.checked; updateCap(); return; }
-      if (k === "norm" || k === "dither") it[k] = e.target.checked;
-      else it[k] = parseFloat(e.target.value) || 0;
-      if (k === "trim0") it.trim0 = Math.min(it.trim0, it.trim1 - 0.001);
-      if (k === "trim1") it.trim1 = Math.max(it.trim1, it.trim0 + 0.001);
-      rebuild(it);
+  for (let k = 0; k < KITS; k++) {
+    const base = k * PER_KIT;
+    const used = slots.slice(base, base + PER_KIT).filter(Boolean).length;
+    const grp = document.createElement("div");
+    grp.className = "kit";
+    const hdr = document.createElement("div");
+    hdr.className = "kithdr";
+    hdr.innerHTML = `KIT ${k} <span class="dim">${used}/${PER_KIT} slots</span>` +
+      `<button data-addkit="${k}">+ add sound</button>`;
+    grp.appendChild(hdr);
+    hdr.querySelector("[data-addkit]").onclick = () => pick(base, base + PER_KIT);
+    for (let pos = 0; pos < PER_KIT; pos++) {
+      const i = base + pos, it = slots[i];
+      const card = document.createElement("div");
+      if (!it) {
+        card.className = "empty";
+        card.innerHTML = `<span class="slotno">slot ${pos}</span> empty — click to add a sound`;
+        card.onclick = () => pick(i, MAX_SAMPLES);
+        grp.appendChild(card);
+        continue;
+      }
+      card.className = "card";
+      card.innerHTML = cardInner(it, i, pos);
+      grp.appendChild(card);
+      const cv = card.querySelector("canvas");
       if (cv) drawWave(cv, it);
-      const stat = card.querySelector(".stat");
-      stat.textContent = fmtBytes(it.packed.length) + " · " + secs(it);
-      const gv = card.querySelector('[data-v="gain"]');
-      if (gv) gv.textContent = it.gain.toFixed(1) + "×";
-      const tv = card.querySelector('[data-v="tanh"]');
-      if (tv) tv.textContent = it.tanh ? it.tanh.toFixed(1) : "off";
-      updateCap();
-    });
-    card.addEventListener("click", e => {
-      const k = e.target.dataset.k;
-      if (k === "play") audition(it.packed);
-      if (k === "del") { items.splice(idx, 1); render(); }
-    });
-  });
+      wireCard(card, it, i, cv);
+    }
+    box.appendChild(grp);
+  }
   updateCap();
 }
 
@@ -404,20 +483,28 @@ function updateCap() {
   if (!p) {
     bar.classList.add("over"); fill.style.width = "100%";
     document.getElementById("captext").textContent =
-      "does not fit (96 KB pool, max 16 K / 4.1 s per sample, 32 slots)";
+      "a sample is over 16 K (~4.1 s) — trim or lower its rate; it can't cross a bank";
     btn.disabled = true; return;
   }
   bar.classList.remove("over");
   fill.style.width = (100 * p.used / total).toFixed(1) + "%";
   document.getElementById("captext").textContent =
-    `${p.place.length} sample(s), ${fmtBytes(p.used)} of ${fmtBytes(total)} ` +
+    `${p.count}/${MAX_SAMPLES} slots filled, ${fmtBytes(p.used)} of ${fmtBytes(total)} ` +
     `(${(p.used * 2 / RATE).toFixed(1)}s of ${(total * 2 / RATE).toFixed(0)}s)`;
   btn.disabled = false;
 }
 
 // ------------------------------------------------- wiring
-async function addSounds(files) {
+let pendLo = 0, pendHi = MAX_SAMPLES;
+function pick(lo, hi) {        // open the file picker, filling slots in [lo,hi)
+  pendLo = lo; pendHi = hi;
+  document.getElementById("sndfile").click();
+}
+
+async function addSounds(files, lo = pendLo, hi = pendHi) {
   for (const f of files) {
+    const i = firstEmpty(lo, hi);
+    if (i < 0) { alert("no empty slot here — remove one or pick another kit"); break; }
     try {
       const ab = await ctx().decodeAudioData(await f.arrayBuffer());
       const it = {
@@ -427,7 +514,8 @@ async function addSounds(files) {
         gate: 1, fadein: 0, fadeout: 5, packed: null,
       };
       rebuild(it);
-      items.push(it);
+      slots[i] = it;
+      lo = i + 1;               // next file goes to the following empty slot
     } catch (err) { alert(f.name + ": could not decode (" + err.message + ")"); }
   }
   render();
@@ -445,21 +533,28 @@ function zone(id, input, cb) {
 zone("romzone", "romfile", async f => {
   if (f[0]) loadRom(await f[0].arrayBuffer(), f[0].name);
 });
-zone("sndzone", "sndfile", addSounds);
+// sndzone: click fills slots from the first empty; drop is the same. Per-kit
+// "+ add" and empty-slot clicks go through pick() to target a range.
+const _sz = document.getElementById("sndzone"), _sf = document.getElementById("sndfile");
+_sz.onclick = () => pick(0, MAX_SAMPLES);
+_sf.onchange = () => { addSounds([..._sf.files]); _sf.value = ""; };
+_sz.ondragover = e => { e.preventDefault(); _sz.classList.add("armed"); };
+_sz.ondragleave = () => _sz.classList.remove("armed");
+_sz.ondrop = e => { e.preventDefault(); _sz.classList.remove("armed");
+                    addSounds([...e.dataTransfer.files], 0, MAX_SAMPLES); };
 document.getElementById("download").onclick = buildRom;
 document.getElementById("exportpool").onclick = exportPool;
+const rebuildAll = () => { for (const s of slots) if (s) rebuild(s); render(); };
 document.getElementById("ggain").oninput = e => {
   globalGain = parseFloat(e.target.value) || 1;
   document.querySelector('[data-v="ggain"]').textContent = globalGain.toFixed(1) + "×";
-  items.forEach(rebuild);          // only 'new' items rebuild
-  render();
+  rebuildAll();                    // only 'new' slots rebuild
 };
 document.getElementById("gtanh").oninput = e => {
   globalTanh = parseFloat(e.target.value) || 0;
   document.querySelector('[data-v="gtanh"]').textContent =
     globalTanh ? globalTanh.toFixed(1) : "off";
-  items.forEach(rebuild);
-  render();
+  rebuildAll();
 };
 </script>
 </body>
