@@ -55,6 +55,10 @@ The git history has the full detail; this is the curated summary.
   shows after. Acts on the working song — save afterwards to bank the smaller image.
 
 ### Fixed
+- **Echo no longer bursts noise on the first play of a fresh load.** The play-start
+  routine that silences the echo delay line was stepping 3 bytes per entry instead
+  of 4, so it cleared only about a third of the ring — the rest replayed garbage as
+  noise until real notes cycled through. Now the whole ring starts silent.
 - **Re-saving a song no longer leaks SRAM free space.** Saving over an existing
   slot used to orphan the slot's previous data blob (the heap only grew, so
   repeated saves ate free space). Save now frees the old blob and compacts the

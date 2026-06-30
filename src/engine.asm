@@ -299,13 +299,14 @@ ep_next:
   ; data before T1 has filled it
   xor a
   ld (echo_head), a
-  ld hl, echo_ring + 2
+  ld hl, echo_ring + 2       ; the atten byte of each 4-byte ring entry
   ld b, 64
 ep_eclr:
-  ld (hl), $0F
+  ld (hl), $0F               ; silence the whole delay line so a fresh/stale
+  inc hl                     ; ring can't replay garbage as noise; the taps
+  inc hl                     ; stay quiet until real played notes fill it
   inc hl
-  inc hl
-  inc hl
+  inc hl                     ; advance a full entry (4 bytes), not 3
   djnz ep_eclr
   ; fresh repeat counts
   xor a
