@@ -12,7 +12,9 @@ The git history has the full detail; this is the curated summary.
   still counted as free and got reused — laying out several before filling them
   produced duplicates. It now skips any slot already placed (a chain referenced in
   the SONG, a phrase referenced in a chain, an instrument referenced in a phrase),
-  so you get 00, 01, 02… as expected.
+  so you get 00, 01, 02… as expected. Double-tap on the PHRASE **instrument**
+  column now mints a fresh instrument even when the cell already holds one
+  (replacing it), not just on empty cells.
 
 ### Added
 - **LIVE: stopping a chain now waits for the chain to finish.** In LIVE mode,

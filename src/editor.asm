@@ -3340,6 +3340,17 @@ dt_second:
   ld a, (scr_mode)
   cp b
   jp z, do_paste
+  ; PHRASE instrument column: double-tap always mints the next free instrument,
+  ; even on a cell that already holds one (replacing it) -- not just empty cells
+  cp SCR_PHRASE              ; (A = scr_mode from the clip check)
+  jr nz, dt2_norm
+  ld a, (phr_col)
+  cp 1
+  jr nz, dt2_norm
+  xor a
+  ld (dt1_fresh), a
+  jp dnf_instr
+dt2_norm:
   ld a, (dt1_fresh)
   or a
   jp z, dt_clone             ; populated cell, no clipboard: clone
