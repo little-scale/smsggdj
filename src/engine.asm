@@ -1076,14 +1076,34 @@ ats_stop:
   ld a, (ix+7)
   jp mark_vis_a              ; redraw the playing row (drop the stop glyph)
 at_adv:
+  ; chain ended (SONG): walk down the column while the next row is populated,
+  ; else loop back to the TOP of the current contiguous block (so each block is
+  ; its own independent loop). Single-block columns loop their whole block as
+  ; before; a lower block no longer jumps back to the column's top block.
   ld a, (eng_len)
   ld d, a
   ld a, (ix+7)
-  inc a
+  inc a                      ; A = next row
   cp d
-  jr c, at_setrow            ; still inside the song
-  xor a                      ; past the last row: wrap to the top
-at_setrow:
+  jr nc, at_loopblk          ; past the song end: the block ends here
+  ld b, a                    ; B = next row
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl                 ; next * 4
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld de, song
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  jr z, at_loopblk           ; next cell empty: the block ends here
+  ld a, b
+  ld (ix+7), a               ; next is populated: continue down the block
+  jp at_load
+at_loopblk:
+  call block_top             ; A = top of the block holding the current row
   ld (ix+7), a
 at_load:
   ; chain # from song[songrow][track]
@@ -1144,6 +1164,32 @@ at_off:
   ld (ix+6), 0
   ld (ix+10), $FF
   ret
+
+; A = top row of the contiguous (populated) block in column C containing the
+; current song row (ix+7): scan up while the row above still holds a chain.
+; Preserves C and IX.
+block_top:
+  ld a, (ix+7)
+bt_loop:
+  or a
+  ret z                      ; row 0 is the top
+  push af
+  dec a                      ; peek the row above
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl                 ; (row-1) * 4
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld de, song
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  pop af
+  ret z                      ; row above empty: current A is the block top
+  dec a                      ; row above populated: move up, keep scanning
+  jr bt_loop
 
 ; -------------------------------------------------------------
 ; LIVE performance actions (transport gesture on the SONG screen

@@ -16,6 +16,14 @@ The git history has the full detail; this is the curated summary.
   column now mints a fresh instrument even when the cell already holds one
   (replacing it), not just on empty cells.
 
+### Changed
+- **Song columns now loop by contiguous block.** A track that runs off the bottom
+  of the chains it's playing loops back to the **top of that block**, not to the
+  column's first cell. So a single cell (or any run separated by gaps) loops into
+  itself instead of jumping to a block above it — compose material in independent
+  blocks, then slide them together for a through-composed song or perform in LIVE.
+  Columns with one unbroken block are unaffected.
+
 ### Added
 - **LIVE: stopping a chain now waits for the chain to finish.** In LIVE mode,
   2-hold + 1 on the cell that's already playing used to kill the track instantly;
