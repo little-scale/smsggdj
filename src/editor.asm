@@ -2977,7 +2977,7 @@ std_version:                 ; static build stamp on the version row (E = vis ro
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 2
+  ld c, 0
   ld hl, str_version
   push de
   call print_at
@@ -2985,7 +2985,7 @@ std_version:                 ; static build stamp on the version row (E = vis ro
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 8                    ; after "V0.35 "
+  ld c, 6                    ; after "V0.35 "
   ld hl, str_buildid
   jp print_at
 
