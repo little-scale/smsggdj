@@ -3355,9 +3355,13 @@ dt_second:
   ld a, (chn_col)            ; CHAIN: the phrase column only
   or a
   ret nz
-  call find_free_phrase
+  ld a, (chn_row)            ; the first tap placed last_phrase here; clear it so
+  ld e, a                    ;   find_new_phrase doesn't count it as a placement
+  call ch_entry_ptr
+  ld (hl), $FF
+  call find_new_phrase       ; lowest phrase that's empty AND not already placed
   cp $FF
-  ret z                      ; pool exhausted
+  ret z                      ; pool exhausted (step left empty)
   ld b, a
   ld a, (chn_row)
   ld e, a
@@ -3368,7 +3372,9 @@ dt_second:
   ld a, (chn_row)
   jp mark_dirty_a
 dnf_song:
-  call find_free_chain
+  call so_cell_ptr           ; the first tap placed last_chain here; clear it so
+  ld (hl), $FF               ;   find_new_chain doesn't count it as a placement
+  call find_new_chain        ; lowest chain that's empty AND not already placed
   cp $FF
   ret z
   ld b, a
@@ -3510,6 +3516,131 @@ ffp_next:
   ld a, c
   cp NUM_PHRASES
   jr c, ffp_phr
+  ld a, $FF
+  ret
+
+; ---- "add new" mint: lowest slot that is empty AND not placed anywhere ----
+; (find_free_* above only check content, so a slot that's been placed but not
+;  yet filled is still "free" and gets handed out again; these also skip any
+;  slot already referenced, so each "add new" gives a distinct number.)
+
+; A = chain #; NZ if it appears anywhere in the song, Z if not. Preserves C.
+chain_in_song:
+  ld b, a
+  ld hl, song
+  ld de, SONG_ROWS*4
+cis_loop:
+  ld a, (hl)
+  cp b
+  jr z, cis_yes
+  inc hl
+  dec de
+  ld a, d
+  or e
+  jr nz, cis_loop
+  xor a                      ; Z = not referenced
+  ret
+cis_yes:
+  ld a, 1
+  or a                       ; NZ = referenced
+  ret
+
+; lowest chain that is empty (no steps) AND not placed in the song -> A ($FF none)
+find_new_chain:
+  ld c, 0
+fnc_cand:
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 32
+  ld de, chains
+  add hl, de
+  ld b, 16
+fnc_estep:
+  ld a, (hl)
+  cp $FF
+  jr nz, fnc_next            ; a step holds a phrase -> in use
+  inc hl
+  inc hl
+  djnz fnc_estep
+  ld a, c                    ; empty: also unplaced in the song?
+  call chain_in_song
+  jr nz, fnc_next
+  ld a, c
+  ret
+fnc_next:
+  inc c
+  ld a, c
+  cp NUM_CHAINS
+  jr c, fnc_cand
+  ld a, $FF
+  ret
+
+; A = phrase #; NZ if referenced by any chain step, Z if not. Preserves C.
+phrase_in_chain:
+  ld b, a
+  ld hl, chains
+  ld de, NUM_CHAINS*16       ; step count (each chain step is 2 bytes)
+pic_loop:
+  ld a, (hl)
+  cp b
+  jr z, pic_yes
+  inc hl
+  inc hl
+  dec de
+  ld a, d
+  or e
+  jr nz, pic_loop
+  xor a                      ; Z = not referenced
+  ret
+pic_yes:
+  ld a, 1
+  or a                       ; NZ = referenced
+  ret
+
+; lowest phrase that is empty AND not placed in any chain -> A ($FF none)
+find_new_phrase:
+  ld c, 0
+fnp_cand:
+  ld l, c
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; * 64
+  ld de, phrase_pool
+  add hl, de
+  ld b, 16
+fnp_estep:
+  ld a, (hl)                 ; note
+  or a
+  jr nz, fnp_next
+  inc hl
+  ld a, (hl)                 ; instrument
+  cp $FF
+  jr nz, fnp_next
+  inc hl
+  ld a, (hl)                 ; command
+  or a
+  jr nz, fnp_next
+  inc hl
+  inc hl
+  djnz fnp_estep
+  ld a, c                    ; empty: also unplaced in any chain?
+  call phrase_in_chain
+  jr nz, fnp_next
+  ld a, c
+  ret
+fnp_next:
+  inc c
+  ld a, c
+  cp NUM_PHRASES
+  jr c, fnp_cand
   ld a, $FF
   ret
 
