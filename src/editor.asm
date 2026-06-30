@@ -2890,15 +2890,6 @@ dl_set:
   ld b, NAME_ROW
   ld c, NAME_COL
   ld hl, str_set
-  call print_at
-  ; build stamp above VID: version + git hash (tells dev builds apart)
-  ld b, GRID_ROW-1
-  ld c, 1
-  ld hl, str_version
-  call print_at
-  ld b, GRID_ROW-1
-  ld c, 7
-  ld hl, str_buildid
   jp print_at
 
 st_draw_row:
@@ -2910,6 +2901,8 @@ st_draw_row:
   pop de
   cp $FF
   ret z
+  cp $FE
+  jr z, std_version          ; row 0: version + build hash (static)
   ld (ed_field), a
   ; label (col 4)
   xor a
@@ -2980,10 +2973,27 @@ prd_cl4:
   ld b, 4
   jp print_raw
 
+std_version:                 ; static build stamp on the version row (E = vis row)
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 2
+  ld hl, str_version
+  push de
+  call print_at
+  pop de
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 8                    ; after "V0.35 "
+  ld hl, str_buildid
+  jp print_at
+
+; visible row 0 = version/hash ($FE), row 1 blank, then the fields from row 2
 stg_f2r:
-  .db 0, 1, 3, 5, 7, 9
+  .db 2, 3, 5, 7, 9, 11
 stg_r2f:
-  .db 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF, $FF, $FF
+  .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF
 
 prj_f2r:                     ; only TMPO/TSP/MODE; NEW/DEMO/SAVE/LOAD/SLOT on FILES
   .db 0, 1, 2
