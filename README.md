@@ -113,7 +113,7 @@ art/        the logo art
 
 The pool is built from **kit folders** under `samples/` — up to **8 kits of 8
 samples**, taken in alphanumeric order (one subfolder per kit, WAVs inside). An
-SMP instrument's **KIT** field picks the kit and the note maps chromatically to
+KIT instrument's **KIT** field picks the kit and the note maps chromatically to
 the 8 slots, so one instrument is a whole drum kit. `make` trims each sample's
 trailing silence and applies a gain (`make SAMPLE_GAIN=N`, default 10) for a
 punchier 4-bit DAC. A committed `samples/pool.bin` (tuned in the patcher) still

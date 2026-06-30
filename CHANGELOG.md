@@ -3,55 +3,57 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.35 — unreleased
+## v0.35 — 2026-06-30
+
+### Added
+- **Play an edit in song context: 2-hold + double-tap 1.** While editing a chain or
+  phrase, a quick double-tap of 1 (holding 2) plays the **whole song from the
+  contextual row** instead of soloing what you're looking at — A/B a part on its
+  own versus in the full mix. A single tap still does the per-screen preview.
+- **OPTIONS screen shows the version + build hash** (above VID), so you can tell
+  which build a cart/emulator is running without going back to the splash.
+- **Export/import a single kit as a `.smskit` file** in the patcher. Each kit has
+  **export / import / clear** buttons, so you can save a tuned drum kit on its own
+  and drop it into any other ROM (parallel to a song's `.smdj`). It carries the 8
+  slots' console-ready samples + names; empty slots are preserved.
 
 ### Changed
-- **"Add new" chain/phrase/instrument (double-tap 1 on an empty cell) now gives a
-  distinct number each time.** It used to hand out the lowest slot with no
-  *content*, so a chain/phrase/instrument you'd just placed but not yet filled
-  still counted as free and got reused — laying out several before filling them
-  produced duplicates. It now skips any slot already placed (a chain referenced in
-  the SONG, a phrase referenced in a chain, an instrument referenced in a phrase),
-  so you get 00, 01, 02… as expected. Double-tap on the PHRASE **instrument**
-  column now mints a fresh instrument even when the cell already holds one
-  (replacing it), not just on empty cells.
-
-### Changed
-- **Song columns now loop by contiguous block.** A track that runs off the bottom
-  of the chains it's playing loops back to the **top of that block**, not to the
+- **The `SMP` instrument type is now called `KIT`.** Same instrument (a sample drum
+  kit, with KIT / RATE / TSP fields) — just a clearer name in the TYPE field, the
+  patcher, and the docs.
+- **Sample patcher (`tools/patcher.html`) is kit-aware.** It lays the pool out as
+  **8 kits × 8 slots** (the directory index is the engine's `kit*8 + slot`): load a
+  ROM, see each kit's 8 slots, drop sounds into a specific kit, move samples between
+  kit/slot, clear a kit, and download. Empty slots are length-0 entries, so
+  partially-filled kits stay aligned. Slot 0 is the lowest note in a kit.
+- **Song columns loop by contiguous block.** A track that runs off the bottom of
+  the chains it's playing loops back to the **top of that block**, not to the
   column's first cell. So a single cell (or any run separated by gaps) loops into
   itself instead of jumping to a block above it — compose material in independent
   blocks, then slide them together for a through-composed song or perform in LIVE.
   Columns with one unbroken block are unaffected.
+- **LIVE: stopping a playing chain waits for the chain to finish.** 2-hold + 1 on
+  the cell that's already playing used to kill the track instantly; it now queues a
+  **stop at chain end**, so the loop plays out before the track drops (an `X` marks
+  the pending stop; tap again to cancel). The track-header gesture still stops a
+  track immediately, and PAUSE still stops everything.
+- **"Add new" (double-tap 1 on an empty cell) mints a genuinely unused
+  chain/phrase/instrument.** It used to hand out the lowest slot with no *content*,
+  so a slot you'd just placed but not yet filled got reused — laying out several
+  before filling them produced duplicates. It now skips any slot already placed (a
+  chain in the SONG, a phrase in a chain, an instrument in a phrase), so you get
+  00, 01, 02… Double-tap on the PHRASE instrument column mints a fresh instrument
+  even when the cell already holds one (replacing it).
 
-### Added
-- **LIVE: stopping a chain now waits for the chain to finish.** In LIVE mode,
-  2-hold + 1 on the cell that's already playing used to kill the track instantly;
-  it now queues a **stop at chain end**, so the loop plays out before the track
-  drops (an `X` marks the pending stop; tap again to cancel). The track-header
-  gesture still stops a track immediately, and PAUSE still stops everything.
-- **Hear an edit in context: 2-hold + double-tap 1.** While editing a chain or
-  phrase, a quick double-tap of 1 (holding 2) plays the **whole song from the
-  contextual row** instead of soloing what you're looking at — so you can A/B a
-  part on its own vs in the full mix. Single tap still does the per-screen preview.
-
-### Added
-- **OPTIONS screen shows the version + build hash** (above VID), so you can tell
-  which build a cart/emulator is running without going back to the splash.
-
-### Changed
-- **The `SMP` instrument type is now called `KIT`.** Same instrument (sample drum
-  kit, with KIT / RATE / TSP fields) — just a clearer name in the TYPE field, the
-  patcher, and the docs.
-- **Sample patcher (`tools/patcher.html`) is kit-aware.** It now lays the pool out
-  as **8 kits × 8 slots** (the directory index is the engine's `kit*8 + slot`):
-  load a ROM, see each kit's 8 slots, drop sounds into a specific kit, move samples
-  between kit/slot, and download. Empty slots are written as length-0 entries, so
-  partially-filled kits stay aligned. Slot 0 is the lowest note in a kit.
-- **Export/import a single kit as a `.smskit` file.** Each kit in the patcher has
-  **export / import .smskit** buttons, so you can save a tuned drum kit on its own
-  and drop it into any other ROM (parallel to a song's `.smdj`). It carries the 8
-  slots' console-ready samples + names; empty slots are preserved.
+### Fixed
+- **Echo no longer bursts noise on the first play of a fresh load.** The play-start
+  routine that silences the echo delay line stepped 3 bytes per entry instead of 4,
+  clearing only about a third of the ring — the rest replayed garbage until real
+  notes cycled through. The whole ring now starts silent.
+- **Screen changes no longer drag the tempo while playing.** The screen redraw is
+  throttled to one row per frame during playback (and skips rows on the label-draw
+  frame), so a redraw can't overrun a frame and slow the sequencer. The redraw is a
+  touch slower to settle while playing — but the tempo stays steady.
 
 ## v0.34 — 2026-06-30
 
@@ -78,14 +80,6 @@ The git history has the full detail; this is the curated summary.
   shows after. Acts on the working song — save afterwards to bank the smaller image.
 
 ### Fixed
-- **Screen changes no longer drag the tempo while playing.** The screen redraw is
-  now throttled to one row per frame during playback (and skips rows on the
-  label-draw frame), so a redraw can't overrun a frame and slow the sequencer.
-  The redraw is a bit slower to settle while playing — but the tempo stays steady.
-- **Echo no longer bursts noise on the first play of a fresh load.** The play-start
-  routine that silences the echo delay line was stepping 3 bytes per entry instead
-  of 4, so it cleared only about a third of the ring — the rest replayed garbage as
-  noise until real notes cycled through. Now the whole ring starts silent.
 - **Re-saving a song no longer leaks SRAM free space.** Saving over an existing
   slot used to orphan the slot's previous data blob (the heap only grew, so
   repeated saves ate free space). Save now frees the old blob and compacts the
