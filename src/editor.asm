@@ -3387,7 +3387,12 @@ dnf_instr:
   ld a, (phr_col)            ; PHRASE: the instrument column only
   cp 1
   ret nz
-  call find_free_instr
+  ld a, (phr_row)            ; clear the first tap's last_instr so it doesn't
+  ld e, a                    ;   count as a placement in find_new_instr
+  call ed_step_ptr
+  inc hl
+  ld (hl), $FF
+  call find_new_instr        ; lowest blank instr not already placed in a phrase
   cp $FF
   ret z
   ld b, a
@@ -3641,6 +3646,55 @@ fnp_next:
   ld a, c
   cp NUM_PHRASES
   jr c, fnp_cand
+  ld a, $FF
+  ret
+
+; A = instrument #; NZ if used by any phrase step, Z if not. Preserves C.
+instr_in_phrase:
+  ld b, a
+  ld hl, phrase_pool + 1     ; the instrument byte of each 4-byte step
+  ld de, NUM_PHRASES*16      ; total steps
+iip_loop:
+  ld a, (hl)
+  cp b
+  jr z, iip_yes
+  inc hl
+  inc hl
+  inc hl
+  inc hl
+  dec de
+  ld a, d
+  or e
+  jr nz, iip_loop
+  xor a                      ; Z = not referenced
+  ret
+iip_yes:
+  ld a, 1
+  or a                       ; NZ = referenced
+  ret
+
+; lowest instrument still at the default/blank AND not placed in any phrase -> A
+; ($FF if none). Reuses ffi_cmp (instrument C == template at DE).
+find_new_instr:
+  ld c, 0
+fni_cand:
+  ld de, instr_default
+  call ffi_cmp
+  jr z, fni_ref
+  ld de, instr_default_old
+  call ffi_cmp
+  jr nz, fni_next            ; edited instrument -> in use
+fni_ref:
+  ld a, c                    ; blank: also unplaced in any phrase?
+  call instr_in_phrase
+  jr nz, fni_next
+  ld a, c
+  ret
+fni_next:
+  inc c
+  ld a, c
+  cp 16
+  jr c, fni_cand
   ld a, $FF
   ret
 

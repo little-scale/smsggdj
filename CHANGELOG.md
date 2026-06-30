@@ -6,12 +6,13 @@ The git history has the full detail; this is the curated summary.
 ## v0.35 — unreleased
 
 ### Changed
-- **"Add new" chain/phrase (double-tap 1 on an empty cell) now gives a distinct
-  number each time.** It used to hand out the lowest slot with no *content*, so a
-  chain/phrase you'd just placed but not yet filled still counted as free and got
-  reused — laying out several before filling them produced duplicates. It now
-  skips any slot already placed (a chain referenced in the SONG, a phrase
-  referenced in a chain), so you get 00, 01, 02… as expected.
+- **"Add new" chain/phrase/instrument (double-tap 1 on an empty cell) now gives a
+  distinct number each time.** It used to hand out the lowest slot with no
+  *content*, so a chain/phrase/instrument you'd just placed but not yet filled
+  still counted as free and got reused — laying out several before filling them
+  produced duplicates. It now skips any slot already placed (a chain referenced in
+  the SONG, a phrase referenced in a chain, an instrument referenced in a phrase),
+  so you get 00, 01, 02… as expected.
 
 ### Added
 - **LIVE: stopping a chain now waits for the chain to finish.** In LIVE mode,
