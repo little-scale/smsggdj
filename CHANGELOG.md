@@ -27,6 +27,10 @@ The git history has the full detail; this is the curated summary.
   contextual row** instead of soloing what you're looking at — so you can A/B a
   part on its own vs in the full mix. Single tap still does the per-screen preview.
 
+### Added
+- **OPTIONS screen shows the version + build hash** (above VID), so you can tell
+  which build a cart/emulator is running without going back to the splash.
+
 ### Changed
 - **The `SMP` instrument type is now called `KIT`.** Same instrument (sample drum
   kit, with KIT / RATE / TSP fields) — just a clearer name in the TYPE field, the

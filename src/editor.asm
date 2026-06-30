@@ -2890,6 +2890,15 @@ dl_set:
   ld b, NAME_ROW
   ld c, NAME_COL
   ld hl, str_set
+  call print_at
+  ; build stamp above VID: version + git hash (tells dev builds apart)
+  ld b, GRID_ROW-1
+  ld c, 1
+  ld hl, str_version
+  call print_at
+  ld b, GRID_ROW-1
+  ld c, 7
+  ld hl, str_buildid
   jp print_at
 
 st_draw_row:
