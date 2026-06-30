@@ -913,6 +913,15 @@ tp_dirty:
   ld (state_dirty), a
   ret
 
+; 2-held + double-tap-1: (re)start the whole song from the contextual row, so a
+; phrase/chain being edited can be heard in full arrangement context. Stop first
+; so a solo preview from the first tap (or any in-flight sample) ends cleanly.
+play_song_here:
+  call engine_stop
+  ld a, MODE_SONG
+  call engine_play
+  jr tp_dirty
+
 ; =============================================================
 ; drawing
 ; =============================================================

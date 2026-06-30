@@ -99,6 +99,7 @@
   last_phrase  db
   dt1_timer    db            ; double-tap countdown
   dt1_fresh    db            ; first tap filled an empty cell
+  tp_dt        db            ; transport double-tap countdown (2-held + double-1)
   new_arm      db            ; PROJECT NEW: first press arms
   clone_deep   db            ; 0 = SLIM clone, 1 = DEEP
   cur_flash    db            ; cursor blink frames (clone-fail)
@@ -212,8 +213,18 @@ editor_input:
   call fc_files              ; FILES: 2+1 toggles the action menu (no playback here)
   jp ei_dtick
 ei_toggle:
-  call toggle_play           ; 2 held + 1 = play/stop
+  ld a, (tp_dt)              ; 2-held + double-tap-1: play the whole SONG from the
+  or a                       ;   contextual row (hear a phrase/chain in arrangement
+  jr nz, ei_tsong            ;   context). Single tap = the per-screen preview.
+  ld a, DT_WINDOW            ; first tap: arm the window, do the normal context play
+  ld (tp_dt), a
+  call toggle_play           ; 2 held + 1 = play/stop (SONG/CHAIN/PHRASE per screen)
   jp ei_dtick                ; consume: no cut on the same press
+ei_tsong:
+  xor a
+  ld (tp_dt), a
+  call play_song_here        ; restart in MODE_SONG from song_cur
+  jp ei_dtick
 ei_1alone:
   ld a, (dt1_timer)
   or a
@@ -267,7 +278,13 @@ ei_selcnt:
   jr nz, ei_dtick
   jp sel_enter               ; threshold reached: SELECT mode
 ei_dtick:
-  ; ---- double-tap countdown ----
+  ; ---- double-tap countdowns ----
+  ld a, (tp_dt)              ; transport (2-held) double-tap window
+  or a
+  jr z, ei_dt1
+  dec a
+  ld (tp_dt), a
+ei_dt1:
   ld a, (dt1_timer)
   or a
   jr z, ei_dpad

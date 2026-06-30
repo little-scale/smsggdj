@@ -89,12 +89,13 @@ Only D-pad + 1 + 2; PAUSE is auxiliary. Button 1 ≈ LSDJ's A (edit), button 2 �
 | **2** tap | Back: PHRASE → CHAIN → SONG (pops the navigation stack) |
 | **2** hold + D-pad | Navigate the screen map (LSDJ SELECT+dpad equivalent) |
 | **2** held + **1** tap | **Play/stop** (transport — primary control; 2 is the "project" modifier: navigation and transport). Context-sensitive: SONG screen = play song from cursor row; CHAIN/PHRASE = loop that chain/phrase |
+| **2** held + **1** double-tap | **Play the whole song from the contextual row** (MODE_SONG from `song_cur`) — hear the chain/phrase you're editing in arrangement context. First tap plays the per-screen solo preview; a quick second tap upgrades to the full song. Same double-tap window as paste |
 | **1** held + **2** tap | Cut (delete the field into the clipboard) |
 | **1** held + **2** long-hold (~⅓ s) | **Block SELECT** (SONG/CHAIN/PHRASE/TABLE): anchors at the cursor. D-pad extends the box; **1** tap = copy, **1** held + **2** = cut, **2** alone = cancel. Paste = double-tap-1: rows anchor at the cursor, columns stay where they were cut (type-safe). A short 2-tap while holding 1 stays cut-field — cut fires on 2's release on these screens. |
 | **PAUSE** (NMI) | Alias for play/stop. Double-press = panic (silence all channels, abort sample, re-arm sync) |
 | Track mute/solo | *Parked — gesture TBD.* The header row is labels only; the cursor never leaves the grid. (In LIVE mode, single tracks stop via the transport gesture on the playing cell, or a queued empty cell.) |
 
-No timing disambiguation is needed: the button already held when the other arrives selects the action (1 held + 2 = cut, 2 held + 1 = transport), and a lone 1 press inserts instantly. Only paste uses a window (double-tap, ~0.3 s).
+No simultaneous-press disambiguation is needed: the button already held when the other arrives selects the action (1 held + 2 = cut, 2 held + 1 = transport), and a lone 1 press inserts instantly. The only timing windows are sequential double-taps of **1** (~0.3 s): paste (1 alone) and play-song-in-context (while 2 is held) — independent windows, no cross-talk.
 
 PAUSE generates an NMI whose handler only sets a flag — it is never *required*, so the tracker remains fully usable on hardware without a working PAUSE button.
 

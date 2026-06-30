@@ -5,6 +5,12 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.35 — unreleased
 
+### Added
+- **Hear an edit in context: 2-hold + double-tap 1.** While editing a chain or
+  phrase, a quick double-tap of 1 (holding 2) plays the **whole song from the
+  contextual row** instead of soloing what you're looking at — so you can A/B a
+  part on its own vs in the full mix. Single tap still does the per-screen preview.
+
 ### Changed
 - **The `SMP` instrument type is now called `KIT`.** Same instrument (sample drum
   kit, with KIT / RATE / TSP fields) — just a clearer name in the TYPE field, the

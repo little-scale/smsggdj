@@ -62,6 +62,11 @@ Where you press **2-hold + 1** decides what plays:
 - **PHRASE screen** — loops that phrase.
 - **INSTR / TABLE** — loops the phrase, so you can audition while editing.
 
+**2-hold + double-tap 1** plays the **whole song from the contextual row** instead
+— so you can hear the chain/phrase you're editing in full arrangement context. Tap
+once to solo what you're looking at; tap twice to drop it back into the mix. (The
+contextual row is the SONG cursor you drilled down from.)
+
 ### Block select (copy/cut a region)
 
 On SONG, CHAIN, PHRASE or TABLE: hold **1**, then keep **2** held for about a
@@ -528,6 +533,7 @@ SELECT      1 hold + 2 held (~1/3s)
 BACK        2 tap
 SCREENS     2 hold + D-pad
 PLAY/STOP   2 hold + 1   (or PAUSE / Game Gear START)
+PLAY SONG   2 hold + 1 double-tap   (full song from the contextual row)
 ```
 
 ```
