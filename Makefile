@@ -11,11 +11,17 @@ VTAG  := $(shell sed -n 's/^str_version:.*"\([^"]*\)".*/\1/p' src/main.asm | tr 
 ifeq ($(strip $(VTAG)),)
 VTAG  := dev
 endif
-# short git hash for the filename (with a trailing + for an uncommitted tree),
-# so each build lands at a distinct name, e.g. build/smsggdj_v0_31_a1b2c3d.sms.
+# short git hash for the filename (with a trailing + for an uncommitted tree), so
+# each *dev* build lands at a distinct name, e.g. build/smsggdj_v0_31_a1b2c3d.sms
+# -- this is how we tell sub-incremental builds apart between releases. `make`
+# emits these (plus the boot-splash build stamp) for exactly that.
 GITHASH := $(shell h=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); git diff-index --quiet HEAD -- 2>/dev/null || h="$${h}+"; printf '%s' "$$h")
 VROM   := $(BUILD)/smsggdj_$(VTAG)_$(GITHASH).sms
 VGGROM := $(BUILD)/smsggdj_$(VTAG)_$(GITHASH).gg
+# release assets carry the version ONLY (no hash): a tagged release is pinned to
+# its version, so the filename is e.g. build/smsggdj_v0_36.sms. Made by `make dist`.
+RELROM   := $(BUILD)/smsggdj_$(VTAG).sms
+RELGGROM := $(BUILD)/smsggdj_$(VTAG).gg
 
 all: $(ROM) $(GGROM) $(VROM) $(VGGROM)
 
@@ -95,6 +101,13 @@ $(VROM): $(ROM)
 $(VGGROM): $(GGROM)
 	cp -f $< $@
 
+# version-only copies for a tagged release (no git hash in the name)
+$(RELROM): $(ROM)
+	cp -f $< $@
+
+$(RELGGROM): $(GGROM)
+	cp -f $< $@
+
 JAVA := /opt/homebrew/opt/openjdk/bin/java
 EMU  := tools/emulicious/Emulicious.jar
 
@@ -104,11 +117,11 @@ run: all                       # always rebuild both flavors
 run-gg: all
 	$(JAVA) -jar $(EMU) $(abspath $(GGROM))
 
-# build + print the version-stamped ROMs to attach to a GitHub release
-dist: all
+# build + print the version-only ROMs to attach to a GitHub release
+dist: all $(RELROM) $(RELGGROM)
 	@echo "release assets ($(VTAG)):"
-	@echo "  $(VROM)"
-	@echo "  $(VGGROM)"
+	@echo "  $(RELROM)"
+	@echo "  $(RELGGROM)"
 
 clean:
 	rm -rf $(BUILD)
