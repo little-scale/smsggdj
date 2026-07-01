@@ -41,6 +41,10 @@ preloaded with the stamp presets, so a fresh song makes sound right away).
 Drop a ROM on a flashcart (Master Everdrive etc.) or open it in an emulator,
 and press play.
 
+> **Emulator note:** all manual emulator testing was done in **SMS Plus**
+> (Bannister). Other emulators should work, but that's the one this project is
+> exercised against.
+
 ## For musicians
 
 - **[MANUAL.md](MANUAL.md)** — the user guide: controls, screens, writing a

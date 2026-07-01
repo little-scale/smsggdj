@@ -60,6 +60,10 @@ psg_init:
   ld a, $04                    ; white, rate 0
   ld (psg_noisectl), a
   ld (psg_noise_sent), a
+  or $E0                       ; assert it on the chip too ($E4): psg_flush only
+  out (PSG_PORT), a            ;   writes the noise reg on a *change*, so a first
+                               ;   $04 noise note would skip it and leave the
+                               ;   power-on (pitched/periodic) state playing
   ret
 
 ; send shadow -> sent diffs. Tone write = latch byte (low 4 bits

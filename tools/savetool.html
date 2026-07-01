@@ -107,6 +107,7 @@ const SIZES = { 8:  { slots: 1, bytes: 0x2000 },
 let size = 16;                       // 8 | 16 | 32 (KB)
 let slots = new Array(SIZES[size].slots).fill(null);
 let savName = "smsggdj.sav";
+let smdj4Songs = [];                  // SMDJ4 read-only view: songs from loadSmdj4
 
 function numSlots() { return SIZES[size].slots; }
 function savBytes() { return SIZES[size].bytes; }
@@ -274,6 +275,8 @@ function loadSmdj4(d, name) {
   let songs;
   try { songs = SMDJ4.readSav(d); }
   catch (e) { note(`${name}: ${e.message}`, true); return; }
+  smdj4Songs = songs;
+  document.getElementById("viewer").classList.remove("open");
   const used = songs.filter(Boolean).length;
   let heapEnd = SMDJ4.HEAP_OFF;
   songs.forEach((s, i) => { if (s) { const e = SMDJ4.SUPER + i * SMDJ4.DIR_ENTRY;
@@ -285,14 +288,18 @@ function loadSmdj4(d, name) {
   songs.forEach((s, n) => {
     if (!s) return;
     const e = SMDJ4.SUPER + n * SMDJ4.DIR_ENTRY, len = d[e+4] | (d[e+5] << 8);
+    const nm = nameStr(s.name);
     const div = document.createElement("div");
     div.className = "slot";
     div.innerHTML = `<div class="num">${n}</div>
-      <div class="info">song — ${s.checksumOK ? "checksum ok" : '<span class="bad">checksum BAD</span>'}
+      <div class="info">${nm ? `<b>${esc(nm)}</b> — ` : ""}${s.checksumOK ? "checksum ok" : '<span class="bad">checksum BAD</span>'}
         <span class="dim">(6912 B → ${len}${s.raw ? " raw" : ""})</span></div>
+      <button data-k="view4">view</button>
       <button data-k="dl4">download .smdj4</button>`;
     div.addEventListener("click", ev => {
-      if (ev.target.dataset.k === "dl4")
+      const k = ev.target.dataset.k;
+      if (k === "view4") openViewer4(n);
+      if (k === "dl4")
         download(SMDJ4.wrapSmdj4(s.block), name.replace(/\.sav$/i, "") + `-slot${n}.smdj4`);
     });
     box.appendChild(div);
@@ -334,7 +341,7 @@ const VOFF = { wave:0x0000, phrase:0x0100, chain:0x0900, song:0x0D00,
                instr:0x0F00, table:0x1000, groove:0x1400 };
 const VCMD = "-KHACEFGNPTVWMDLROISBXY";
 const VCHROMA = ["C-","C#","D-","D#","E-","F-","F#","G-","G#","A-","A#","B-"];
-const VITYPE = ["TONE","NOISE","SMP","WAV","FM","FMDRM"];
+const VITYPE = ["TONE","NOISE","KIT","WAV","FM","FMDRM"];
 const VRATE = ["norm","2x","half","4x"];
 const hx2 = v => v.toString(16).toUpperCase().padStart(2, "0");
 const hx1 = v => (v & 0xf).toString(16).toUpperCase();
@@ -342,6 +349,11 @@ const vnote = b => b ? VCHROMA[(45 + b - 1) % 12] + (Math.floor((45 + b - 1) / 1
 const vcmd = (c, p) => !c ? "..." : (c < VCMD.length ? VCMD[c] : "?") + hx2(p);
 const vsig = b => b < 128 ? "+" + b : "-" + (256 - b);
 const REST = '<span class="rest">--</span>';
+// SMDJ4 block layout (6,912 B, SAVEFORMAT.md): 52 phrases / 40 chains
+const VOFF4 = { phrase:0x0100, chain:0x0E00, song:0x1300,
+                instr:0x1500, groove:0x1A00 };
+const nameStr = nm => { let s = ""; for (const c of (nm || [])) { if (!c) break; s += String.fromCharCode(c); } return s; };
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 
 function decodeView(blob, slot) {
   const d = blob.slice(HDR), P = [];
@@ -433,6 +445,99 @@ function decodeView(blob, slot) {
 function openViewer(n) {
   const v = document.getElementById("viewer");
   v.innerHTML = decodeView(slots[n], n + 1);
+  v.classList.add("open");
+  v.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// ---- SMDJ4 viewer: decodes the 6,912-byte block (52 phrases / 40 chains) ----
+function decodeView4(song, slot) {
+  const d = song.block, ec = song.echo || [], P = [];
+  P.push('<button class="closev" data-k="closeview">close</button>');
+  const nm = nameStr(song.name);
+  P.push(`<h3 class="first">Slot ${slot}${nm ? " &middot; " + esc(nm) : ""}</h3>`);
+
+  const em = ["OFF", "T2", "T2+T3"][ec[0]] || "OFF";
+  let echo = "Echo " + em;
+  if (ec[0]) echo += ` · taps ${ec[1]}/${ec[2]} rows · reduce ${hx1(ec[3])}/${hx1(ec[4])}`
+                   + ` · stereo ${ec[5] ? "on" : "off"} · tsp ${vsig(ec[6])}/${vsig(ec[7])}`;
+  P.push(`<div class="dim">${echo}</div>`);
+
+  // song (128 rows × 4 tracks)
+  let rows = "";
+  for (let r = 0; r < 128; r++) {
+    const o = VOFF4.song + r * 4, c = [0, 1, 2, 3].map(t => d[o + t]);
+    if (c.every(v => v === 0xff)) continue;
+    rows += `<tr><td>${hx2(r)}</td>` +
+      c.map(v => `<td>${v === 0xff ? REST : hx2(v)}</td>`).join("") + "</tr>";
+  }
+  P.push("<h3>Song</h3>" + (rows
+    ? `<table><tr><th>row</th><th>T1</th><th>T2</th><th>T3</th><th>NO</th></tr>${rows}</table>`
+    : '<div class="dim">(empty)</div>'));
+
+  // chains (40)
+  let chains = "";
+  for (let ch = 0; ch < 40; ch++) {
+    const o = VOFF4.chain + ch * 32, ent = []; let used = false;
+    for (let i = 0; i < 16; i++) {
+      const p = d[o + i * 2], t = d[o + i * 2 + 1];
+      if (p === 0xff) ent.push(REST);
+      else { used = true; ent.push(hx2(p) + (t ? `<span class="dim">${vsig(t)}</span>` : "")); }
+    }
+    if (used) chains += `<tr><td>${hx2(ch)}</td><td>${ent.join(" ")}</td></tr>`;
+  }
+  if (chains) P.push(`<h3>Chains</h3><table>${chains}</table>`);
+
+  // phrases (52, non-empty)
+  let phr = "";
+  for (let ph = 0; ph < 52; ph++) {
+    const o = VOFF4.phrase + ph * 64; let body = "", any = false;
+    for (let s = 0; s < 16; s++) {
+      const b = o + s * 4, n = d[b], ins = d[b + 1], c = d[b + 2], pm = d[b + 3];
+      if (!(n === 0 && c === 0)) any = true;
+      const ni = ins >= 0x10 ? '<span class="rest">-</span>' : hx1(ins);
+      body += `<tr><td>${s.toString(16).toUpperCase()}</td>`
+            + `<td>${n ? vnote(n) : '<span class="rest">---</span>'}</td>`
+            + `<td>${ni}</td><td>${vcmd(c, pm)}</td></tr>`;
+    }
+    if (any) phr += `<div class="ph"><table>`
+      + `<tr><th>${hx2(ph)}</th><th>note</th><th>i</th><th>cmd</th></tr>${body}</table></div>`;
+  }
+  if (phr) P.push(`<h3>Phrases</h3>${phr}`);
+
+  // instruments (16)
+  let ins = "";
+  for (let i = 0; i < 16; i++) {
+    const b = d.slice(VOFF4.instr + i * 16, VOFF4.instr + i * 16 + 16);
+    const ty = VITYPE[b[0]] || "?";
+    const atk = b[2] >> 4, dcy = b[2] & 0xf, hldn = b[3] & 0xf;
+    const hld = hldn === 0xf ? "inf" : hldn * 2;
+    let extra = "";
+    if (b[0] === 3) extra = "wave " + (b[4] & 7);
+    else if (b[0] === 2) extra = "rate " + (VRATE[b[4] & 3] || b[4]);
+    else if (b[0] === 1) extra = "noise " + hx2(b[4]);
+    else if (b[0] === 4) extra = "prog " + ((b[4] & 0xf) || 1);
+    else if (b[0] === 5) extra = "drum kit (note picks)";
+    ins += `<tr><td>${hx2(i)}</td><td>${ty}</td><td>vol ${hx1(b[1])}</td>`
+         + `<td>atk ${hx1(atk)} dcy ${hx1(dcy)}</td><td>hld ${hld}</td>`
+         + `<td>tsp ${vsig(b[8])}</td><td class="dim">${extra}</td></tr>`;
+  }
+  P.push(`<h3>Instruments</h3><table>${ins}</table>`);
+
+  // grooves (non-empty)
+  let grv = "";
+  for (let g = 0; g < 16; g++) {
+    const o = VOFF4.groove + g * 16; if (!d[o]) continue;
+    const vals = []; for (let i = 0; i < 16 && d[o + i]; i++) vals.push(d[o + i]);
+    grv += `<tr><td>${g.toString(16).toUpperCase()}</td><td>${vals.join(" ")}</td></tr>`;
+  }
+  if (grv) P.push(`<h3>Grooves</h3><table>${grv}</table>`);
+
+  return P.join("");
+}
+
+function openViewer4(n) {
+  const v = document.getElementById("viewer");
+  v.innerHTML = decodeView4(smdj4Songs[n], n);
   v.classList.add("open");
   v.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }

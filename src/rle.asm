@@ -432,6 +432,7 @@ rsl_check:
   cp d
   jr nz, rsl_bad
   xor a                                ; Z = loaded ok
+  ld (song_edited), a                  ; loaded block matches the slot: clean
   ret
 rsl_bad:
   or 1                                 ; NZ
@@ -740,6 +741,7 @@ rss_entry:
   ld bc, 8
   ldir                                 ; song_name -> entry+16..+23
   xor a                                ; Z = saved
+  ld (song_edited), a                  ; block now matches the slot: clean
   ret
 rss_full:
   or 1                                 ; NZ

@@ -3467,6 +3467,8 @@ sn_tbl:
   ld a, 6                    ; groove 0 = 6,6
   ld (grooves), a
   ld (grooves+1), a
+  xor a
+  ld (song_edited), a        ; fresh song = no unsaved changes
   call rle_name_default
   jp echo_defaults
 

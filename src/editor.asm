@@ -123,6 +123,7 @@
   blk_data     dsb 64        ;   up to 4 cols x 16 rows
   label_dirty  db
   vstamp_clr   db            ; 1 = strip the OPTIONS version stamp's col-0 tile
+  song_edited  db            ; 1 = song data changed since last save/load (PROJECT UNSAVED)
   ed_rep       db
   tmp_note     db
   tmp_instr    db
@@ -1098,6 +1099,20 @@ mark_vis_a:                  ; A = absolute song row
 ; =============================================================
 do_press:
   ld a, (scr_mode)
+  cp SCR_SET                 ; mark song edited for data-screen inserts only
+  jr z, dp_disp
+  cp SCR_ECHO
+  jr z, dp_disp
+  cp SCR_WAVE
+  jr z, dp_disp
+  cp SCR_FILES
+  jr z, dp_disp
+  cp SCR_PROJ
+  jr z, dp_disp
+  ld a, 1
+  ld (song_edited), a
+dp_disp:
+  ld a, (scr_mode)
   cp SCR_CHAIN
   jp z, chp_press
   cp SCR_PHRASE
@@ -1155,6 +1170,9 @@ do_cut:
   ret z
   cp SCR_FILES
   ret z
+  ld hl, song_edited         ; the remaining screens are all song data
+  ld (hl), 1
+  ld a, (scr_mode)
   cp SCR_WAVE
   jp z, wvp_cut
   cp SCR_CHAIN
@@ -1202,6 +1220,14 @@ do_edit:
   and $0F
   ret z
   ld (ed_rep), a
+  ld a, (scr_mode)
+  cp SCR_SET                 ; OPTIONS config edits aren't song data
+  jr z, de_disp
+  cp SCR_FILES               ; FILES slot/name navigation isn't a value edit
+  jr z, de_disp
+  ld a, 1
+  ld (song_edited), a
+de_disp:
   ld a, (scr_mode)
   cp SCR_CHAIN
   jp z, chp_edit
@@ -2997,10 +3023,11 @@ stg_f2r:
 stg_r2f:
   .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF
 
-prj_f2r:                     ; only TMPO/TSP/MODE; NEW/DEMO/SAVE/LOAD/SLOT on FILES
-  .db 0, 1, 2
-prj_r2f:
-  .db 0, 1, 2, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+prj_f2r:                     ; TMPO/TSP/MODE sit below the NAME readout (rows 3-5)
+  .db 3, 4, 5
+prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, TMPO/TSP/MODE,
+  .db $FF, $FE, $FF, 0, 1, 2, $FF, $FD, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+                             ; blank, then row7 = UNSAVED status ($FD)
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -4320,12 +4347,19 @@ do_paste:
   ld b, a
   ld a, (scr_mode)
   cp b
-  jp z, blk_paste
+  jr nz, dp_clip
+  ld hl, song_edited         ; block paste = song edit
+  ld (hl), 1
+  jp blk_paste
+dp_clip:
   ld a, (clip_scr)
   ld b, a
   ld a, (scr_mode)
   cp b
   ret nz
+  ld hl, song_edited         ; a matching clip paste is a song edit
+  ld (hl), 1
+  ld a, (scr_mode)
   cp SCR_INSTR
   ret z
   ; current column per screen
@@ -5439,6 +5473,27 @@ dl_novc:
   ld c, NAME_COL
   ld hl, str_song
   call print_at
+  ; genmddj-style rule: dashes from after "SONG" up to the map tile
+  xor a
+  ld (text_attr), a
+  ld b, NAME_ROW
+  ld c, NAME_COL+4
+  call nt_addr_hl
+  call vdp_set_addr
+  ld b, MAP_COL-NAME_COL-4
+dl_so_rule:
+  ld a, '-'
+  push bc
+  call print_char
+  pop bc
+  djnz dl_so_rule
+  ; one dash above the row-index column
+  ld b, GRID_ROW-1
+  ld c, 0
+  call nt_addr_hl
+  call vdp_set_addr
+  ld a, '-'
+  call print_char
   ; track headers with mute state, cursor when in header
   ld c, 0                    ; track
 dl_so_hdr:
@@ -6141,6 +6196,10 @@ pr_draw_row:
   pop de
   cp $FF
   ret z
+  cp $FE
+  jr z, pr_draw_name         ; NAME readout row (loaded song's name)
+  cp $FD
+  jr z, pr_draw_unsaved      ; UNSAVED status row (blank when saved)
   ld (ed_field), a
   ; label (col 4)
   xor a
@@ -6192,6 +6251,48 @@ prd_addr:
   cp 2
   jp z, prd_play
   ret                        ; only fields 0..2 are drawn now
+pr_draw_name:                ; $FE row: "NAME" label + the loaded song's 8-char name
+  xor a
+  ld (text_attr), a
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, INS_LBL
+  ld hl, str_name
+  push de
+  call print_at
+  pop de
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, INS_VAL
+  push de
+  call nt_addr_hl
+  call vdp_set_addr
+  pop de
+  ld hl, song_name
+  ld b, 6                    ; first 6 chars only: keeps clear of the nav map (col 15)
+  jp print_raw
+pr_draw_unsaved:             ; $FD row: "UNSAVED" when song_edited, else blank it
+  xor a
+  ld (text_attr), a
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, INS_LBL
+  ld a, (song_edited)
+  or a
+  ld hl, str_unsaved
+  jr nz, pru_pr
+  ld hl, str_unsaved_blank
+pru_pr:
+  jp print_at
+str_name:
+  .db "NAME", 0
+str_unsaved:
+  .db "UNSAVED", 0
+str_unsaved_blank:
+  .db "       ", 0
 prd_tsp:
   ld a, (proj_tsp)
   or a

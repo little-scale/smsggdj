@@ -3,6 +3,44 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.36 — 2026-07-02
+
+### Added
+- **PROJECT screen shows the loaded song's NAME and an UNSAVED indicator.** A
+  `NAME` readout displays the current song's name; below the fields, `UNSAVED`
+  appears whenever the song has changes not yet written to a slot (blank once
+  it matches the last save/load).
+- **SONG screen dressed up** with a genmddj-style dashed rule from the title
+  across to the screen map, plus a tick above the row-index column.
+- **`tools/sramconvert.html`** — a new browser tool that converts a song save
+  between a flashcart's raw `.srm` and SMS Plus's gzip-compressed `.sav`, both
+  directions, so you can move a song between the cart and the emulator.
+- **Song viewer in `tools/savetool.html`** — click a slot to see that song's
+  arrangement, chains, phrases (notes/instruments/commands), instruments and
+  grooves, for SMDJ4 saves.
+
+### Changed
+- **`tools/als2smdj.html` uses the full song pools.** The Ableton importer now
+  builds native SMDJ4 songs with all **52 phrases / 40 chains** (it was capped at
+  the old 32/32), so larger Live sets fit before it has to truncate.
+
+### Fixed
+- **Noise plays correctly on the first note after a fresh load.** `psg_init` set
+  the noise-control shadow to white/rate-0 but never wrote it to the chip, and the
+  flush only writes the noise register on a *change* — so a song whose first noise
+  note used the default value found shadow==sent and skipped the write, leaving the
+  PSG's power-on (pitched/periodic) noise state playing until you toggled the mode.
+  Init now asserts the noise register on the chip.
+- **The Game Gear ROM now identifies as a Game Gear cartridge.** The `.gg` header
+  carried an SMS "Export" region code (the `.SMSTAG` default has no GG option), so
+  a flashcart's system auto-detect could run it in **Master System mode** — a
+  letterboxed margin on the GG LCD and a scrambled palette (SMS 6-bit CRAM
+  misreading the GG's 12-bit colour writes). The build now stamps a Game Gear
+  region code (`$6x`) into the `.gg` header at link time, so it runs in native GG
+  mode deterministically. The `.sms` build is unchanged. (Latent since the GG
+  flavour was first added; whether it surfaced depended on how the flashcart
+  resolved the contradictory `.gg`-extension-but-SMS-header signal.)
+
 ## v0.35 — 2026-06-30
 
 ### Added

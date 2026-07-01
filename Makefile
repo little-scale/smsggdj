@@ -82,6 +82,10 @@ $(ROM): $(BUILD)/main.o $(BUILD)/linkfile
 
 $(GGROM): $(BUILD)/main-gg.o $(BUILD)/linkfile-gg
 	$(LINK) -v $(BUILD)/linkfile-gg $@
+	# .SMSTAG stamps an SMS Export region code ($4x) into the header at $7FFF;
+	# the Game Gear needs a GG region code ($6x = GG Export) or the system /
+	# flashcart auto-detect runs the ROM in SMS mode (margin + wrong palette).
+	printf '\x6c' | dd of=$@ bs=1 seek=32767 conv=notrunc 2>/dev/null
 
 # version-stamped copies (re-made whenever the canonical ROM changes; a release
 # version bump in str_version yields a new filename automatically)

@@ -103,7 +103,8 @@ GROOVE and `2+Left` from GROOVE comes back.
 - **GROOVE** — swing and timing.
 - **WAVE** — draw the 8 wavetable shapes (above INSTR).
 - **ECHO** — a tempo-synced delay that echoes T1 onto T2/T3 (below INSTR).
-- **PROJECT** — this song: tempo, transpose, mode.
+- **PROJECT** — this song: name, tempo, transpose, mode, and an `UNSAVED` flag
+  when there are changes not yet written to a slot.
 - **FILES** — save, load and manage your songs on the cartridge (below SONG).
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).

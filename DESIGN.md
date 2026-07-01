@@ -39,7 +39,7 @@ Post-v0.2 addenda (implemented):
 | Input | D-pad + buttons **1** and **2** only. PAUSE is wired to NMI (edge-triggered, state not readable). | One fewer button than the Game Boy. All primary functions live on D-pad + 1 + 2; PAUSE is a convenience alias only (works even if a clone/handheld lacks it). |
 | Controller port 2 | 5 readable pins (Up/Down/Left/Right/TL) + TH; TR and TH drivable as *outputs* via port 0x3F. No interrupt capability on these pins. | Enough for native master/slave sync: a 2-bit tick counter out/in on TR+TH, plus Volca-style pulse out (§11). Raw 31,250-baud MIDI bit-banging is not viable alongside a running tracker. |
 | Video timing | 50/60 Hz is fixed by the console's hardware (crystal + VDP); software cannot switch it. | "PAL/NTSC support" = the *timing engine* adapts (tick rate, BPM math, sample cadence), not the video output. Auto-detect + override, §5.1. |
-| ROM | Standard Sega mapper, header at 0x7FF0 ("TMR SEGA") required by export BIOS. | 128 KB ROM: 3 fixed/banked code+table pages, rest = sample pool banks. |
+| ROM | Standard Sega mapper, header at 0x7FF0 ("TMR SEGA") required by export BIOS. The `.gg` build's region byte (0x7FFF) is post-link-stamped to **GG Export (`$6x`)** — `.SMSTAG` only emits an SMS code, which makes flashcarts run the ROM in SMS mode (letterbox + wrong palette). | 128 KB ROM: 3 fixed/banked code+table pages, rest = sample pool banks. |
 
 Explicitly **out of scope**: MIDI *output* (parked for v2) and expansion audio beyond the FM unit. *(Game Gear stereo + a native GG build, and **YM2413 FM via the SMS FM Sound Unit**, joined the scope post-v0.2 — §15 and the FM addendum below.)*
 

@@ -54,7 +54,8 @@ or onto an Everdrive. Nothing leaves this page.</p>
 <script src="smdj4.js"></script>
 <script>
 "use strict";
-const NPHR = 32, NCHN = 32, NROWS = 128, NINS = 16, NTBL = 16, NGRV = 16;
+// SMDJ4 song pools (6912-byte block): 52 phrases / 40 chains (see SAVEFORMAT.md)
+const NPHR = 52, NCHN = 40, NROWS = 128, NINS = 16, NTBL = 16, NGRV = 16;
 const VOL_CMD = 21;                                 // engine command id for X (set volume)
 // current ROM instrument default: TONE, vol F, ATK 0 / HLD 1 / DCY 3
 const INSTR_DEFAULT = [0, 0x0F, 0x03, 0x01, 0, 0, 0, 0, 0, 0xFF, 1, 0, 0, 0, 0, 0];
@@ -180,12 +181,12 @@ function convert(xml, velToV) {
 function buildBlock(c) {
   const b = [];
   for (let i = 0; i < 256; i++) b.push(0);                       // wave_ram
-  for (let i = 0; i < NPHR; i++)                                 // phrases 32x64
+  for (let i = 0; i < NPHR; i++)                                 // phrases 52x64
     for (let r = 0; r < 16; r++) {
       const row = c.phraseList[i] ? c.phraseList[i][r] : [0, 0xFF, 0, 0];
       b.push(row[0] & 0xFF, row[1] & 0xFF, row[2] & 0xFF, row[3] & 0xFF);
     }
-  for (let i = 0; i < NCHN; i++)                                 // chains 32x32
+  for (let i = 0; i < NCHN; i++)                                 // chains 40x32
     for (let s = 0; s < 16; s++) {
       const st = c.chainList[i] && c.chainList[i][s];
       b.push(st ? st[0] & 0xFF : 0xFF, st ? st[1] & 0xFF : 0);
@@ -197,7 +198,7 @@ function buildBlock(c) {
   for (let i = 0; i < NINS; i++) for (const x of INSTR_DEFAULT) b.push(x & 0xFF); // instruments
   for (let t = 0; t < NTBL; t++) for (let r = 0; r < 16; r++) b.push(0xFF, 0, 0, 0); // tables (empty)
   for (let g = 0; g < NGRV; g++) for (let i = 0; i < 16; i++) b.push(g === 0 && i < 2 ? 6 : 0); // grooves: 0 = 6,6
-  return new Uint8Array(b);                                      // 5376 bytes
+  return new Uint8Array(b);                                      // 6912 bytes (SMDJ4)
 }
 
 function nameBytes(s) {                              // filename -> 8-char slot name
@@ -241,7 +242,7 @@ async function handle(f) {
       return note(f.name + ": no MIDI tracks found", "bad");
     const c = convert(xml, document.getElementById("vel").checked);
     const stem = f.name.replace(/\.als$/i, "");
-    const block4 = SMDJ4.expand(buildBlock(c));      // SMDJ3 5376 -> SMDJ4 6912
+    const block4 = buildBlock(c);                     // native SMDJ4 6912-byte block
     const kb = +document.getElementById("size").value;
     outBytes = SMDJ4.buildSav([{ block: block4, name: nameBytes(stem) }], kb);
     outName = stem + ".sav";

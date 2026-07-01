@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMSGGDJ · SRAM converter</title>
+<style>
+  :root { --bg:#1c1f26; --panel:#262a33; --panel2:#2e333d; --ink:#e8eaf0;
+          --muted:#9aa0ad; --accent:#4f8cff; --good:#3fae5a; --warn:#f0a01e; --bad:#e23b3b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:720px; margin:0 auto; padding:28px 18px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h1 small { color:var(--muted); font-weight:400; font-size:13px; }
+  p.lead { color:var(--muted); margin:0 0 22px; }
+  #drop { border:2px dashed #3a4150; border-radius:12px; padding:34px 20px;
+          text-align:center; color:var(--muted); cursor:pointer; transition:.15s;
+          background:var(--panel); }
+  #drop.hot { border-color:var(--accent); color:var(--ink); background:var(--panel2); }
+  #drop strong { color:var(--ink); }
+  .card { background:var(--panel); border:1px solid #0006; border-radius:10px;
+          padding:16px 18px; margin-top:18px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em;
+             color:var(--muted); margin:0 0 12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td { padding:3px 6px; vertical-align:top; }
+  td.k { color:var(--muted); white-space:nowrap; width:1%; padding-right:14px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:20px; font-size:12px;
+          font-weight:600; }
+  .pill.good { background:#1d3a26; color:var(--good); }
+  .pill.warn { background:#3a2e16; color:var(--warn); }
+  .pill.bad  { background:#3a1d1d; color:var(--bad); }
+  .arrow { text-align:center; color:var(--accent); font-size:22px; margin:14px 0 4px; }
+  .out { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  input[type=text] { flex:1; min-width:200px; background:#1b1e25; color:var(--ink);
+          border:1px solid #0007; border-radius:6px; padding:8px 10px; font:inherit; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:9px 16px; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { background:#3a4150; color:#6b7280; cursor:not-allowed; }
+  button.ghost { background:#333845; color:var(--ink); }
+  .note { color:var(--muted); font-size:12px; margin-top:10px; }
+  .songrow { padding:4px 0; border-top:1px solid #0005; }
+  .songrow:first-child { border-top:0; }
+  code { background:#1b1e25; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .err { color:var(--bad); }
+  a.dl { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SMSGGDJ SRAM converter <small>cart .srm ⇄ SMS Plus .sav</small></h1>
+  <p class="lead">Drop a save and it converts to the other format. A flashcart/Everdrive
+  <code>.srm</code> is a <strong>raw</strong> image; SMS Plus (Bannister) stores its
+  Battery RAM <strong>gzip-compressed</strong>. The song data inside (SMDJ4) is identical —
+  this only rewraps the container and fixes the SRAM size.</p>
+
+  <div id="drop">
+    <strong>Drop a .srm or .sav here</strong><br>or click to choose a file
+    <input type="file" id="file" accept=".srm,.sav,.SRM,.SAV" hidden>
+  </div>
+
+  <div id="report"></div>
+  <a id="dl" class="dl"></a>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const SUPER = 32, DIR_ENTRIES = 32, DIR_ENTRY = 32, HEAP = 0x420;
+const BANK = 0x4000, CFG = 0x3F60;
+
+const drop = $("#drop"), fileInput = $("#file"), report = $("#report");
+
+drop.addEventListener("click", () => fileInput.click());
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("hot");
+}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove("hot");
+}));
+drop.addEventListener("drop", e => { if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); });
+fileInput.addEventListener("change", e => { if (e.target.files[0]) handle(e.target.files[0]); });
+
+// ---- gzip helpers (native browser streams) ---------------------------
+async function gunzip(bytes) {
+  const ds = new DecompressionStream("gzip");
+  const blob = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(blob).arrayBuffer());
+}
+async function gzip(bytes) {
+  const cs = new CompressionStream("gzip");
+  const blob = new Blob([bytes]).stream().pipeThrough(cs);
+  return new Uint8Array(await new Response(blob).arrayBuffer());
+}
+const isGzip = b => b.length > 2 && b[0] === 0x1f && b[1] === 0x8b;
+const magicOf = b => String.fromCharCode(b[0], b[1], b[2], b[3], b[4]);
+
+// ---- SMDJ4 directory parse (read-only summary) -----------------------
+function parse(raw) {
+  if (magicOf(raw) !== "SMDJ4") return { ok:false, magic: magicOf(raw) };
+  const songs = [];
+  let heapTop = HEAP, bank1 = false;
+  for (let n = 0; n < DIR_ENTRIES; n++) {
+    const o = SUPER + n * DIR_ENTRY;
+    if (raw[o] !== 0xA5) continue;
+    const hoff = raw[o+2] | (raw[o+3] << 8);
+    const blen = raw[o+4] | (raw[o+5] << 8);
+    const cks  = raw[o+6] | (raw[o+7] << 8);
+    let name = "";
+    for (let i = 0; i < 8; i++) { const c = raw[o+0x10+i]; if (!c) break; name += String.fromCharCode(c); }
+    const end = HEAP + hoff + blen;
+    heapTop = Math.max(heapTop, end);
+    if (end > BANK) bank1 = true;
+    songs.push({ slot:n, name: name || "(unnamed)", raw: raw[o+1], blen, cks, end });
+  }
+  let cfg = null;
+  if (raw.length > CFG + 6 && raw[CFG] === 0x43 && raw[CFG+1] === 0x46)
+    cfg = { pal: raw[CFG+2], sync: raw[CFG+3], vid: raw[CFG+4], fm: raw[CFG+5] };
+  return { ok:true, version: raw[5], count: raw[6], songs, heapTop, bank1, cfg, size: raw.length };
+}
+
+// pad or trim a raw image to an exact size
+function fit(raw, size) {
+  const out = new Uint8Array(size);
+  out.set(raw.subarray(0, Math.min(raw.length, size)));
+  return out;
+}
+
+const VID = ["AUTO","PAL","NTSC"], SYNC = ["OFF","OUT","PULSE","IN","IN24"];
+
+// ---- main ------------------------------------------------------------
+async function handle(file) {
+  report.innerHTML = "";
+  let bytes;
+  try { bytes = new Uint8Array(await file.arrayBuffer()); }
+  catch (e) { return fail("Couldn't read the file."); }
+
+  if (!("CompressionStream" in window) || !("DecompressionStream" in window))
+    return fail("This browser lacks gzip support (CompressionStream). Try a recent Chrome, Safari 16.4+, or Firefox.");
+
+  const fromSmsPlus = isGzip(bytes);
+  let raw;
+  try { raw = fromSmsPlus ? await gunzip(bytes) : bytes; }
+  catch (e) { return fail("Looks gzipped but couldn't decompress it: " + e.message); }
+
+  const info = parse(raw);
+  if (!info.ok)
+    return fail(`Not an SMSGGDJ save — expected magic "SMDJ4", found "${info.magic}". (${fromSmsPlus ? "gunzipped" : "raw"} image, ${raw.length} bytes.)`);
+
+  // ----- decide target -----
+  let target, outRaw, outBytes, outName, outSizeNote, warn = "";
+  const base = file.name.replace(/\.(srm|sav)$/i, "");
+  if (fromSmsPlus) {
+    // SMS Plus -> cart (raw). 16 KB unless data reaches bank 1.
+    target = "GG cart (.srm, raw)";
+    const size = info.bank1 ? 0x8000 : 0x4000;
+    if (info.bank1) warn = "This save uses the second SRAM bank, so the cart must be a 32 KB SRAM cart. Output is 32 KB.";
+    outRaw = fit(raw, size);
+    outBytes = outRaw;
+    outName = base + ".srm";
+    outSizeNote = (size/1024) + " KB raw";
+  } else {
+    // cart -> SMS Plus (gzip, 32 KB)
+    target = "SMS Plus (.sav, gzipped)";
+    outRaw = fit(raw, 0x8000);              // SMS Plus expects a 32 KB image
+    outBytes = await gzip(outRaw);
+    outName = base + ".sav";
+    outSizeNote = "32 KB → " + outBytes.length + " B gzipped";
+  }
+
+  render(file, fromSmsPlus, raw, info, { target, outName, outSizeNote, outBytes, warn });
+}
+
+function fail(msg) {
+  report.innerHTML = `<div class="card"><div class="err">⚠ ${msg}</div></div>`;
+}
+
+function render(file, fromSmsPlus, raw, info, out) {
+  const srcLabel = fromSmsPlus ? "SMS Plus (.sav, gzipped)" : "GG cart (.srm, raw)";
+  const songRows = info.songs.length
+    ? info.songs.map(s => `<div class="songrow"><strong>${esc(s.name)}</strong>
+        <span class="note">slot ${s.slot} · ${s.blen} B ${s.raw ? "raw-stored" : "RLE"}
+        · checksum <code>0x${s.cks.toString(16).padStart(4,"0")}</code></span></div>`).join("")
+    : `<div class="note">No songs stored (empty directory).</div>`;
+  const cfg = info.cfg
+    ? `PAL ${info.cfg.pal} · SYNC ${SYNC[info.cfg.sync] ?? info.cfg.sync} · VID ${VID[info.cfg.vid] ?? info.cfg.vid} · FM ${info.cfg.fm ? "on" : "off"}`
+    : `<span class="pill warn">none</span>`;
+
+  report.innerHTML = `
+    <div class="card">
+      <h2>Loaded file</h2>
+      <table>
+        <tr><td class="k">Name</td><td>${esc(file.name)}</td></tr>
+        <tr><td class="k">Format</td><td>${srcLabel}</td></tr>
+        <tr><td class="k">On disk</td><td>${file.size} bytes${fromSmsPlus ? " (gzip)" : ""}</td></tr>
+        <tr><td class="k">SMDJ4 image</td><td>${raw.length} bytes · ${(raw.length/1024)} KB · v${info.version} · ${info.count} dir slots
+            <span class="pill good">valid</span></td></tr>
+        <tr><td class="k">Songs</td><td>${info.songs.length} used / 32</td></tr>
+        <tr><td class="k">Heap top</td><td><code>0x${info.heapTop.toString(16)}</code>${info.bank1 ? ' <span class="pill warn">uses bank 1</span>' : ""}</td></tr>
+        <tr><td class="k">OPTIONS</td><td>${cfg}</td></tr>
+      </table>
+      <div style="margin-top:12px">${songRows}</div>
+    </div>
+
+    <div class="arrow">↓ convert ↓</div>
+
+    <div class="card">
+      <h2>Output · ${out.target}</h2>
+      <div class="note">${out.outSizeNote}</div>
+      ${out.warn ? `<div class="note" style="color:var(--warn)">⚠ ${out.warn}</div>` : ""}
+      <div class="out">
+        <input type="text" id="outname" value="${esc(out.outName)}">
+        <button id="convert">Download</button>
+      </div>
+      <div class="note">${fromSmsPlus
+        ? "Copy this onto the Everdrive/flashcart SD card. The filename must match your ROM (Everdrive uses <code>ROMNAME.SRM</code>)."
+        : "Drop this into SMS Plus’s <code>Battery RAM</code> folder. The name must match what SMS Plus expects for this ROM (e.g. <code>smsggdj.gg.sav</code>)."}</div>
+    </div>`;
+
+  $("#convert").addEventListener("click", () => {
+    const name = $("#outname").value.trim() || out.outName;
+    const blob = new Blob([out.outBytes], { type: "application/octet-stream" });
+    const a = $("#dl");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
+</script>
+</body>
+</html>
