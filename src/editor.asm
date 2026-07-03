@@ -2427,8 +2427,7 @@ wv_cleanup:
 wvc_row:
   push bc
   ld c, 0
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
 .IFDEF TARGET_GG
   ld b, 40                   ; 20 tiles x (index, attr) - GG window width
 .ELSE                        ; (32 tiles would overflow the 20-wide window and
@@ -2457,8 +2456,7 @@ dl_wave:
   call print_at
   ld b, NAME_ROW
   ld c, 6
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_wave)
   call print_hex_nib
   ; per-step hex readout above the canvas (LSDJ-style)
@@ -2467,8 +2465,7 @@ dl_wave:
 .IFDEF TARGET_GG
   ld b, GRID_ROW-1           ; page number at the left edge
   ld c, 0
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (wav_col)
   and $10
   rrca
@@ -2485,8 +2482,7 @@ dl_wave:
 .ELSE
   ld c, 0
 .ENDIF
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_wave)
   rrca
   rrca
@@ -2532,8 +2528,7 @@ wv_draw_row:
   ld c, 0
 .ENDIF
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, 15                   ; this row shows value 15 - row
   sub e
@@ -2998,8 +2993,7 @@ std_addr:
   ld b, a
   ld c, INS_VAL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (ed_field)
   or a
@@ -4270,8 +4264,7 @@ etd_addr:
   ld b, a
   ld c, 10
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (ed_field)
   or a
@@ -5461,8 +5454,7 @@ draw_labels:
   jr z, dl_novc              ; OPTIONS draws its own version stamp
   ld b, GRID_ROW
   ld c, 0
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, ' '
   call print_char
 dl_novc:
@@ -5539,8 +5531,7 @@ dl_so_pr:
   call so_track_col
   ld c, a
   ld b, GRID_ROW-1           ; the row above the grid
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop hl
   ld b, 2
   call print_raw
@@ -5560,8 +5551,7 @@ dl_chain:
   call print_at
   ld b, NAME_ROW
   ld c, 7
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_chain)
   call print_hex_a
   call dl_track_tag
@@ -5582,8 +5572,7 @@ dl_phrase:
   call print_at
   ld b, NAME_ROW              ; phrase # on the name row (matches CHAIN)
   ld c, 8
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_phrase)
   call print_hex_a
   call dl_track_tag
@@ -5616,8 +5605,7 @@ dl_groove:
 dlg_na:
   ld b, NAME_ROW             ; on the GROOVE label row, after some space
   ld c, 8
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_groove)
   call print_hex_a
   xor a
@@ -5631,8 +5619,7 @@ dl_table:
   call print_at
   ld b, NAME_ROW
   ld c, 7
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_table)
   call print_hex_a
   ld b, 3
@@ -5656,8 +5643,7 @@ dl_instr:
   call print_at
   ld b, NAME_ROW
   ld c, 7
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (cur_instr)
   jp print_hex_a
 
@@ -5672,8 +5658,7 @@ dl_track_tag:
   push hl
   ld b, NAME_ROW
   ld c, 12
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop hl
   ld b, 2
   jp print_raw
@@ -5703,8 +5688,7 @@ dsm_attr:
   ld c, a
   ld b, MAP_ROW+1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   push de
   ld e, d
@@ -5728,8 +5712,7 @@ dsm_sattr:
   ld (text_attr), a
   ld b, MAP_ROW
   ld c, MAP_COL
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, 'O'
   call print_char
   ; PROJECT indicator above the map's C
@@ -5742,8 +5725,7 @@ dsm_pattr:
   ld (text_attr), a
   ld b, MAP_ROW
   ld c, MAP_COL+1
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, 'P'
   call print_char
   ; GROOVE indicator below the C
@@ -5756,8 +5738,7 @@ dsm_gattr:
   ld (text_attr), a
   ld b, MAP_ROW+2
   ld c, MAP_COL+1
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, 'G'
   call print_char
   ; FILES indicator below the S
@@ -5770,8 +5751,7 @@ dsm_fattr:
   ld (text_attr), a
   ld b, MAP_ROW+2
   ld c, MAP_COL
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, 'F'
   call print_char
   ; WAVE indicator above the I
@@ -5784,8 +5764,7 @@ dsm_wattr:
   ld (text_attr), a
   ld b, MAP_ROW
   ld c, MAP_COL+3
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, 'W'
   call print_char
   ; ECHO indicator below the I
@@ -5798,8 +5777,7 @@ dsm_eattr:
   ld (text_attr), a
   ld b, MAP_ROW+2
   ld c, MAP_COL+3
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, 'E'
   call print_char
   xor a
@@ -5848,8 +5826,7 @@ so_draw_row:
   ld b, a
   ld c, 1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_note)
   push de
@@ -5908,8 +5885,7 @@ sdr_val:
   add a, GRID_ROW
   ld b, a
   push af
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop af
   ld a, (tmp_instr)
   cp $FF
@@ -5967,8 +5943,7 @@ sdr_mk:
   ld a, e
   add a, GRID_ROW
   ld b, a
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   xor a
   ld (text_attr), a
   ld a, (tmp_cmd)
@@ -5999,8 +5974,7 @@ cdr_lbl:
   ld b, a
   ld c, 1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, e
   push de
@@ -6023,8 +5997,7 @@ cdr_lbl:
   ld b, a
   ld c, 4
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_note)
   cp $FF
@@ -6049,8 +6022,7 @@ cdr_tsp:
   ld b, a
   ld c, 8
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_note)           ; empty row: dash the transpose too
   cp $FF
@@ -6085,8 +6057,7 @@ tdr_lbl:
   ld b, a
   ld c, 1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, e
   push de
@@ -6115,8 +6086,7 @@ tdr_lbl:
   ld b, a
   ld c, 4
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_note)
   cp $10
@@ -6139,8 +6109,7 @@ tdr_pitch:
   ld b, a
   ld c, 7
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_instr)
   push de
@@ -6154,8 +6123,7 @@ tdr_pitch:
   ld b, a
   ld c, 11
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_cmd)
   call cmd_char
@@ -6171,8 +6139,7 @@ tdr_cpr:
   ld b, a
   ld c, 12
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_cmd)
   or a
@@ -6246,8 +6213,7 @@ prd_addr:
   ld b, a
   ld c, INS_VAL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (ed_field)
   or a
@@ -6275,8 +6241,7 @@ pr_draw_name:                ; $FE row: "NAME" label + the loaded song's 8-char 
   ld b, a
   ld c, INS_VAL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld hl, song_name
   ld b, 6                    ; first 6 chars only: keeps clear of the nav map (col 15)
@@ -6464,8 +6429,7 @@ dl_proj:
   push hl
   ld b, 1
   ld c, 10
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop hl
   ld b, 7
   jp print_raw
@@ -6530,8 +6494,7 @@ gdr_lbl:
   ld b, a
   ld c, 1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, e
   push de
@@ -6551,8 +6514,7 @@ gdr_val:
   ld b, a
   ld c, 4
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   push de
   call gr_entry_ptr
@@ -6621,8 +6583,7 @@ pdr_lbl:
   ld b, a
   ld c, 1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, e
   push de
@@ -6670,8 +6631,7 @@ pdr_npr:
   ld b, a
   ld c, 4
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   pop hl
   ld b, 3
@@ -6685,8 +6645,7 @@ pdr_npr:
   ld b, a
   ld c, PH_INS_COL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_instr)
   cp $10
@@ -6710,8 +6669,7 @@ pdr_cmd:
   ld b, a
   ld c, PH_CMD_COL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_cmd)
   call cmd_char
@@ -6728,8 +6686,7 @@ pdr_cpr:
   ld b, a
   ld c, PH_CMD_COL+1
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld a, (tmp_cmd)
   or a
@@ -6869,8 +6826,7 @@ idr_addr:
   ld b, a
   ld c, INS_VAL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ; value per field
   push de
@@ -7483,8 +7439,7 @@ fcs_row:
   ld b, d
   ld c, MAP_COL
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ld b, 6
 fcs_col:
@@ -7607,8 +7562,7 @@ fl_entry:
 ; fl_set: B=row, C=col -> set VDP write address there. Preserves DE.
 fl_set:
   push de
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop de
   ret
 

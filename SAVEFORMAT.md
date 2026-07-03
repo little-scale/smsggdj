@@ -160,7 +160,8 @@ decompressed block; SMSGGDJ refuses anything else.
 - **`tools/savetool.html`** — drop an SMDJ4 image to view the directory (per-song
   name/size/checksum) and export each song as `.smdj4`. Fully client-side.
 - **`tools/smdj4.js`** — the node-tested format library behind both
-  (`expand`, `buildSav`/`readSav`, `wrapSmdj4`).
+  (`expand`, `buildSav`/`readSav`, `wrapSmdj4`). Self-test:
+  `node tools/smdj4.js` → `ALL PASS`.
 
 ## History
 

@@ -51,7 +51,7 @@ don't exist there (DESIGN.md §15).
 - There is no test suite; verification = build clean and run in Emulicious. Emulicious's PSG-DAC emulation is decent; the timing-critical sample/wave feed **and 32 KB SRAM (6 slots, second bank persists)** are **confirmed on real hardware** (Master Everdrive X7 on a PAL SMS1) — still worth checking NTSC and Game Gear hardware.
 - Build-generated includes (made automatically by `make` from the Python tools): `build/font.bin` (makefont.py), `build/notes.inc` (maketables.py — PAL+NTSC note-period tables, plus the `default_waves` preset table), `build/logo.bin`/`logo.inc` (makelogo.py from `art/`), and the sample pool (see below).
 - **Sample pool:** if `samples/pool.bin` exists (a 96 KB pool image, the production bank — committed, tuned in `tools/patcher.html`), the build bakes it in verbatim via `smsggdj_sample.py --pool-in`. Otherwise it converts `samples/*.wav` with `smsggdj_sample.py`. Delete `samples/pool.bin` to go back to the WAV pipeline. The pool region is byte-identical in both flavors, so one pool serves `.sms` and `.gg`.
-- Save images (emulator `.sav` / Everdrive `.srm`) are managed by the browser tools: `tools/savetool.html` (view/export songs from an SMDJ4 image) and `tools/migrate.html` (carry an old SMDJ3 save forward to SMDJ4). Format contract in SAVEFORMAT.md; node-tested library in `tools/smdj4.js`.
+- Save images (emulator `.sav` / Everdrive `.srm`) are managed by the browser tools: `tools/savetool.html` (view/export songs from an SMDJ4 image) and `tools/migrate.html` (carry an old SMDJ3 save forward to SMDJ4). Format contract in SAVEFORMAT.md; node-tested library in `tools/smdj4.js` (run the self-test with `node tools/smdj4.js` — expect `ALL PASS`).
 
 ## Architecture
 

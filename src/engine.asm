@@ -579,6 +579,7 @@ engine_tick:
 
   ; reload groove counter from the selected groove
   call groove_base
+  push hl                    ; cache the base for the pos advance below
   ld a, (groove_pos)
   ld e, a
   ld d, 0
@@ -590,7 +591,7 @@ engine_tick:
 et_gok:
   ld (groove_cnt), a
   ; advance groove pos (wrap at 16 or on 0-terminator)
-  call groove_base
+  pop hl                     ; base (cached groove_base result)
   ld a, (groove_pos)
   inc a
   cp 16
@@ -1838,7 +1839,7 @@ xc_kill:
   ld (ix+4), STG_IDLE        ; envelope done
   ld (ix+20), $FF            ; detach the table: its VOL column must not
                              ;   revive a hard-cut note (tables run free)
-  ld (ix+12), 0              ; FM voice off (stops fm_pitch_mod re-keying it)
+  ld (ix+12), 0              ; FM voice off (keyed-on flag clear)
   ld a, (cur_trig_ch)
   call smp_kill_owned        ; K00 also cuts the sample
   ld a, (cur_trig_ch)        ; ...and keys off the FM channel (harmless
@@ -2013,6 +2014,19 @@ lrb_lok:
 ; boundary. The carried phrase triggers the NEW song's instrument numbers (one
 ; song in RAM - timbre follows the load).
 
+; instr_rec: HL = instruments + A*16 (A = instrument # 0-15). The shared
+; record-address helper (bank 1, always mapped). Clobbers A/DE.
+instr_rec:
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, instruments
+  add hl, de
+  ret
+
 ; carry_chan_ix: IX = the carried channel's struct (chst + (CONT-1)*32).
 ; Caller guarantees CONT != OFF. Clobbers A/DE.
 carry_chan_ix:
@@ -2165,176 +2179,6 @@ tsh_loop:
   ret nc                     ; pathological hop chain: bail
   jr tsh_loop
 
-; fm_pitch_mod: per-tick FM pitch modulation (F/P/V on FM). *** CURRENTLY
-; DISABLED *** -- the cf_out hook that calls it is commented out. It never
-; produced an audible wobble despite the write path, the V param, and the phase
-; counter all being verified working in isolation. Left intact as a starting
-; point; see FM_VIBRATO_NOTES.md for the full investigation before re-enabling.
-;
-; FM doesn't use the PSG period, so the bend is recomputed here in F-number space
-; and written to the YM2413 each tick. ix+13/14 (the PSG sweep acc, unused on FM)
-; holds the accumulated P bend. c = channel, ix = struct; ends at cf_vol (keeps
-; c). fm_w clobbers only A, so DE/HL survive across the two register writes.
-; Offset = finetune - (bendacc >> 4) - vibrato; + raises pitch (more fnum).
-fm_pitch_mod:
-  ; Modulate whenever a note has played (cf_out already filtered ix+0==$FF).
-  ; The voice may have keyed off (hold expired / K) and be ringing out -- we
-  ; still bend its pitch, but write key-on=0 in that case (ix+12) so the pitch
-  ; updates without re-triggering the envelope.
-  ld a, (ix+17)              ; accumulate the P sweep (signed/tick) into 13/14
-  or a
-  jr z, fmpm_gate
-  ld e, a
-  rlca
-  sbc a, a
-  ld d, a
-  ld l, (ix+13)
-  ld h, (ix+14)
-  add hl, de
-  ld (ix+13), l
-  ld (ix+14), h
-fmpm_gate:
-  ld a, (ix+17)
-  or (ix+27)
-  jr nz, fmpm_go
-  ld a, (ix+18)
-  and $0F                    ; vibrato depth active?
-  jr nz, fmpm_go
-  ld a, (ix+13)
-  or (ix+14)
-  jp z, cf_vol               ; keyed on but nothing bending: leave the pitch
-fmpm_go:
-  ; build the signed fnum offset in HL = finetune - (acc>>4) - vibrato
-  ld a, (ix+27)              ; HL = sign-extended finetune (+ = up)
-  ld l, a
-  rlca
-  sbc a, a
-  ld h, a
-  ld e, (ix+13)              ; DE = acc >> 4 (signed)
-  ld d, (ix+14)
-  ld b, 4
-fmpm_sra:
-  sra d
-  rr e
-  djnz fmpm_sra
-  or a
-  sbc hl, de                 ; HL = finetune - acc>>4   (+P = down)
-  call fm_vib_delta          ; A = signed vib_tables value (0 if depth 0)
-  ld e, a
-  rlca
-  sbc a, a
-  ld d, a
-  or a
-  sbc hl, de                 ; HL -= vibrato  (period-domain delta -> fnum sign)
-  ex de, hl                  ; DE = signed fnum offset
-fmpm_lookup:
-  ld a, (ix+24)              ; base note = clamp(note + table semitone offset)
-  add a, (ix+0)
-  jp p, fmpm_nn
-  xor a
-fmpm_nn:
-  cp NOTE_COUNT
-  jr c, fmpm_nok
-  ld a, NOTE_COUNT-1
-fmpm_nok:
-  add a, a
-  ld l, a
-  ld h, 0
-  push de
-  ld de, (fm_note_ptr)
-  add hl, de
-  pop de
-  ld a, (hl)                 ; fnum low
-  inc hl
-  ld b, (hl)                 ; block<<1 | fnum8
-  ld l, a
-  ld a, b
-  and $01
-  ld h, a                    ; HL = 9-bit base fnum
-  ld a, b
-  rrca
-  and $07
-  ld b, a                    ; B = block 0-7
-  add hl, de                 ; fnum += offset
-  bit 7, d                   ; offset negative?
-  jr nz, fmpm_neg
-fmpm_ovf:
-  ld a, h
-  cp 2                       ; fnum >= 512: carry into the next block
-  jr c, fmpm_wr
-  srl h
-  rr l
-  inc b
-  ld a, b
-  cp 8
-  jr c, fmpm_ovf
-  ld hl, 511                 ; block maxed: clamp
-  ld b, 7
-  jr fmpm_wr
-fmpm_neg:
-  bit 7, h                   ; underflowed below 0: floor the fnum
-  jr z, fmpm_wr
-  ld hl, 0
-fmpm_wr:
-  ld d, c                    ; D = channel (fm_w preserves DE)
-  ld e, b                    ; E = block
-  ld a, d
-  add a, $10
-  ld c, a
-  ld b, l                    ; $10+ch = fnum low
-  call fm_w
-  ld a, e
-  add a, a                   ; block << 1
-  bit 0, h
-  jr z, fmpm_nf8
-  inc a                      ; | fnum8
-fmpm_nf8:
-  or $30                     ; | key-on | sustain (held: bend without re-keying)
-  ld b, a
-  ld a, d
-  add a, $20
-  ld c, a                    ; $20+ch = block | fnum8 | key-on
-  call fm_w
-  ld c, d                    ; restore c = channel for cf_vol
-  jp cf_vol
-
-; fm_vib_delta: A = signed vibrato delta from ix+18 (speed|depth) and ix+15
-; (phase), advancing the phase -- the same vib_tables lookup the PSG path uses.
-; Returns 0 when depth is 0. Preserves HL/IX; clobbers A/BC/DE.
-fm_vib_delta:
-  ld a, (ix+18)
-  and $0F
-  ret z                      ; depth 0: no vibrato
-  push hl
-  ld b, a                    ; depth
-  ld a, (ix+18)
-  and $F0
-  rrca
-  rrca                       ; speed * 4
-  ld c, a
-  ld a, (ix+15)
-  add a, c
-  ld (ix+15), a              ; advance phase
-  rrca
-  rrca
-  rrca
-  and $1F                    ; step 0-31
-  ld c, a
-  ld l, b
-  ld h, 0
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  add hl, hl                 ; depth * 32
-  ld b, 0
-  add hl, bc
-  ld bc, vib_tables
-  add hl, bc
-  ld a, (hl)                 ; signed delta
-  pop hl
-  ret
-
 .ENDS
 
 .BANK 0 SLOT 0
@@ -2343,14 +2187,7 @@ fm_vib_delta:
 ; trigger note on channel struct IX from instrument (ix+1)
 trigger_note:
   ld a, (ix+1)
-  add a, a
-  add a, a
-  add a, a
-  add a, a                   ; * 16
-  ld e, a
-  ld d, 0
-  ld hl, instruments
-  add hl, de
+  call instr_rec             ; HL = record
   ld a, (hl)                 ; +0 type
   ld b, a
   inc hl                     ; -> +1
@@ -2644,7 +2481,7 @@ tn_fm_p:
   ld c, a
   ld b, d
   call fm_w                  ; key-on | sustain | block | fnum8
-  ld (ix+12), 1              ; FM voice keyed on (gates fm_pitch_mod; ix+12 is
+  ld (ix+12), 1              ; FM voice keyed on (ix+12 doubles as
                              ;   the pitched-noise flag, free on FM channels)
   ; HLD: F (or 0) = ring per the FM patch envelope; 1-E = auto key-off
   ; after nibble*2 ticks (handled by ahd_process / STG_FMHOLD)
@@ -2929,14 +2766,7 @@ calc_trem:
 ; DAC, so SMP/WAV/FM/FMDRUM (type >= 2) are skipped. Preserves IX.
 retrig_volstep:
   ld a, (ix+1)               ; instrument type at record +0
-  add a, a
-  add a, a
-  add a, a
-  add a, a
-  ld l, a
-  ld h, 0
-  ld de, instruments
-  add hl, de
+  call instr_rec
   ld a, (hl)
   cp 2                       ; SMP/WAV/FM/FMDRUM: no volume step
   ret nc
@@ -3180,11 +3010,11 @@ cf_not2:
   ld a, (ix+0)
   cp $FF
   jr z, cf_vol
-  ; NOTE: live FM pitch modulation (F/P/V on FM) is implemented in fm_pitch_mod
-  ; below but currently DISABLED -- it never produced an audible wobble despite
-  ; the write path, param, and phase all verified working. See
-  ; FM_VIBRATO_NOTES.md before re-enabling (re-add: call chan_is_fm / jp z,
-  ; fm_pitch_mod / reload ix+0 here).
+  ; NOTE: live FM pitch modulation (F/P/V on FM) was prototyped as fm_pitch_mod
+  ; (hooked here) but never produced an audible wobble despite the write path,
+  ; param, and phase all verified working; the dead routine was removed. See
+  ; FM_VIBRATO_NOTES.md for the full investigation, and git history (pre-v0.37)
+  ; for the code, before reattempting.
   push bc
   call calc_period           ; note -> DE with sweep/vib applied
   pop bc
@@ -3796,7 +3626,7 @@ ahd_fmhold:
   ret nz
   ld a, STG_IDLE
   ld (ix+4), a
-  ld (ix+12), 0              ; FM voice keyed off: stop fm_pitch_mod re-keying it
+  ld (ix+12), 0              ; FM voice keyed off (keyed-on flag clear)
   push bc
   ld a, c
   add a, $20                 ; $20 + channel = key-off register

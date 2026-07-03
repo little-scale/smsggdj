@@ -752,14 +752,7 @@ fm_set_vol:
   ld d, a
   push de                    ; save channel (e) + attenuation (d)
   ld a, (ix+1)               ; hl = instrument record base
-  ld l, a
-  ld h, 0
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  ld de, instruments
-  add hl, de
+  call instr_rec
   push hl                    ; record base
   ld de, 11
   add hl, de
@@ -931,8 +924,7 @@ draw_frame_counter:
 .ENDIF
   ld b, 0
   ld c, 26
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   ld a, (frame+1)
   call print_hex_a
   ld a, (frame)
@@ -996,8 +988,7 @@ ds_print:
   push af
   ld b, STATE_ROW
   ld c, SYNC_COL
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop af
   jp print_char
 

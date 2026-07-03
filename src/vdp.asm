@@ -233,12 +233,17 @@ nt_addr_hl:
   add hl, de
   ret
 
+; set_text_at: B = row, C = col -> VDP write address set (the shared
+; nt_addr_hl + vdp_set_addr pair; text draws funnel through here)
+set_text_at:
+  call nt_addr_hl
+  jp vdp_set_addr
+
 ; print zero-terminated string: B = row, C = col, HL = string.
 ; Attribute byte comes from text_attr ($00 normal / $08 inverted).
 print_at:
   push hl
-  call nt_addr_hl
-  call vdp_set_addr
+  call set_text_at
   pop hl
 pa_loop:
   ld a, (hl)

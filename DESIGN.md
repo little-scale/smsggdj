@@ -1,5 +1,5 @@
 # SMSGGDJ — an LSDJ-inspired tracker for the Sega Master System & Game Gear
-**Design document v0.2 — 2026-06-11**
+**The living design contract** (started as v0.2, 2026-06-11; maintained alongside the code — see CHANGELOG.md for the release history). Settled decisions live here; don't re-litigate them.
 
 Target: a single ROM that runs on real SMS hardware (via flashcart) and in emulators.
 Sound: SN76489 PSG (including 4-bit PCM on it — see §10), plus the optional SMS YM2413 FM Sound Unit (SMS-only — see the FM addendum). CPU: Z80 @ 3.546893 MHz (PAL, default) / 3.579545 MHz (NTSC).
@@ -337,9 +337,9 @@ A:  1.000 .794  .631  .501  .398  .316  .251  .200  .158  .126  .100  .079  .063
 Linear PCM must be pre-mapped to these levels — that correction is the conversion tool's job (§10.5), not the Z80's. Effective dynamic range ≈ 28 dB; the log spacing actually flatters low-level detail (µ-law-like).
 
 ### 10.2 Channel allocation & arbitration
-- Samples are **KIT instruments on a tone track** — no fifth track. Host channel = PROJECT setting `SMP CH` (T1/T2/T3/**OFF**, default T3). OFF removes all sample overhead.
-- While a sample plays, the host channel's tone/volume belong to the DAC; a tracker note on that track stops the sample (and vice versa — last trigger wins).
-- T3 conflict matrix: pitched noise needs T3's *period*; samples need T3's period **= 1**. They cannot coexist. Priority: **sample > pitched noise** — while a sample plays on T3, pitched-noise instruments fall back to their nearest fixed rate (same fallback as `NOI MODE = FREE`); the steal glyph shows on the meter. Putting `SMP CH = T1` avoids the conflict entirely at the cost of a melodic channel.
+- Samples are **KIT instruments placeable on any track** — no fifth track. A KIT note always plays through **T3's DAC** (the note picks the kit slot; the host track's own PSG voice is silenced for that note). *(The originally-specced `SMP CH` host-channel setting was dropped — per-note hosting made it unnecessary.)*
+- While a sample plays, T3's tone/volume belong to the DAC; a new KIT trigger stops the previous sample (last trigger wins).
+- T3 conflict matrix: pitched noise needs T3's *period*; samples need T3's period **= 1**. They cannot coexist. Priority: **sample > pitched noise** — while a sample plays on T3, pitched-noise instruments fall back to their nearest fixed rate.
 
 ### 10.3 Data path
 - Sample pool lives in **banked ROM**: banks 2-7 (96 KB ≈ 24 s), implemented post-v0.2. The pool is **self-describing** (the contract for external patchers — file offset $8000, 96 KB): bank 2 starts `"SMPL"`, version, count, rate (word), then 64 directory entries × 10 bytes (was 32 before the 8-kit expansion — KITS×PER_KIT = 8×8) — bank, offset (word, $8000-based), length (word), name (5 ch). The directory index **is** the engine's `kit*8 + slot`, so the browser `patcher.html` lays the 64 slots out as 8 kits of 8 (empty slots = length-0 entries). Samples never cross a bank (≤ ~16 KB ≈ 4 s each); placement is first-fit. The engine caches the count at boot and reads directory entries at trigger time (interrupts held while the directory bank is paged); the playing sample's bank stays in slot 2, owned by the feeder. **SRAM mapping covers the pool banks**, so save/load abort any in-flight sample first.
@@ -480,7 +480,7 @@ parked for v2 along with MIDI out and Song Position Pointer.
 
 ## 12. Persistence
 
-- **With cart SRAM:** song data lives directly in SRAM (slot 2 via mapper reg 0xFFFC) → every edit instantly persistent, LSDJ-style. 32 KB = 2 song slots (load/save/erase/copy on PROJECT). Save format: magic + version + structure counts + checksum; failure → offer "init new song". Config block (VIDEO, SYNC, SMP CH, key repeat) saved alongside.
+- **With cart SRAM:** songs save to SRAM (slot 2 via mapper reg 0xFFFC) as a compressed directory + heap — the **SMDJ4** format, contract in SAVEFORMAT.md (this pre-dates it; as built, saves are explicit via FILES rather than instantly-persistent). Config block (colour, sync, video, FM) saved alongside at $BF60.
 - **Without SRAM** (boot write-test): song in internal 8 KB at baseline limits, visible "NO SAVE RAM — song is volatile" warning. Emulator save-states still work.
 - **Clone** (double-tap-1 on a populated cell, §3): duplicates the chain (SONG) or phrase (CHAIN) into the next free slot. **OPTIONS → CLONE: SLIM/DEEP** (default SLIM) governs *chain* cloning — SLIM = new chain, phrases shared (same numbers); DEEP = new chain plus fresh copies of every phrase it references (checked up front against the free-phrase budget). Phrase cloning is always an independent copy. No free slot → the cursor flashes and nothing changes (no partial clone).
 
