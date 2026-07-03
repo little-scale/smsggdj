@@ -124,6 +124,10 @@
   label_dirty  db
   vstamp_clr   db            ; 1 = strip the OPTIONS version stamp's col-0 tile
   song_edited  db            ; 1 = song data changed since last save/load (PROJECT UNSAVED)
+  cont_play    db            ; 1 = CONT: keep the transport running on FILES + across LOAD
+  sram_live    db            ; 1 = FILES has SRAM mapped over the pool: KIT triggers gated
+  carry_flag   db            ; 1 = carry_buf holds the NO track's phrase across a LOAD
+  carry_buf    dsb 64        ; the carried phrase (planted in slot 51 after the swap)
   ed_rep       db
   tmp_note     db
   tmp_instr    db
@@ -2607,7 +2611,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 2
+  cp 3
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2643,6 +2647,8 @@ prp_press:
   ret                        ; NEW/DEMO/SAVE/LOAD live on the FILES screen now
 prp_edit:
   ld a, (prj_row)
+  cp 3
+  jp z, prp_cont
   cp 2
   jp z, prp_play
   cp 1
@@ -2802,6 +2808,27 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE)
   ld a, 1
   ld (state_dirty), a
   ld a, 2
+  jp prj_mark_field
+prp_cont:                    ; 1 + L/R cycles CONT: OFF / T1 / T2 / T3 / NO. A
+  ld a, (ed_rep)             ; non-OFF value keeps the transport running on FILES
+  ld c, a                    ; + LOAD and carries THAT channel's phrase across.
+  ld a, (cont_play)
+  bit 3, c                   ; right -> next
+  jr z, pco_left
+  inc a
+  cp 5
+  jr c, pco_set
+  xor a                      ; wrap 4 -> 0
+  jr pco_set
+pco_left:
+  bit 2, c                   ; left -> prev
+  ret z
+  dec a
+  jp p, pco_set
+  ld a, 4                    ; wrap 0 -> 4 (NO)
+pco_set:
+  ld (cont_play), a
+  ld a, 3
   jp prj_mark_field
 
 ; -------------------------------------------------------------
@@ -3023,11 +3050,11 @@ stg_f2r:
 stg_r2f:
   .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF
 
-prj_f2r:                     ; TMPO/TSP/MODE sit below the NAME readout (rows 3-5)
-  .db 3, 4, 5
-prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, TMPO/TSP/MODE,
-  .db $FF, $FE, $FF, 0, 1, 2, $FF, $FD, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-                             ; blank, then row7 = UNSAVED status ($FD)
+prj_f2r:                     ; TMPO/TSP/MODE/CONT sit below the NAME readout (rows 3-6)
+  .db 3, 4, 5, 6
+prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, TMPO/TSP/MODE/CONT,
+  .db $FF, $FE, $FF, 0, 1, 2, 3, $FF, $FD, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+                             ; blank, then row8 = UNSAVED status ($FD)
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -5473,27 +5500,6 @@ dl_novc:
   ld c, NAME_COL
   ld hl, str_song
   call print_at
-  ; genmddj-style rule: dashes from after "SONG" up to the map tile
-  xor a
-  ld (text_attr), a
-  ld b, NAME_ROW
-  ld c, NAME_COL+4
-  call nt_addr_hl
-  call vdp_set_addr
-  ld b, MAP_COL-NAME_COL-4
-dl_so_rule:
-  ld a, '-'
-  push bc
-  call print_char
-  pop bc
-  djnz dl_so_rule
-  ; one dash above the row-index column
-  ld b, GRID_ROW-1
-  ld c, 0
-  call nt_addr_hl
-  call vdp_set_addr
-  ld a, '-'
-  call print_char
   ; track headers with mute state, cursor when in header
   ld c, 0                    ; track
 dl_so_hdr:
@@ -6197,9 +6203,9 @@ pr_draw_row:
   cp $FF
   ret z
   cp $FE
-  jr z, pr_draw_name         ; NAME readout row (loaded song's name)
+  jp z, pr_draw_name         ; NAME readout row (loaded song's name)
   cp $FD
-  jr z, pr_draw_unsaved      ; UNSAVED status row (blank when saved)
+  jp z, pr_draw_unsaved      ; UNSAVED status row (blank when saved)
   ld (ed_field), a
   ; label (col 4)
   xor a
@@ -6250,7 +6256,9 @@ prd_addr:
   jr z, prd_tsp
   cp 2
   jp z, prd_play
-  ret                        ; only fields 0..2 are drawn now
+  cp 3
+  jp z, prd_cont
+  ret                        ; only fields 0..3 are drawn now
 pr_draw_name:                ; $FE row: "NAME" label + the loaded song's 8-char name
   xor a
   ld (text_attr), a
@@ -6326,6 +6334,25 @@ prd_play:
 prd_pl4:
   ld b, 4
   jp print_raw
+prd_cont:                    ; OFF / T1 / T2 / T3 / NO (the carried channel)
+  ld a, (cont_play)
+  or a
+  jr nz, prd_cont_ch
+  ld hl, str_fmoff           ; "OFF " (shared with the FM field)
+  jr prd_pl4
+prd_cont_ch:
+  dec a                      ; 0..3 -> track_names offset *2
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, track_names         ; "T1T2T3NO"
+  add hl, de
+  ld b, 2                    ; two-char name...
+  call print_raw
+  ld a, ' '                  ; ...padded to the 4-wide field
+  call print_char
+  ld a, ' '
+  jp print_char
 prd_sync:
   ld a, (sync_mode)
   add a, a
@@ -6447,6 +6474,7 @@ prj_lbls:
   .db "TMPO", 0
   .db "TSP ", 0
   .db "MODE", 0
+  .db "CONT", 0
 stg_lbls:
   .db "VID ", 0
   .db "SRAM", 0
@@ -7308,9 +7336,19 @@ track_names:
 .SECTION "Files" FREE
 
 files_enter:                 ; entering FILES: stop, map SRAM, ensure a directory
+  ld a, (cont_play)          ; CONT: keep the transport running while browsing
+  or a                       ;   (tone/noise/FM keep sounding; samples are cut
+  jr z, fe_stop              ;   by smp_abort and gated while SRAM is mapped)
+  ld a, (play_state)
+  or a
+  jr nz, fe_keep
+fe_stop:
   call engine_stop
   ld a, 1
   ld (state_dirty), a        ; refresh the transport indicator (PLAY -> STOP)
+fe_keep:
+  ld a, 1
+  ld (sram_live), a          ; slot 2 = SRAM from here: no sample fetches
   call smp_abort
   call rle_dir_ensure        ; init the SMDJ4 directory on a fresh cart (maps SRAM)
   call rle_dir_pack          ; normalise any holes -> contiguous packed list
@@ -7324,6 +7362,7 @@ files_enter:                 ; entering FILES: stop, map SRAM, ensure a director
 files_leave:                 ; leaving FILES: restore the pool mapping
   xor a
   ld ($FFFC), a
+  ld (sram_live), a          ; slot 2 is the pool again: samples may fetch
   ret
 
 ; files_refresh: recompute file_count + file_room (the trailing-empty gate) and
@@ -7727,28 +7766,50 @@ flm_w:
   djnz flm_w
   ret
 
-fld_count:                   ; "nn SONGS" (or "FREED nn" after a purge)
+fld_count:                   ; "- nn SONGS ----" (or "FREED nn" after a purge)
   xor a
   ld (text_attr), a
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 1
+  ld c, 0
   call fl_set
   ld a, (purge_ui)
   cp $80
   jr z, flc_freed
+  ld a, '-'                  ; genmddj-style rule around the count
+  call print_char
+  ld a, ' '
+  call print_char
   ld a, (file_count)
   call fsp_dec2
   ld a, ' '
   call print_char
   ld hl, str_songs
-  jp fsp_str
+  call fsp_str
+  ld a, ' '
+  call print_char
+  ld b, 4
+flc_dash:
+  ld a, '-'
+  push bc
+  call print_char
+  pop bc
+  djnz flc_dash
+  ret
 flc_freed:
-  ld hl, str_freed           ; "FREED " + nn (same 8-wide footprint)
+  ld hl, str_freed           ; "FREED " + nn, padded over the dash rule
   call fsp_str
   ld a, (purge_freed)
-  jp fsp_dec2
+  call fsp_dec2
+  ld b, 7
+flc_fpad:
+  ld a, ' '
+  push bc
+  call print_char
+  pop bc
+  djnz flc_fpad
+  ret
 
 ; cm_files: up/down = slot cursor; left/right = name cursor (wraps 0..7).
 ; When the menu is open, up/down move the menu selection instead.
@@ -7907,7 +7968,7 @@ fp_files:
   jr z, fpx_load             ; 1 LOAD
   cp 2
   jr z, fpx_clear            ; 2 CLEAR
-  jr fpx_close               ; 5 CANCEL (and anything else): close, no-op
+  jp fpx_close               ; 5 CANCEL (and anything else): close, no-op
 fpx_prgp:
   ld a, (purge_ui)
   cp 3
@@ -7932,16 +7993,19 @@ fpp_done:
   ld (purge_ui), a
   jp mark_all_dirty
 fpx_load:
+  call load_carry_pre        ; CONT: stash the NO track's phrase pre-swap
   ld a, (files_row)          ; LOAD on the trailing empty slot = blank canvas
   ld hl, file_count
   cp (hl)
   jr c, fpl_file
   call song_new
-  jr fpx_close
+  call load_rebase           ; CONT: transport may still be running
+  jp fpx_close
 fpl_file:
   ld a, (files_row)
   call rle_song_load
-  jr fpx_close
+  call load_rebase           ; CONT: rebase eng_len/groove onto the new song
+  jp fpx_close
 fpx_save:
   ld a, (files_row)          ; song_name = the slot's inline-edited name
   call fl_entry

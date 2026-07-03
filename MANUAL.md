@@ -103,8 +103,18 @@ GROOVE and `2+Left` from GROOVE comes back.
 - **GROOVE** — swing and timing.
 - **WAVE** — draw the 8 wavetable shapes (above INSTR).
 - **ECHO** — a tempo-synced delay that echoes T1 onto T2/T3 (below INSTR).
-- **PROJECT** — this song: name, tempo, transpose, mode, and an `UNSAVED` flag
-  when there are changes not yet written to a slot.
+- **PROJECT** — this song: name, tempo, transpose, mode, continuous play
+  (**CONT**), and an `UNSAVED` flag when there are changes not yet written to a
+  slot. Set **CONT** to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is default) and
+  going to FILES doesn't stop playback, and **LOAD swaps the song under the
+  running clock** — playing tracks keep their positions and pick up the new song's
+  material on the beat. The **chosen channel's playing phrase is carried across
+  the load** (planted in reserved slots phrase 51 / chain 39, so keep those free
+  in songs you perform with CONT): in LIVE it loops until you queue something new,
+  in SONG it plays out and merges. Pick the channel holding your groove (NO for
+  drums, T1–T3 for a bass or pad). Samples are silent while FILES is open (they
+  return when you leave), and the carried phrase sounds with the new song's
+  instruments.
 - **FILES** — save, load and manage your songs on the cartridge (below SONG).
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).
@@ -216,8 +226,10 @@ NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
   - **HLD** `0`–`F` — how long it holds at VOL: `0` = no hold, `1`–`E` =
     nibble × 2 ticks (up to ~0.5 s), **`F` = ∞** (sustain until the note
     retriggers or a `K` cuts it).
-  - **DCY** `0`–`F` — decay rate, ticks per volume step on the way down
-    (`0` = cut instantly at the end of the hold); same `VOL × DCY` timing.
+  - **DCY** `0`–`F` — decay rate, ticks per volume step on the way down;
+    same `VOL × DCY` timing. **`0` = fast decay**: 4 levels per tick
+    (15→11→7→3→0, a ~5-frame percussion tail — tight hats and snares on
+    noise). For a true instant cut, use `K00`.
 
   A plain sustained tone is **ATK 0 / HLD F / DCY 0**, a pluck is
   **ATK 0 / HLD 0 / DCY 3**, a pad is **ATK 8 / HLD 4 / DCY 8**. Note an `F`

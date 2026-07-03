@@ -1836,6 +1836,8 @@ xc_kill:
   jr nz, xc_klater
   ld (ix+2), 0               ; K00: cut now
   ld (ix+4), STG_IDLE        ; envelope done
+  ld (ix+20), $FF            ; detach the table: its VOL column must not
+                             ;   revive a hard-cut note (tables run free)
   ld (ix+12), 0              ; FM voice off (stops fm_pitch_mod re-keying it)
   ld a, (cur_trig_ch)
   call smp_kill_owned        ; K00 also cuts the sample
@@ -1947,6 +1949,176 @@ st_ok:
   inc hl
   ld (hl), 0
   pop bc
+  ret
+
+; load_rebase: called after LOAD swapped the song block while the transport is
+; running (CONT). The channels keep their positions (chain/phrase/row indices
+; now read the NEW song's pools), but two globals derived from the old data
+; must be rebased: eng_len (the song wrap point) and the groove (the selected
+; groove may be empty in the new song). No-op when stopped. Clobbers A/BC/DE/HL.
+load_rebase:
+  ld a, (play_state)
+  or a
+  ret z
+  ; rescan the new song for its wrap point (same scan as engine_play)
+  ld hl, song + SONG_ROWS*4 - 1
+  ld bc, SONG_ROWS*4
+lrb_scan:
+  ld a, (hl)
+  cp $FF
+  jr nz, lrb_found
+  dec hl
+  dec bc
+  ld a, b
+  or c
+  jr nz, lrb_scan
+lrb_found:
+  ld h, b                    ; eng_len = ceil(bytes/4), min 1
+  ld l, c
+  ld bc, 3
+  add hl, bc
+  srl h
+  rr l
+  srl h
+  rr l
+  ld a, l
+  or a
+  jr nz, lrb_lok
+  inc a
+lrb_lok:
+  ld (eng_len), a
+  ; queued LIVE cells reference the OLD song's grid (and a pending $FE
+  ; chain-end stop would fire against the carried chain): clear them all
+  ld a, $FF
+  ld (live_q), a
+  ld (live_q+1), a
+  ld (live_q+2), a
+  ld (live_q+3), a
+  ; groove sanity: an empty groove would stall the clock -> fall back to 0
+  call groove_base
+  ld a, (hl)
+  or a
+  jr nz, load_carry_post
+  xor a
+  ld (groove_sel), a
+  ld (groove_pos), a
+  ; fall through to the carry plant
+
+; The beat-carry pair (CONT LOAD while playing): pre stashes the CARRIED track's
+; current phrase before the block swap; post plants it in the RESERVED slots
+; (phrase 51 / chain 39) and repoints that channel there, so the old part keeps
+; sounding through the load. The carried channel is CONT-1 (OFF/T1/T2/T3/NO on
+; PROJECT). In LIVE the carried chain loops until the player queues new material;
+; in SONG it plays out and merges into the new song's column at the next chain
+; boundary. The carried phrase triggers the NEW song's instrument numbers (one
+; song in RAM - timbre follows the load).
+
+; carry_chan_ix: IX = the carried channel's struct (chst + (CONT-1)*32).
+; Caller guarantees CONT != OFF. Clobbers A/DE.
+carry_chan_ix:
+  ld a, (cont_play)
+  dec a                      ; CONT-1 = channel 0..3
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a                   ; * 32
+  ld e, a
+  ld d, 0
+  ld ix, chst
+  add ix, de
+  ret
+
+load_carry_post:
+  ld a, (carry_flag)
+  or a
+  ret z
+  xor a
+  ld (carry_flag), a
+  ; collision guard: if the NEW song actually uses the reserved slots, don't
+  ; clobber its material -- skip the plant (the carried channel then simply
+  ; plays the new song's content at its old position, plain CONT behavior)
+  ld hl, phrase_pool + 51*64 ; phrase 51 used = any step with a note or command
+  ld b, 16
+lcp_pchk:
+  ld a, (hl)                 ; +0 note
+  or a
+  ret nz
+  inc hl
+  inc hl
+  ld a, (hl)                 ; +2 command
+  or a
+  ret nz
+  inc hl
+  inc hl
+  djnz lcp_pchk
+  ld hl, chains + 39*32      ; chain 39 used = any step with a phrase
+  ld b, 16
+lcp_cchk:
+  ld a, (hl)
+  cp $FF
+  ret nz
+  inc hl
+  inc hl
+  djnz lcp_cchk
+  ld hl, carry_buf           ; plant the phrase in reserved slot 51
+  ld de, phrase_pool + 51*64
+  ld bc, 64
+  ldir
+  ld hl, chains + 39*32      ; chain 39 = [phrase 51], rest empty
+  ld (hl), 51
+  inc hl
+  ld (hl), 0
+  inc hl
+  ld b, 15
+lcp_fill:
+  ld (hl), $FF
+  inc hl
+  ld (hl), 0
+  inc hl
+  djnz lcp_fill
+  push ix                    ; repoint the carried channel (position preserved:
+  call carry_chan_ix         ;   chan_row keeps ticking, so the phrase row
+  ld (ix+10), 51             ;   continues exactly where it was)
+  ld (ix+11), 39
+  ld (ix+8), 0
+  pop ix
+  ld a, 1                    ; the working copy now differs from the slot
+  ld (song_edited), a
+  ret
+
+load_carry_pre:
+  ld a, (play_state)
+  or a
+  ret z
+  ld a, (cont_play)          ; OFF: nothing to carry (also guards carry_chan_ix)
+  or a
+  ret z
+  push ix
+  call carry_chan_ix         ; IX = the carried channel
+  ld a, (ix+6)
+  or a
+  jr z, lcpre_no             ; silent: nothing to carry
+  ld a, (ix+10)
+  cp NUM_PHRASES
+  jr nc, lcpre_no            ; no real phrase loaded
+  ld l, a                    ; stash phrase_pool + phrase*64
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, phrase_pool
+  add hl, de
+  ld de, carry_buf
+  ld bc, 64
+  ldir
+  ld a, 1
+  ld (carry_flag), a
+lcpre_no:
+  pop ix
   ret
 
 ; tbl_skip_hops: advance ix+21 (the table's next row) past any H rows, so an H
@@ -2311,6 +2483,9 @@ tn_sspd:
   ld a, (smp_count)
   or a
   jr z, tn_squiet            ; empty pool: just silence the host
+  ld a, (sram_live)          ; FILES has SRAM over the pool (CONT playing):
+  or a                       ;   a fetch would feed SRAM bytes as audio
+  jr nz, tn_squiet
   ld d, a                    ; D = sample count
   ; kit system: 8 kits of 8 -> sample = kit*8 + (note & 7). kit = instrument
   ; record +2 (0-7); slots past the loaded count are empty -> silence.
@@ -3568,18 +3743,23 @@ ahd_hld:
 ; ---- hold done -> set up decay (DCY rate) ----
 ahd_begin_decay:
   ld a, (ix+5)
-  and $0F                    ; DCY rate
-  jr z, ahd_cut              ; DCY 0 -> instant cut
+  and $0F                    ; DCY rate (0 = fast decay, handled in ahd_dcy)
+  jr nz, abd_pace
+  inc a                      ; fast path ignores the pace counter; keep it sane
+abd_pace:
   ld (ix+3), a               ; pace counter
   ld a, STG_DCY
   ld (ix+4), a
   ret
 
 ; ---- decay: ramp peak -> 0 ----
+; DCY 1-F: one volume level per DCY ticks (unchanged). DCY 0: FAST decay -
+; subtract 4 levels per tick (15->11->7->3->0, ~5 frames), a percussion tail
+; instead of the old same-frame hard cut (K00 still cuts instantly).
 ahd_dcy:
   ld a, (ix+5)
   and $0F
-  jr z, ahd_cut
+  jr z, ahd_fast
   dec (ix+3)
   ret nz
   ld (ix+3), a               ; reload pace
@@ -3589,6 +3769,14 @@ ahd_dcy:
   dec a
   ld (ix+2), a
   ret nz
+  jr ahd_cut
+ahd_fast:
+  ld a, (ix+2)               ; no tick counter: one step per tick
+  cp 5
+  jr c, ahd_cut              ; <= 4: final step to silence
+  sub 4
+  ld (ix+2), a
+  ret
 ahd_cut:
   ld (ix+2), 0
   ld a, STG_IDLE

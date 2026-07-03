@@ -1014,7 +1014,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
-str_version:     .db "V0.36", 0
+str_version:     .db "V0.37", 0
 str_syncsym:     .db $20, $3E, $5C, $40, $20, $5E  ; OFF OUT> PULSE IN< MIDI IN24<<
 str_rest:        .db "---"
 

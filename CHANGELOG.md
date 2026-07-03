@@ -3,6 +3,43 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.37 — unreleased
+
+### Added
+- **CONT — continuous play across FILES and LOAD** (PROJECT, below MODE). Set
+  `CONT` to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is the default) and
+  entering FILES no longer stops the transport: whatever chains are playing keep
+  sounding while you browse, and **LOAD swaps the song under the running clock** —
+  the playing tracks keep their grid positions and seamlessly pick up the new
+  song's material, so you can transition between songs in a set without dropping
+  the beat. **The chosen channel's playing phrase is carried across the load**:
+  it's stashed before the swap and planted in the reserved transition slots
+  (**phrase 51 / chain 39**), so that part keeps rolling through the load — in
+  LIVE it loops until you queue new material, in SONG it plays out and merges into
+  the new song's column. Pick the channel that carries your groove (NO for a
+  drum part, T1–T3 for a bassline or pad). Notes: the carried phrase triggers the
+  *new* song's instrument numbers (RAM holds one song, so timbre follows the
+  load); samples (KIT) are silent while FILES has the cartridge SRAM mapped over
+  the sample pool (hardware constraint — tone, noise, wave and FM keep playing)
+  and return when you leave; a transition dirties phrase 51 / chain 39 in the
+  working copy, so treat those slots as reserved if you perform with CONT. If the
+  incoming song already **uses** phrase 51 or chain 39, the carry skips rather
+  than clobber that material (the carried channel just plays the new song's
+  content at its position). Any **queued LIVE cells are cleared on a load** —
+  they referenced the old song's grid.
+- **FILES header restyled** — a genmddj-style dash rule around the `nn SONGS`
+  count (the SONG-screen title rule from the last dev build is gone).
+
+### Changed
+- **`DCY 0` is now a fast decay, not an instant cut** (ported from genmddj).
+  It steps the volume down 4 levels per tick — 15→11→7→3→0, a ~5-frame
+  (~66 ms NTSC / 80 ms PAL) percussion tail — instead of hard-cutting to
+  silence in one frame with an audible click. The main win is tight hats and
+  snares on the noise channel. An instant cut is still available via `K00`,
+  which is now also a **hard** kill: it detaches a running table so its VOL
+  column can't revive the cut note. Existing songs using `DCY 0` gain the
+  short tail (no save-format change).
+
 ## v0.36 — 2026-07-02
 
 ### Added

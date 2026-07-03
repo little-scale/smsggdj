@@ -201,7 +201,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 | VOL | 0–F | peak / hold volume (F = loudest) |
 | ATK | 0–F | attack: ticks per volume step on the way up (0 = instant). Full ramp = VOL × ATK ticks |
 | HLD | 0–F | hold at VOL: 0 = none, 1–E = nibble × 2 ticks, **F = ∞** (sustain until retrigger / `K`) |
-| DCY | 0–F | decay: ticks per volume step on the way down (0 = instant cut at end of hold) |
+| DCY | 0–F | decay: ticks per volume step on the way down (0 = fast decay, 4 levels/tick ≈ 5-frame tail; instant cut is `K00`) |
 | TBL | 0–1F / -- | table assignment |
 | TBL SPD | 0–F | ticks per table row; **0 (shown `N`) = advance one row per triggered note** instead of per tick |
 | TSP | ±24 | semitone transpose |
