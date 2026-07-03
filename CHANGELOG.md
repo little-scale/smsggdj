@@ -31,6 +31,9 @@ The git history has the full detail; this is the curated summary.
   count (the SONG-screen title rule from the last dev build is gone).
 
 ### Changed
+- **The CONT setting is persisted** with the rest of the machine config (the
+  `CF` block grows to 8 bytes, v2 — legacy 7-byte configs still load, with
+  CONT defaulting to OFF).
 - **`DCY 0` is now a fast decay, not an instant cut** (ported from genmddj).
   It steps the volume down 4 levels per tick — 15→11→7→3→0, a ~5-frame
   (~66 ms NTSC / 80 ms PAL) percussion tail — instead of hard-cutting to
@@ -39,6 +42,17 @@ The git history has the full detail; this is the curated summary.
   which is now also a **hard** kill: it detaches a running table so its VOL
   column can't revive the cut note. Existing songs using `DCY 0` gain the
   short tail (no save-format change).
+
+### Fixed
+- **A save can no longer overwrite the OPTIONS config block.** Bank-0 heap
+  placement (saving *and* compaction) is now capped below the config at `$3F60`
+  ($1F60 on 8 KB carts): a near-raw blob bumps to bank 1 on a 32 KB cart or
+  reports SRAM FULL on a single-bank cart. Previously a pathological
+  incompressible song could clobber the stored palette/sync/video/FM.
+- **Migrated saves keep their config.** `tools/smdj4.js buildSav` wrote the
+  config block at a superblock offset the ROM never reads; it now lands at the
+  real `$3F60`/`$1F60`, so a save migrated with `tools/migrate.html` boots with
+  its palette/sync/video/FM intact.
 
 ## v0.36 — 2026-07-02
 

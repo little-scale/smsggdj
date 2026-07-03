@@ -337,11 +337,12 @@ rle_advance_run:              ; bp += rle_cnt units, rem -= rle_cnt
 .DEFINE SD4_CAP     $8000            ; max capacity (32K). The live capacity is the
                                      ; runtime `sd4_cap` (set from sram_detect: 8K/
                                      ; 16K/32K); SD4_CAP is only the heap-scan sentinel.
-; NOTE: the OPTIONS config block lives at CFG_ADDR $BF60 = logical heap offset
-; $3F60 (16224) in bank 0, which sits inside this heap range. Compressed songs
-; bump to bank 1 long before reaching it, but a pathological near-raw blob could
-; in theory overwrite it. Fix someday: cap bank-0 heap below $3F60 (or relocate
-; the config). Mirror any change in tools/smdj4.js buildSav + SAVEFORMAT.md.
+; The OPTIONS config block lives at CFG_ADDR $BF60 = logical offset $3F60 in
+; bank 0 ($1F60 on an 8K cart, whose window mirrors). Bank-0 blob placement is
+; CAPPED below it (rle_can_save) so a near-raw blob can never overwrite the
+; config. Mirrored in tools/smdj4.js buildSav; contract in SAVEFORMAT.md.
+.DEFINE CFG_LOG16   $3F60            ; config's logical offset, 16/32K carts
+.DEFINE CFG_LOG8    $1F60            ; ...and on an 8K cart (mirrored window)
 
 ; map a logical SRAM offset HL -> set $FFFC to its 16 KB bank and
 ; return HL = $8000 + (off & $3FFF). No-straddle => map once per blob.
@@ -486,32 +487,33 @@ rle_dir_ensure:
 ; FILES UI (trailing-empty-slot gate).
 rle_can_save:
   call rle_heap_end                    ; rle_heapmax = heap_end (HL too)
-  ; single-bank carts (<= 16K) have no internal $4000 boundary -> no straddle bump
-  ld a, (sd4_cap+1)
-  cp $80
-  jr c, rcs_fits                       ; cap < 32K -> skip the bump
-  ; no-straddle: if (heap_end & $3FFF) + SAVE_SIZE > $4000, bump to next bank
-  ld a, h
-  and $3F
-  ld d, a
-  ld e, l                              ; DE = heap_end within-bank offset
-  ld hl, SAVE_SIZE
-  add hl, de
+  ; bank-0 placements are capped BELOW the config block ($3F60 / $1F60 on 8K).
+  ; This also subsumes the old no-straddle $4000 bump: a blob that fits under
+  ; the config can't cross the bank boundary either.
   ld a, h
   cp $40
-  jr c, rcs_fits
-  jr nz, rcs_bump
-  ld a, l
+  jr nc, rcs_fits                      ; already placing in bank 1: cap check only
+  ex de, hl                            ; DE = heap_end
+  ld hl, CFG_LOG16
+  ld a, (sd4_cap+1)
+  cp $20
+  jr nz, rcs_lim
+  ld hl, CFG_LOG8                      ; 8K cart: mirrored config at $1F60
+rcs_lim:
   or a
-  jr z, rcs_fits
-rcs_bump:
-  ld hl, (rle_heapmax)
+  sbc hl, de                           ; room below the config = limit - heap_end
+  jr c, rcs_bump                       ; heap already past it (legacy image)
+  ld de, SAVE_SIZE
+  ld a, l
+  sub e
   ld a, h
-  and $C0
-  ld h, a
-  ld l, 0                              ; heap_end & ~$3FFF (bank base)
-  ld de, $4000
-  add hl, de                           ; next bank boundary
+  sbc a, d                             ; room - SAVE_SIZE: carry = would hit config
+  jr nc, rcs_fits
+rcs_bump:
+  ld a, (sd4_cap+1)
+  cp $80
+  jr c, rcs_full                       ; single bank: nowhere to bump -> full
+  ld hl, $4000                         ; 32K: place at the bank 1 base
   ld (rle_heapmax), hl
 rcs_fits:
   ld hl, (rle_heapmax)                 ; capacity: heap_end + SAVE_SIZE > CAP?
@@ -812,32 +814,29 @@ rle_compact:
 rcp_loop:
   call rcp_findmin                     ; bank 0; Z = none left, NZ = found
   jr z, rcp_done
-  ld a, (sd4_cap+1)                    ; single-bank cart -> no straddle bump
-  cp $80
+  ld a, (sd4_cap+1)                    ; single-bank cart: moves are only "down",
+  cp $80                               ; so a blob can never newly cross the config
   jr c, rcp_nobump
-  ; no-straddle: if (dst & $3FFF) + len > $4000, bump dst to the next bank
+  ; bank-0 dst is capped below the config block ($3F60): a blob that would
+  ; cross it bumps to bank 1 (which also keeps the no-straddle invariant --
+  ; without this, compaction could pull a bank-1 blob down over the config)
   ld hl, (rcp_dst)
-  ld a, h
-  and $3F
-  ld d, a
-  ld e, l                              ; DE = dst within-bank offset
-  ld hl, (rcp_len)
-  add hl, de
   ld a, h
   cp $40
-  jr c, rcp_nobump
-  jr nz, rcp_bump
-  ld a, l
+  jr nc, rcp_nobump                    ; dst already in bank 1
+  ex de, hl                            ; DE = dst
+  ld hl, CFG_LOG16
   or a
-  jr z, rcp_nobump
-rcp_bump:
-  ld hl, (rcp_dst)
+  sbc hl, de                           ; room below the config
+  jr c, rcp_bump                       ; dst already past it (legacy image)
+  ld de, (rcp_len)
+  ld a, l
+  sub e
   ld a, h
-  and $C0
-  ld h, a
-  ld l, 0                              ; dst & ~$3FFF (bank base)
-  ld de, $4000
-  add hl, de
+  sbc a, d                             ; room - len: carry = would hit the config
+  jr nc, rcp_nobump
+rcp_bump:
+  ld hl, $4000                         ; dst was in bank 0: next bank = bank 1 base
   ld (rcp_dst), hl
 rcp_nobump:
   ld hl, (rcp_dst)                     ; already in place? skip the move

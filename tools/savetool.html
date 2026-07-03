@@ -124,9 +124,13 @@ function readConfig(d) {
   const o = cfgOff(d.length);
   if (o + 7 > d.length || d[o] !== 0x43 || d[o + 1] !== 0x46) return null;
   const col = d[o + 2], sync = d[o + 3], vid = d[o + 4], fm = d[o + 5];
-  if (((col + sync + vid + fm) & 0xff) !== d[o + 6] ||
-      col > 7 || sync > 3 || vid > 2 || fm > 1) return null;
-  return { col, sync, vid, fm };
+  if (col > 7 || sync > 3 || vid > 2 || fm > 1) return null;
+  const sum = (col + sync + vid + fm) & 0xff;
+  // legacy 7-byte block (ck at +6) or v2 8-byte block (+6 = CONT, ck at +7)
+  if (sum === d[o + 6]) return { col, sync, vid, fm };
+  if (o + 8 <= d.length && ((sum + d[o + 6]) & 0xff) === d[o + 7])
+    return { col, sync, vid, fm, cont: d[o + 6] };
+  return null;
 }
 function writeConfig(img) {
   if (!document.getElementById("cfgon").checked) return;

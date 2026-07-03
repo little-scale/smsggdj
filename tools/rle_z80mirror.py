@@ -75,6 +75,11 @@ def main():
     cases["all-FF"] = bytes([0xFF]) * 5376
     cases["all-00"] = bytes(5376)
     cases["random"] = bytes((i * 2654435761 >> 13) & 0xFF for i in range(5376))
+    # SMDJ4-sized blocks (6912 B = 52 phrases / 40 chains; the live format)
+    cases["smdj4-00"] = bytes(6912)
+    cases["smdj4-FF"] = bytes([0xFF]) * 6912
+    cases["smdj4-rand"] = bytes((i * 2654435761 >> 11) & 0xFF for i in range(6912))
+    cases["smdj4-sparse"] = (bytes(64) + b"\x30\x02\x00\x00" + bytes(60)) * 54
     # small hand cases that stress runs/literals/boundaries
     cases["maxrun"] = (b"\xAA\xAA\xAA\xAA" * 200)          # > 129 -> splits 129 + 71
     cases["alt"] = bytes(range(4)) * 64 + bytes([0xFF])*4  # all-literal-ish + tail

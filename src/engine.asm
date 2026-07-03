@@ -928,6 +928,8 @@ sc_loop:
   inc a
   and $0F
   ld (hl), a
+  ld (cur_row), a            ; cur_row tracks this channel's row for the whole
+                             ;   pass (only the hop path below changes it)
   jr z, sc_bound             ; row wrapped -> phrase boundary
   ld a, (ix+6)               ; mid-phrase: process only if active
   or a
@@ -942,12 +944,6 @@ sc_setrow:
   xor a
   ld (hop_guard), a          ; fresh per-row hop budget
 sc_reproc:
-  ld d, 0                    ; cur_row = this channel's row (advance_track
-  ld e, c                    ;   clobbers DE, so recompute the index)
-  ld hl, chan_row
-  add hl, de
-  ld a, (hl)
-  ld (cur_row), a
   call process_chan
   ; immediate H: a hop on this row jumps to row 0 and re-processes NOW, so the
   ; H row spends no tick of its own. Guarded so an all-H phrase can't spin.
@@ -969,6 +965,8 @@ sc_reproc:
   ld hl, chan_row
   add hl, de
   ld (hl), 0                 ; hop target = row 0
+  xor a
+  ld (cur_row), a            ; ...and reprocess from row 0
   call advance_track         ; loop the phrase / step the chain, as a boundary
   jr sc_reproc
 sc_next:
@@ -3224,11 +3222,12 @@ rng_nt:
   ret
 
 ; -------------------------------------------------------------
-; OPTIONS config block (colour, sync, video) at CFG_ADDR ($BF60),
+; OPTIONS config block (colour, sync, video, FM, CONT) at CFG_ADDR ($BF60),
 ; separate from the song slots. On a 16K/32K cart that's the free tail
 ; past slot 2; on an 8K cart the window mirrors, so $BF60 lands at real
-; $1F60 - also free (past slot 0). 6 bytes:
-;   'C' 'F' pal_sel sync_mode vid_sel checksum(=pal+sync+vid & FF)
+; $1F60 - also free (past slot 0). 8 bytes (v2):
+;   'C' 'F' pal_sel sync_mode vid_sel fm_on cont checksum(=sum of the 5)
+; Legacy 7-byte blocks (no cont) are still accepted by config_load.
 config_save:                 ; called by song_save (SRAM already on)
   ld a, $08                  ; select bank 0
   ld ($FFFC), a
@@ -3254,8 +3253,13 @@ config_save:                 ; called by song_save (SRAM already on)
   ld a, (fm_on)
   ld (hl), a
   add a, b
+  ld b, a
   inc hl
-  ld (hl), a                 ; checksum = pal+sync+vid+fm
+  ld a, (cont_play)
+  ld (hl), a
+  add a, b
+  inc hl
+  ld (hl), a                 ; checksum = pal+sync+vid+fm+cont
   ret
 
 config_load:                 ; boot: restore OPTIONS if a valid block exists
@@ -3284,9 +3288,23 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   ld a, c
   add a, b
   add a, e
-  add a, d
-  cp (hl)                    ; checksum match? (pal+sync+vid+fm)
+  add a, d                   ; A = legacy sum (pal+sync+vid+fm)
+  cp (hl)                    ; +6: legacy checksum? (a v2 block has cont here;
+  jr z, cfgl_v1              ;   ambiguity only when sum==cont, both tiny/benign)
+  add a, (hl)                ; v2: sum += cont
+  inc hl
+  cp (hl)                    ; +7: v2 checksum?
   jr nz, cfgl_done
+  dec hl
+  ld a, (hl)                 ; cont 0-4 (OFF/T1/T2/T3/NO)
+  cp 5
+  jr nc, cfgl_done
+  ld (cont_play), a
+  jr cfgl_vals
+cfgl_v1:
+  xor a                      ; legacy 7-byte block: CONT defaults OFF
+  ld (cont_play), a
+cfgl_vals:
   ld a, c
   cp 8                       ; pal_sel 0-7?
   jr nc, cfgl_done

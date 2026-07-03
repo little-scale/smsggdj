@@ -133,20 +133,24 @@ save — negligible on 32 KB, but it leaves an 8 KB cart room for only ~one song
 
 ## OPTIONS config block
 
-The machine config (colour scheme, sync mode, video, FM toggle) lives **outside**
-the SMDJ4 structure, at CPU `$BF60` (`CFG_ADDR`) in bank 0 — file offset `$3F60`
-on a 16/32 KB image; on an 8 KB cart the window mirrors, so it lands at `$1F60`.
-7 bytes: `'C' 'F' pal_sel sync_mode vid_sel fm_on checksum` (checksum =
-`pal_sel + sync_mode + vid_sel + fm_on` & `$FF`). `vid_sel`: `0` AUTO, `1` PAL,
-`2` NTSC; `fm_on`: `0` off / `1` on. Written whenever you save a song, read at
-boot.
+The machine config (colour scheme, sync mode, video, FM toggle, CONT) lives
+**outside** the SMDJ4 structure, at CPU `$BF60` (`CFG_ADDR`) in bank 0 — file
+offset `$3F60` on a 16/32 KB image; on an 8 KB cart the window mirrors, so it
+lands at `$1F60`. 8 bytes (v2, since v0.37):
+`'C' 'F' pal_sel sync_mode vid_sel fm_on cont checksum` (checksum = sum of the
+five value bytes & `$FF`). `vid_sel`: `0` AUTO, `1` PAL, `2` NTSC; `fm_on`: `0`
+off / `1` on; `cont`: `0` OFF / `1`–`4` = T1/T2/T3/NO (the continuous-play
+carry channel). Written whenever you save a song, read at boot. **Legacy
+7-byte blocks** (no `cont`; checksum of four at `+6`) are still accepted —
+the loader tries the legacy formula first, then v2.
 
-> **Known caveat:** that config offset (`$3F60` = 16224) sits *inside* bank 0's
-> heap range, and nothing carves it out. Compressed songs bump to bank 1 well
-> before the heap reaches it, so in practice it's safe — but a pathological
-> near-raw blob filling bank 0 could overwrite it. A future fix would cap bank-0
-> heap below `$3F60` (or relocate the config) on both the ROM (`src/rle.asm`) and
-> `tools/smdj4.js buildSav`.
+> The config offset (`$3F60` = 16224) sits inside bank 0's heap range, so
+> **bank-0 blob placement is capped below it**: a blob that would cross `$3F60`
+> bumps to bank 1 on a 32 KB cart (this subsumes the no-straddle `$4000` bump)
+> or reports SRAM FULL on a single-bank cart. Enforced by both the ROM
+> (`rle_can_save` *and* `rle_compact` in `src/rle.asm` — compaction could
+> otherwise pull a bank-1 blob down over the config) and `tools/smdj4.js
+> buildSav` (covered by its self-test).
 
 A song entry loads only when `valid == $A5` and the stored checksum matches the
 decompressed block; SMSGGDJ refuses anything else.

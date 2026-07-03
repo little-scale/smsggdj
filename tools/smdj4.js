@@ -82,24 +82,30 @@
   // ---- directory/heap .sav assembly ----
   // songs: array of {block(6912), echo?(8), name?(8)} | null. cartKB in {8,16,32}.
   // Blobs are no-straddle (never cross a 16 KB bank boundary), matching the ROM.
-  function buildSav(songs, cartKB, config /*opt 7-byte*/) {
+  // The OPTIONS config block lives at $3F60 ($1F60 on an 8K cart); the ROM reads
+  // it from CPU $BF60 with SRAM bank 0 mapped.
+  function cfgOff(totalBytes) { return totalBytes <= 0x2000 ? 0x1F60 : 0x3F60; }
+
+  function buildSav(songs, cartKB, config /*opt 7-byte 'C''F'... block*/) {
     const total = cartKB * 1024;
+    const CFG = cfgOff(total);
     const sav = new Uint8Array(total);            // $00-filled
     sav.set(MAGIC4, 0);
     sav[5] = 1;                                   // version
     sav[6] = DIR_ENTRIES;
-    if (config) sav.set(config.subarray(0, 7), 7);
+    if (config) sav.set(config.subarray(0, 7), CFG); // where the ROM reads it
     let heapEnd = HEAP_OFF;
     for (let i = 0; i < DIR_ENTRIES; i++) {
       const s = songs[i];
       const e = DIR_OFF + i * DIR_ENTRY;
       if (!s) { sav[e] = 0; continue; }           // free entry
-      // no-straddle: a blob must stay inside one 16 KB bank, since the ROM maps
-      // a single bank and reads it with a flat pointer. Mirror the ROM, which
-      // reserves the worst case (SMDJ4.LEN) before packing and bumps to the next
-      // bank boundary when it wouldn't fit (rle_can_save in src/rle.asm).
-      if ((heapEnd & (BANK - 1)) + SMDJ4.LEN > BANK)
-        heapEnd = (heapEnd & ~(BANK - 1)) + BANK;
+      // bank-0 blobs are capped BELOW the config block (mirrors rle_can_save in
+      // src/rle.asm, worst case SMDJ4.LEN reserved like the ROM). This subsumes
+      // the no-straddle $4000 bump: what fits under the config can't straddle.
+      if (heapEnd < BANK && heapEnd + SMDJ4.LEN > CFG) {
+        if (total > BANK) heapEnd = BANK;         // 32K: bump to bank 1
+        else throw new Error(`SRAM FULL at slot ${i} (bank-0 heap is capped below the config block)`);
+      }
       const { raw, bytes } = RLE.pack(s.block);
       if (heapEnd + bytes.length > total)
         throw new Error(`SRAM FULL at slot ${i} (need ${bytes.length}, have ${total - heapEnd})`);
@@ -230,6 +236,20 @@ if (typeof require === "function" && require.main === module) {
   let refused = false;
   try { S.buildSav(new Array(20).fill({block: blk4}), 8); } catch(e){ refused = /FULL/.test(e.message); }
   chk(refused, "SRAM-full refused on 8K");
+
+  // 4b. the config block lands where the ROM reads it, and no blob touches it
+  const cfg = Uint8Array.from([0x43, 0x46, 3, 0, 1, 1, 5]);   // C F pal sync vid fm ck
+  const csav = S.buildSav([{block: blk4}], 32, cfg);
+  chk(csav[0x3F60] === 0x43 && csav[0x3F61] === 0x46 && csav[0x3F62] === 3,
+      "config written at $3F60 (ROM's CFG_ADDR)");
+  // rawish blocks (poor compression) must bump past the config, never over it
+  const noisy = Uint8Array.from({length: 6912}, (_, i) => (i * 37 + (i >> 3)) & 0xFF);
+  const nsav = S.buildSav([{block: noisy}, {block: noisy}, {block: blk4}], 32, cfg);
+  chk(nsav[0x3F60] === 0x43 && nsav[0x3F61] === 0x46,
+      "bank-0 heap capped below the config (near-raw blobs bump to bank 1)");
+  const nback = S.readSav(nsav);
+  chk(nback[0].checksumOK && nback[1].checksumOK && nback[2].checksumOK,
+      "capped image still round-trips all songs");
 
   // 5. full migration: build an SMDJ3 .sav (demo in slot 0), migrate, read back
   const s3 = new Uint8Array(0x8000);
