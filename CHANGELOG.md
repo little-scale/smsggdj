@@ -104,21 +104,16 @@ The git history has the full detail; this is the curated summary.
   sounding while you browse, and **LOAD swaps the song under the running clock** —
   the playing tracks keep their grid positions and seamlessly pick up the new
   song's material, so you can transition between songs in a set without dropping
-  the beat. **The chosen channel's playing phrase is carried across the load**:
-  it's stashed before the swap and planted in the reserved transition slots
-  (**phrase 51 / chain 39**), so that part keeps rolling through the load — in
-  LIVE it loops until you queue new material, in SONG it plays out and merges into
-  the new song's column. Pick the channel that carries your groove (NO for a
-  drum part, T1–T3 for a bassline or pad). Notes: the carried phrase triggers the
-  *new* song's instrument numbers (RAM holds one song, so timbre follows the
-  load); samples (KIT) are silent while FILES has the cartridge SRAM mapped over
-  the sample pool (hardware constraint — tone, noise, wave and FM keep playing)
-  and return when you leave; a transition dirties phrase 51 / chain 39 in the
-  working copy, so treat those slots as reserved if you perform with CONT. If the
-  incoming song already **uses** phrase 51 or chain 39, the carry skips rather
-  than clobber that material (the carried channel just plays the new song's
-  content at its position). Any **queued LIVE cells are cleared on a load** —
-  they referenced the old song's grid.
+  the beat. **The chosen channel's playing phrase is carried across the load** as
+  a bridge — it's stashed (phrase + instrument) before the swap and replayed from
+  a private buffer, so that part keeps rolling through the load with its own
+  sound: in LIVE it loops until you queue new material, in SONG it plays out and
+  merges into the new song's column. Pick the channel that carries your groove (NO
+  for a drum part, T1–T3 for a bassline or pad). The bridge touches no song data,
+  so all 52/40/16 slots stay usable. Samples (KIT) are silent while FILES has the
+  cartridge SRAM mapped over the sample pool (hardware constraint — tone, noise,
+  wave and FM keep playing) and return when you leave. Any **queued LIVE cells are
+  cleared on a load** — they referenced the old song's grid.
 - **FILES header restyled** — a genmddj-style dash rule around the `nn SONGS`
   count (the SONG-screen title rule from the last dev build is gone).
 - **Adjustable cursor key-repeat** on the OPTIONS screen: **RDLY** (repeat

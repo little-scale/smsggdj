@@ -92,15 +92,14 @@ The contiguous live-RAM block, identical in both ROM flavors:
                             log-DAC correction separately)
 +$0100  phrase_pool   3328  52 phrases × 64 B (16 steps × note,instr,cmd,param)
 +$0E00  chains        1280  40 chains × 32 B (16 × phrase#,transpose)
-                            [all 52 phrases / 40 chains are usable. The CONT
-                            beat-carry handoff BORROWS the top phrase (51) / chain
-                            (39) as scratch while bridging a load, so a song that
-                            fills those slots AND is performed with CONT will have
-                            them overwritten on a load.]
+                            [all 52 phrases / 40 chains are fully usable. The CONT
+                            handoff plays its bridge from a private RAM buffer, so
+                            it touches no pool slot -- nothing here is overwritten
+                            by a load.]
 +$1300  song          512   128 rows × 4 chain numbers ($FF empty)
-+$1500  instruments   256   16 × 16 B records [all 16 usable; the CONT handoff
-                            borrows the top instrument (15) as scratch, same
-                            caveat as above.]
++$1500  instruments   256   16 × 16 B records [all 16 fully usable; the CONT
+                            handoff plays its bridge instrument from a private
+                            buffer, touching no slot.]
 +$1600  tables        1024  16 × 64 B (16 rows × vol,pitch,cmd,param)
 +$1A00  grooves       256   16 × 16 tick bytes
         (end          $1B00 = 6912)
