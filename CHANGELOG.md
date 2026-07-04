@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.37 — unreleased
+## v0.37 — 2026-07-04
 
 ### Added
 - **Note range extended up to B11** for pitched noise (as high as the SN76489
