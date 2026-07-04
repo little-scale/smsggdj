@@ -3,7 +3,7 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.38 — unreleased
+## v0.38 — 2026-07-05
 
 ### Added
 - **CONT tempo glide (prototype).** After a CONT load, the tempo now **ramps**
