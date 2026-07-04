@@ -6741,7 +6741,7 @@ pdr_name:
   dec a                      ; a = note index
   cp NOTE_WRAP
   jr c, pdr_nidx
-  sub NOTE_WRAP              ; wrapped (B9+): re-label from A-2 up (A-2+, A#2+, ...)
+  sub NOTE_WBASE             ; wrapped (B9+): re-label 7 octaves down (B9 -> B-2+)
 pdr_nidx:
   ld l, a
   add a, a
@@ -7111,11 +7111,8 @@ idr_tbl:
 idr_tbs:
   ld de, 10
   add hl, de
-  ld a, (hl)
-  or a
-  jp nz, print_hex_nib
-  ld a, 'N'                  ; TBS 0 = advance one row per triggered note
-  jp print_char
+  ld a, (hl)                 ; TBS 0 = advance one row per triggered note; shown 0
+  jp print_hex_nib
 idr_tsp:
   ld de, 8
   jr idr_bhex

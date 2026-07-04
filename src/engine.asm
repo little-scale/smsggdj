@@ -2017,6 +2017,22 @@ lrb_lok:
 ; boundary. The carried phrase triggers the NEW song's instrument numbers (one
 ; song in RAM - timbre follows the load).
 
+; fm_drum_defpitch: restore the 6 default drum carrier registers ($16/$26, $17/$27,
+; $18/$28) from the head of fm_rhythm_tab, so a DRUM=ALL note plays the standard
+; kit even after a single-drum note retuned a channel. Bank 1. Clobbers A/BC/DE/HL.
+fm_drum_defpitch:
+  ld hl, fm_rhythm_tab       ; first 12 bytes = 6 (reg, value) pitch pairs
+  ld e, 6
+fdp_loop:
+  ld c, (hl)                 ; register
+  inc hl
+  ld b, (hl)                 ; value
+  inc hl
+  call fm_w                  ; preserves de/hl
+  dec e
+  jr nz, fdp_loop
+  ret
+
 ; fm_fine: apply the instrument finetune (ix+27, signed) to a YM2413 pitch as an
 ; fnum offset (+ = sharper, matching the F/TONE convention). IN d = $20-reg
 ; (block<<1 | fnum8 | $30), e = fnum low; OUT d/e adjusted, fnum clamped 0-511.
@@ -2589,7 +2605,8 @@ tn_fd_go:
   call fm_drum_pitch         ; note's fnum/block -> the drum's channel carrier
   jr tn_fd_vol
 tn_fd_all:
-  call tn_fd_drum            ; e = drum index 0-4 (from ix+0 note)
+  call fm_drum_defpitch      ; reset carriers to the standard kit (a single-drum
+  call tn_fd_drum            ;   note may have retuned a channel); e = drum from note
 tn_fd_vol:
   ld a, (ix+4)               ; VOL (AHD peak high nibble) -> musical 0-F
   rrca
