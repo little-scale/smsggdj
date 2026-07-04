@@ -138,6 +138,7 @@
   sram_live    db            ; 1 = FILES has SRAM mapped over the pool: KIT triggers gated
   carry_flag   db            ; 1 = carry_buf holds the NO track's phrase across a LOAD
   carry_buf    dsb 64        ; the carried phrase (planted in slot 51 after the swap)
+  carry_instr  dsb 16        ; the carried instrument's record (baked into slot 15)
   ed_rep       db
   tmp_note     db
   tmp_instr    db
@@ -1320,7 +1321,7 @@ soe_have:
   bit 3, c                   ; right +1
   jr z, soe_l
   ld a, d
-  cp NUM_CHAINS-1
+  cp USER_CHAINS-1
   jr nc, soe_l
   inc d
 soe_l:
@@ -1335,9 +1336,9 @@ soe_u:
   jr z, soe_d
   ld a, d
   add a, 8
-  cp NUM_CHAINS
+  cp USER_CHAINS
   jr c, soe_ust
-  ld a, NUM_CHAINS-1
+  ld a, USER_CHAINS-1
 soe_ust:
   ld d, a
 soe_d:
@@ -1420,7 +1421,7 @@ che_have:
   bit 3, c
   jr z, che_l
   ld a, d
-  cp NUM_PHRASES-1
+  cp USER_PHRASES-1
   jr nc, che_l
   inc d
 che_l:
@@ -1435,9 +1436,9 @@ che_u:
   jr z, che_d
   ld a, d
   add a, 8
-  cp NUM_PHRASES
+  cp USER_PHRASES
   jr c, che_ust
-  ld a, NUM_PHRASES-1
+  ld a, USER_PHRASES-1
 che_ust:
   ld d, a
 che_d:
@@ -1681,7 +1682,7 @@ dei_have:
   jr z, dei_dec
 dei_inc:
   ld a, d
-  cp $0F
+  cp USER_INSTR-1            ; instrument 15 is reserved for the CONT handoff
   jr nc, dei_dec
   inc d
 dei_dec:
@@ -1826,6 +1827,10 @@ ini_d:
   sub 4
 ini_st:
   and $0F
+  cp USER_INSTR             ; slot 15 reserved: fold it back to the top user slot
+  jr c, ini_ok
+  ld a, USER_INSTR-1
+ini_ok:
   ld (cur_instr), a
   ld a, 1
   ld (label_dirty), a
@@ -2825,20 +2830,16 @@ psy_set:
   ld (state_dirty), a
   ld a, 2
   jp stg_mark_field
-prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE)
-  ld a, (ed_rep)
-  and PAD_LEFT|PAD_RIGHT
-  ret z
-  ld a, (play_mode)
+prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE) -- live, no stop.
+  ld a, (ed_rep)             ; the transport keeps running: advance_track reads
+  and PAD_LEFT|PAD_RIGHT     ; play_mode at each chain boundary, so tracks simply
+  ret z                      ; switch between walking the song (SONG) and looping
+  ld a, (play_mode)          ; their current chain (LIVE) from the next boundary.
   xor 1
-  ld b, a
-  push bc                    ; mode change stops the transport
-  call engine_stop
-  pop bc
-  ld a, b
   ld (play_mode), a
+  call live_q_clear          ; drop stale LIVE queues/markers across the switch
   ld a, 1
-  ld (state_dirty), a
+  ld (state_dirty), a        ; refresh transport glyph (SONG shows a playhead)
   ld a, 2
   jp prj_mark_field
 prp_cont:                    ; 1 + L/R cycles CONT: OFF / T1 / T2 / T3 / NO. A
@@ -3588,7 +3589,7 @@ ffc_step:
 ffc_next:
   inc c
   ld a, c
-  cp NUM_CHAINS
+  cp USER_CHAINS
   jr c, ffc_chain
   ld a, $FF
   ret
@@ -3607,7 +3608,7 @@ ffi_ins:
   ret z
   inc c
   ld a, c
-  cp 16
+  cp USER_INSTR
   jr c, ffi_ins
   ld a, $FF
   ret
@@ -3676,7 +3677,7 @@ ffp_step:
 ffp_next:
   inc c
   ld a, c
-  cp NUM_PHRASES
+  cp USER_PHRASES
   jr c, ffp_phr
   ld a, $FF
   ret
@@ -3736,7 +3737,7 @@ fnc_estep:
 fnc_next:
   inc c
   ld a, c
-  cp NUM_CHAINS
+  cp USER_CHAINS
   jr c, fnc_cand
   ld a, $FF
   ret
@@ -3801,7 +3802,7 @@ fnp_estep:
 fnp_next:
   inc c
   ld a, c
-  cp NUM_PHRASES
+  cp USER_PHRASES
   jr c, fnp_cand
   ld a, $FF
   ret
@@ -3850,7 +3851,7 @@ fni_ref:
 fni_next:
   inc c
   ld a, c
-  cp 16
+  cp USER_INSTR
   jr c, fni_cand
   ld a, $FF
   ret
@@ -4013,7 +4014,7 @@ cfp_loop:
 cfp_next:
   inc c
   ld a, c
-  cp NUM_PHRASES
+  cp USER_PHRASES
   jr c, cfp_loop
   ld a, b
   pop bc

@@ -5,7 +5,42 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.38 — unreleased
 
-_Dev cycle open — add user-facing bullets here as changes land._
+### Changed
+- **Switching MODE (SONG ↔ LIVE) no longer stops the transport.** Toggling the
+  PROJECT **MODE** field while playing now flips live: from the next bar each
+  track just changes how it advances — in LIVE it loops its current chain, in
+  SONG it resumes walking the arrangement from where it is. So you can play a song
+  through, drop into LIVE to loop/jam a section, and return to SONG without
+  breaking playback. Pending LIVE queues are cleared on the switch.
+- **CONT LOAD now drops the new song in beat-matched from its top.** Loading a
+  song while CONT is playing (SONG mode) restarts every track at the **top of the
+  new song** (song row 1) but keeps each track's **position within the phrase**
+  (the 16th-note step it was on), so the incoming song enters on the beat with no
+  rhythmic hiccup — instead of continuing from wherever the old song happened to
+  be. The CONT channel (T1/T2/T3/NO) still carries its playing phrase across the
+  load as a bridge: in SONG it plays once and then rejoins the others at the top;
+  in LIVE it **loops** and holds the groove until you queue a chain from the new
+  song. (In LIVE the non-carried tracks keep looping their current chains on the
+  new song's data — playback stays performer-driven.)
+- **Fixed as part of the above:** the CONT bridge phrase now actually loops in
+  LIVE. The reserved handoff chain is planted outside the song grid, so the old
+  "reload = loop" step re-derived a chain from the song and dropped the bridge
+  after one bar; it now loops the reserved chain in place until a chain is queued.
+- **The CONT handoff slots are now permanently reserved**, so the bridge always
+  lands. It borrows the last phrase and last chain; previously, if the loaded song
+  happened to use those slots the whole handoff was silently skipped (a chain from
+  the new song loaded instead). The editor now caps at **51 phrases / 39 chains**
+  (the top slot of each is reserved), so a song can't occupy them. The pools stay
+  full-size, so the save format is unchanged; a song written before this that used
+  the last phrase/chain still loads (a CONT load overwrites those slots).
+- **The CONT bridge now keeps its own instrument sound.** Previously the carried
+  phrase played through whatever the *newly loaded* song had at those instrument
+  numbers, so the timbre could change completely across a load. Now the carried
+  instrument (the first note's, or the channel's current one) is snapshotted and
+  baked into a reserved instrument slot, and the bridge's notes are pointed at it —
+  so it sounds the same through the transition. Cost: **15 usable instruments**
+  (the last slot is reserved; save format unchanged). Note a table the instrument
+  uses still reads the new song's tables.
 
 ## v0.37 — 2026-07-04
 

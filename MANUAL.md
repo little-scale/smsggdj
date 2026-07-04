@@ -107,14 +107,19 @@ GROOVE and `2+Left` from GROOVE comes back.
   (**CONT**), and an `UNSAVED` flag when there are changes not yet written to a
   slot. Set **CONT** to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is default) and
   going to FILES doesn't stop playback, and **LOAD swaps the song under the
-  running clock** — playing tracks keep their positions and pick up the new song's
-  material on the beat. The **chosen channel's playing phrase is carried across
-  the load** (planted in reserved slots phrase 51 / chain 39, so keep those free
-  in songs you perform with CONT): in LIVE it loops until you queue something new,
-  in SONG it plays out and merges. Pick the channel holding your groove (NO for
-  drums, T1–T3 for a bass or pad). Samples are silent while FILES is open (they
-  return when you leave), and the carried phrase sounds with the new song's
-  instruments.
+  running clock**. In SONG mode the **new song starts from the top (song row 1)**,
+  but each track keeps its **position within the phrase** (the 16th-note step it
+  was on), so the incoming song drops in **beat-matched** — no rhythmic hiccup.
+  The **chosen channel's playing phrase is carried across the load** as a bridge:
+  it keeps sounding through the transition — **with its own instrument sound
+  preserved** — and then rejoins at the top with the others (in LIVE it **loops**
+  until you queue something new). This uses three permanently reserved slots (the
+  last phrase, chain and instrument), so you write with **51 phrases, 39 chains
+  and 15 instruments** — you don't have to keep anything free yourself. Pick the
+  channel holding your groove (NO for drums, T1–T3 for a bass or pad). Samples
+  are silent while FILES is open (they return when you leave). The bridge keeps
+  the carried part's instrument; if that instrument uses a table, the table reads
+  the new song's slots.
 - **FILES** — save, load and manage your songs on the cartridge (below SONG).
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).
@@ -398,6 +403,14 @@ changes by hand:
   gesture (2-hold + 1 on the header row) stops a single track immediately.
 
 Switch back to **MODE: SONG** for normal start-to-finish playback.
+
+**Switching MODE doesn't stop playback.** Flip SONG↔LIVE on the fly: from the
+next bar, each track just changes how it advances — in LIVE it loops its current
+chain, in SONG it resumes walking down the arrangement from where it is. So you
+can play a song through, drop into LIVE to loop and jam a section, then return to
+SONG to let it play out — all without breaking the transport. (Any pending LIVE
+queue is cleared on the switch. Tracks that were silent in LIVE stay silent when
+you switch to SONG until they reach material or you trigger them.)
 
 ---
 
