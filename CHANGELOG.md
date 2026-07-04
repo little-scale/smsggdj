@@ -71,6 +71,13 @@ The git history has the full detail; this is the curated summary.
   short tail (no save-format change).
 
 ### Fixed
+- **The `J` command's nibbles now match genmddj: `Jxy` = repeat mask (x) +
+  signed transpose (y).** They were swapped (transpose in x, mask in y), and the
+  repeat index is now `(play−1) mod 4` like genmddj, so songs/muscle-memory carry
+  over. Transpose still `0`–`7` = +0…+7, `8`–`F` = −8…−1.
+- **The ECHO screen fields respond to up/down for a big jump.** Up/down did
+  nothing before; now TAP/REDUCE jump to their min/max and TSP jumps by an octave
+  (matching the ±16/±octave feel of the other screens).
 - **An FM instrument driven by a table no longer rings after the song stops.**
   Stop keyed the FM voices off, but a table can hold a voice keyed-on (defeating
   the HLD auto-key-off), so keying off just started the patch's release, which

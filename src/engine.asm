@@ -59,7 +59,7 @@
 .DEFINE CMD_VOL     21         ; X: set this note's volume (AHD peak 0-F)
 .DEFINE CMD_FMPROG  22         ; Y: set this note's FM program (patch 1-15)
 .DEFINE CMD_PROB    23         ; Z: chance the note triggers (00 never .. FF always)
-.DEFINE CMD_JTRANS  24         ; J: signed transpose (x) on plays masked by y (mod 4)
+.DEFINE CMD_JTRANS  24         ; J: xy = repeat mask (x) + signed transpose (y), genmddj order
 .DEFINE CMD_ECHO    25         ; Q: echo on/off (00 off, else on) - gates the ECHO screen's echo
 .DEFINE CMD_COUNT   26
 
@@ -1533,10 +1533,10 @@ prn_prob:
   jp c, prn_norm             ; play
   jp pr_cmd                  ; skip the note
 prn_jump:
-  ; J xy: x = signed semitone transpose (0..7 = +1..+7, 8..F = -8..-1),
-  ; applied to this note only on plays whose (play mod 4) bit is set in the
-  ; low nibble y. A sibling to I: same per-phrase play count, but it varies
-  ; pitch instead of gating the note. y=0 never transposes, y=F always.
+  ; J xy (genmddj-compatible): x (high nibble) = repeat mask, y (low nibble) =
+  ; signed transpose (0..7 = +0..+7, 8..F = -8..-1). The transpose applies to this
+  ; note only on plays where bit[(play-1) mod 4] of the mask is set. A sibling to
+  ; I: same per-phrase play count, but it varies pitch instead of gating the note.
   push hl
   ld hl, phrase_plays
   ld a, (ix+10)              ; how many times this phrase has played
@@ -1547,24 +1547,21 @@ prn_jump:
   ld h, a
   ld a, (hl)                 ; play count N
   pop hl
-  and 3                      ; bit index = N mod 4
-  inc a                      ; rotate (index + 1) times -> bit in carry
+  dec a                      ; 0-based repeat index
+  and 3                      ; mod 4
+  add a, 5                   ; rotate (index+5) -> mask bit[index] (d bit 4+index)
   ld e, a
-  ld a, d                    ; the 4-bit mask (low nibble; high nibble ignored)
+  ld a, d                    ; param xy; x (high nibble) = mask
 prn_jbit:
   rrca
   dec e
   jr nz, prn_jbit
-  jp nc, prn_norm            ; bit clear: play untransposed
-  ld a, d                    ; high nibble = signed transpose
-  rrca
-  rrca
-  rrca
-  rrca
+  jp nc, prn_norm            ; mask bit clear: play untransposed
+  ld a, d                    ; y (low nibble) = signed transpose
   and $0F
   cp 8
   jr c, prn_jadd
-  sub 16                     ; 8..15 -> -8..-1
+  sub 16                     ; 8..F -> -8..-1
 prn_jadd:
   add a, b                   ; note + transpose
   jp m, prn_jlo              ; wrapped below 0 (NOTE_COUNT < 128, so +overflow

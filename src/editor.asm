@@ -1788,34 +1788,6 @@ inp_edit:
   cp 15
   jp z, ine_fine
   jp ine_rate
-ine_fine:                    ; field 15: instrument finetune (record +13, signed
-  ld de, 13                  ; period units). L/R +-1, U/D +-16 (coarse)
-  add hl, de
-  ld d, (hl)
-  ld a, (ed_rep)
-  ld c, a
-  bit 3, c
-  jr z, inf_l
-  inc d
-inf_l:
-  bit 2, c
-  jr z, inf_u
-  dec d
-inf_u:
-  bit 0, c
-  jr z, inf_d
-  ld a, d
-  add a, 16
-  ld d, a
-inf_d:
-  bit 1, c
-  jr z, inf_st
-  ld a, d
-  sub 16
-  ld d, a
-inf_st:
-  ld (hl), d
-  jp ine_mark
 ine_f13:                     ; field 13: SMP transpose (+8), else NOISE rate
   ld a, (hl)                 ; type at +0 (HL = instrument record)
   cp 2
@@ -2262,7 +2234,7 @@ ine_len:                     ; field 5 = DCY (+2 low nibble), KIT on SMP, DRUM o
   cp 2
   jr z, ine_kit
   cp 5
-  jr z, ine_drum
+  jp z, ine_drum
   inc hl
   inc hl
   ld a, (hl)
@@ -2272,35 +2244,6 @@ ine_len:                     ; field 5 = DCY (+2 low nibble), KIT on SMP, DRUM o
   ld a, (hl)
   and $F0
   or d
-  ld (hl), a
-  jp ine_mark
-ine_drum:                    ; FMDRUM DRUM selector (+4): L/R cycles 0-5 (ALL..HH)
-  ld de, 4
-  add hl, de
-  ld a, (ed_rep)
-  and PAD_LEFT|PAD_RIGHT
-  ret z
-  ld c, a
-  ld a, (hl)
-  and $07
-  cp 6
-  jr c, ind_ok
-  xor a
-ind_ok:
-  bit 3, c                   ; Right: next
-  jr z, ind_l
-  inc a
-  cp 6
-  jr c, ind_st
-  xor a                      ; wrap 5 -> 0
-  jr ind_st
-ind_l:
-  or a
-  jr nz, ind_dec
-  ld a, 6                    ; wrap 0 -> 5
-ind_dec:
-  dec a
-ind_st:
   ld (hl), a
   jp ine_mark
 ine_kit:                     ; SMP: kit 0-7 in +2, L/R cycles (wraps)
@@ -4230,7 +4173,7 @@ ee_tsp1:
   ld hl, echo_tsp1
 ee_tsp:
   ld a, (ed_rep)
-  and PAD_LEFT|PAD_RIGHT
+  and PAD_LEFT|PAD_RIGHT|PAD_UP|PAD_DOWN
   ret z
   ld c, a
   ld a, (hl)
@@ -4239,8 +4182,16 @@ ee_tsp:
   inc a
 ets_l:
   bit 2, c                   ; left -1
-  jr z, ets_cl
+  jr z, ets_u
   dec a
+ets_u:
+  bit 0, c                   ; up: +12 (octave)
+  jr z, ets_dn
+  add a, 12
+ets_dn:
+  bit 1, c                   ; down: -12 (octave)
+  jr z, ets_cl
+  sub 12
 ets_cl:
   bit 7, a                   ; clamp signed to -24..+24
   jr z, ets_pos
@@ -4286,7 +4237,7 @@ ee_tap1:
   jr ee_tap
 ee_tap2:
   ld hl, echo_tap2
-ee_tap:                      ; tap is in rows (1-15), L/R +-1 row
+ee_tap:                      ; tap is in rows (1-15); L/R +-1, U/D jump to min/max
   ld a, (ed_rep)
   ld c, a
   ld a, (hl)
@@ -4295,16 +4246,27 @@ ee_tap:                      ; tap is in rows (1-15), L/R +-1 row
   inc a
 et_l:
   bit 2, c                   ; left -1
-  jr z, et_clamp
+  jr z, et_u
   dec a
+et_u:
+  bit 0, c                   ; up: +16 (clamps to 15)
+  jr z, et_d
+  add a, 16
+et_d:
+  bit 1, c                   ; down: -16 (clamps to 1)
+  jr z, et_clamp
+  sub 16
 et_clamp:
-  or a                       ; clamp 1..15
-  jr nz, et_hi
-  inc a
-et_hi:
+  bit 7, a                   ; clamp 1..15 (handle underflow from -16)
+  jr nz, et_min
+  or a
+  jr z, et_min
   cp 16
   jr c, et_store
   ld a, 15
+  jr et_store
+et_min:
+  ld a, 1
 et_store:
   ld (hl), a
   jp ee_dirty
@@ -4315,7 +4277,7 @@ ee_red2:
   ld hl, echo_red2
 ee_red:
   ld a, (ed_rep)
-  and PAD_LEFT|PAD_RIGHT
+  and PAD_LEFT|PAD_RIGHT|PAD_UP|PAD_DOWN
   ret z
   ld c, a
   ld a, (hl)
@@ -4324,10 +4286,26 @@ ee_red:
   inc a
 er_l:
   bit 2, c                   ; left -1
-  jr z, er_st
+  jr z, er_u
   dec a
+er_u:
+  bit 0, c                   ; up: +16 (clamps to 15)
+  jr z, er_d
+  add a, 16
+er_d:
+  bit 1, c                   ; down: -16 (clamps to 0)
+  jr z, er_clamp
+  sub 16
+er_clamp:
+  bit 7, a                   ; clamp 0..15
+  jr nz, er_min
+  cp 16
+  jr c, er_st
+  ld a, 15
+  jr er_st
+er_min:
+  xor a
 er_st:
-  and $0F
   ld (hl), a
 ee_dirty:
   ld a, (ech_row)
@@ -7020,11 +6998,6 @@ idr_addr:
   cp 15
   jp z, idr_fine
   jp idr_rate
-idr_fine:                    ; field 15: instrument finetune (record +13, signed)
-  ld de, 13
-  add hl, de
-  ld a, (hl)
-  jp print_hex_a
 idr_f13:                     ; field 13: SMP transpose (+8), else NOISE rate
   ld a, (hl)                 ; type at +0 (HL = instrument record)
   cp 2
@@ -7175,7 +7148,7 @@ idr_len:                     ; field 5 = DCY (+2 low nibble), KIT on SMP, DRUM o
   cp 2
   jr z, idr_kit
   cp 5
-  jr z, idr_drum
+  jp z, idr_drum
   inc hl
   inc hl
   ld a, (hl)
@@ -7187,23 +7160,6 @@ idr_kit:                     ; SMP: kit 0-7 in +2, shown 0-7
   ld a, (hl)
   and 7
   jp print_hex_nib
-idr_drum:                    ; FMDRUM: DRUM selector (+4) -> ALL/BD/SD/TOM/TCY/HH
-  ld de, 4
-  add hl, de
-  ld a, (hl)
-  and $07
-  cp 6
-  jr c, idrd_ok
-  xor a                      ; out of range -> ALL
-idrd_ok:
-  add a, a                   ; * 4 (4-char entries)
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, str_drums
-  add hl, de
-  ld b, 4
-  jp print_raw
 idr_mode:
   inc hl
   inc hl
@@ -7326,9 +7282,91 @@ ins_lbls:
   .db "MODE", 0
   .db "RATE", 0
   .db "PRST", 0              ; field 14: FM custom-preset selector
-  .db "FINE", 0              ; field 15: per-instrument finetune (TONE/WAV)
+  .db "FINE", 0              ; field 15: per-instrument finetune (TONE/FM)
 str_drumlbl: .db "DRUM", 0   ; FMDRUM field 5 label
 str_drums:  .db "ALL BD  SD  TOM TCY HH  "   ; 6 x 4-char DRUM selector values
+
+; cold value draw/edit for FINE (field 15), parked in bank 1 (jp-reached).
+idr_fine:                    ; instrument finetune (record +13, signed) -> hex
+  ld de, 13
+  add hl, de
+  ld a, (hl)
+  jp print_hex_a
+ine_fine:                    ; L/R +-1, U/D +-16 (coarse)
+  ld de, 13
+  add hl, de
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, inf_l
+  inc d
+inf_l:
+  bit 2, c
+  jr z, inf_u
+  dec d
+inf_u:
+  bit 0, c
+  jr z, inf_d
+  ld a, d
+  add a, 16
+  ld d, a
+inf_d:
+  bit 1, c
+  jr z, inf_st
+  ld a, d
+  sub 16
+  ld d, a
+inf_st:
+  ld (hl), d
+  jp ine_mark
+
+idr_drum:                    ; FMDRUM: DRUM selector (+4) -> ALL/BD/SD/TOM/TCY/HH
+  ld de, 4
+  add hl, de
+  ld a, (hl)
+  and $07
+  cp 6
+  jr c, idrd_ok
+  xor a                      ; out of range -> ALL
+idrd_ok:
+  add a, a                   ; * 4 (4-char entries)
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, str_drums
+  add hl, de
+  ld b, 4
+  jp print_raw
+ine_drum:                    ; FMDRUM DRUM selector (+4): L/R cycles 0-5 (ALL..HH)
+  ld de, 4
+  add hl, de
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld c, a
+  ld a, (hl)
+  and $07
+  cp 6
+  jr c, ind_ok
+  xor a
+ind_ok:
+  bit 3, c                   ; Right: next
+  jr z, ind_l
+  inc a
+  cp 6
+  jr c, ind_st
+  xor a                      ; wrap 5 -> 0
+  jr ind_st
+ind_l:
+  or a
+  jr nz, ind_dec
+  ld a, 6                    ; wrap 0 -> 5
+ind_dec:
+  dec a
+ind_st:
+  ld (hl), a
+  jp ine_mark
 str_tone:   .db "TONE "
 str_smp:    .db "KIT  "
 str_wavt:   .db "WAV  "

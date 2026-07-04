@@ -322,7 +322,7 @@ take a two-digit parameter `xy`.
 | `G` | Groove | Switch groove from this row (this track) |
 | `H` | Hop | PHRASE: end this track's phrase **immediately** — the H row takes no time, play jumps straight back to row 0 in the same tick (only this channel). Put `H` on the row *after* your last step to loop tightly with no wasted 16th. TABLE: loop back to a row — **also immediate**, so a looping table runs with no wasted step (great for tight arps) |
 | `I` | Iteration | An 8-bit play mask over **this phrase's play count**: on the Nth play of the phrase the note sounds if bit (N mod 8) is set. `IFF` = always, `I00` = never, `I55`/`IAA` = odd/even plays, `I0F` = first four of eight, `IF0` = last four. Lets one phrase vary across its repeats without cloning |
-| `J` | Jump (transpose) | A sibling to `I`: `Jxy` transposes the note by **x semitones** (`0`–`7` up, `8`–`F` = −8…−1, so `F` = −1) on the plays whose **(play mod 4)** bit is set in the 4-bit mask **y**. `J00` never, `J2F` = +2 always, `J21` = +2 on every 4th play; varies pitch across a phrase's repeats without cloning |
+| `J` | Jump (transpose) | A sibling to `I` (genmddj order): `Jxy` — **x** is the 4-bit repeat mask, **y** is the signed transpose (`0`–`7` = +0…+7, `8`–`F` = −8…−1, so `F` = −1). The note is transposed by **y** on the plays whose **((play−1) mod 4)** bit is set in **x**. `J00` never, `JF2` = +2 always, `J12` = +2 on the 1st of every 4 plays; varies pitch across a phrase's repeats without cloning |
 | `K` | Kill | Cut the note after xy ticks (`K00` = instant; also stops samples) |
 | `L` | Slide | Glide (portamento) to this note |
 | `M` | Amp mod | Tremolo: speed x, depth y |
