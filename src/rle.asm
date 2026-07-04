@@ -23,6 +23,8 @@
   rle_cnt  dw           ; current run / literal length (low byte used)
   rle_unit dsb 4        ; scratch unit, for expanding a repeat run
   rle_end  dw           ; unpack dst end pointer (bound: never write past it)
+  rle_nocheck db        ; one-shot: skip the post-decode checksum (FILES load
+                        ;   ignores it -- ~5 frames saved on a CONT transition)
   rss_slot    db        ; M2 save: slot index
   rss_cksum   dw        ; M2 save: block checksum
   rss_dst     dw        ; M2 save: blob physical dst
@@ -441,6 +443,13 @@ rsl_rle:
   ld bc, SD4_UNITS
   call rle_unpack                      ; stream(SRAM) -> wave_ram(RAM)
 rsl_check:
+  ld a, (rle_nocheck)                  ; one-shot skip (FILES load ignores the
+  or a                                 ;   result, so ~5 frames of sram_sum are
+  jr z, rsl_verify                     ;   pure stall on a CONT transition)
+  xor a
+  ld (rle_nocheck), a                  ; consume the flag
+  jr rsl_ok
+rsl_verify:
   ld hl, wave_ram
   call sram_sum                        ; DE = computed checksum
   ld hl, (rss_cksum)
@@ -450,6 +459,7 @@ rsl_check:
   ld a, h
   cp d
   jr nz, rsl_bad
+rsl_ok:
   xor a                                ; Z = loaded ok
   ld (song_edited), a                  ; loaded block matches the slot: clean
   ret

@@ -1,8 +1,21 @@
 # Staggered CONT load (piece 2) — devised plan
 
-Status: **not built.** Piece 1 (the CONT bridge playing from private buffers) is
-on `main` and is the prerequisite. This doc captures the design so piece 2 can be
-picked up as a self-contained effort.
+Status: **superseded — not built (and not needed).** Piece 2 shipped a much
+simpler win instead: profiling showed the CONT-load stall was dominated not by
+the decode (~1 frame after path A) but by the **post-decode block checksum**
+(`sram_sum`, ~5 frames) — and the interactive FILES load *discards that checksum
+result*. So the fix was to **skip the checksum on that path** (`rle_nocheck`
+one-shot flag, set in `fpl_file`, honored in `rsl_check`), dropping the CONT load
+from ~6 frames to ~1 with zero behavioural change. The save and stopped-load
+paths still verify. No resumable decoder, scratch-groove pre-seed, or load state
+machine were required. The staggered design below is kept only as a record of the
+approach that would be needed if the remaining ~1 frame ever has to go too.
+
+---
+
+Piece 1 (the CONT bridge playing from private buffers) is on `main` and was the
+prerequisite. This doc captures the (unbuilt) staggered design so it can be picked
+up as a self-contained effort if ever needed.
 
 ## Goal
 

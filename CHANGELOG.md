@@ -23,14 +23,18 @@ The git history has the full detail; this is the curated summary.
   with the grid play markers) alongside the `*`.
 
 ### Changed
-- **Faster song load (smaller glitch under CONT).** The RLE decompressor was
-  rewritten to hold its stream/block pointers in registers and copy runs with
-  `LDIR` (repeats replicate via an overlapping `LDIR`) instead of a per-unit
-  loop of subroutine calls and RAM reloads — roughly **3–4× faster**. A CONT
-  load stalls the sequencer for about **1 frame instead of ~4**, so the pause in
-  playback when the new song loads is much shorter. A write bound (`rle_end`)
-  keeps a corrupt stream from ever running past the block. Format unchanged;
-  round-trip verified against the reference packer.
+- **Faster song load (much smaller glitch under CONT).** Two wins stack:
+  (1) the RLE decompressor was rewritten to hold its stream/block pointers in
+  registers and copy runs with `LDIR` (repeats replicate via an overlapping
+  `LDIR`) instead of a per-unit loop of subroutine calls and RAM reloads —
+  roughly **3–4× faster**; a write bound (`rle_end`) keeps a corrupt stream from
+  ever running past the block. (2) The interactive FILES load no longer computes
+  the post-decode block checksum — that verify (`sram_sum`, ~5 frames, the real
+  bottleneck) was **always discarded** on this path, so it was pure stall. The
+  save/stopped-load paths still verify. Together a CONT load now stalls the
+  sequencer for about **1 frame instead of ~6**, so the pause in playback when
+  the new song drops in is barely perceptible. Format unchanged; round-trip
+  verified against the reference packer.
 - **Switching MODE (SONG ↔ LIVE) no longer stops the transport.** Toggling the
   PROJECT **MODE** field while playing now flips live: from the next bar each
   track just changes how it advances — in LIVE it loops its current chain, in

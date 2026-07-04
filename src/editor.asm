@@ -8459,6 +8459,9 @@ fpx_load:
   call load_rebase           ; CONT: transport may still be running
   jp fpx_close
 fpl_file:
+  ld a, 1                    ; skip the post-decode checksum: this interactive
+  ld (rle_nocheck), a        ;   load ignores the verify result anyway, so paying
+                             ;   ~5 frames of sram_sum is a pure CONT-load stall
   ld a, (files_row)
   call rle_song_load
   call load_rebase           ; CONT: rebase eng_len/groove onto the new song
