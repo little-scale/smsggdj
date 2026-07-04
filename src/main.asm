@@ -612,6 +612,14 @@ flp_loop:
 ; FM routing, so a stopped song leaves no FM/table note ringing and PLAY resumes
 ; cleanly. Caller gates on fm_on. Clobbers A/BC.
 fm_hush:
+  ld c, $30                  ; force melody channels 0..8 to max attenuation, so a
+fmh_vol:                     ;   note held keyed-on by a table is silenced NOW (not
+  ld b, $0F                  ;   left to ring out its patch release after key-off)
+  call fm_w
+  inc c
+  ld a, c
+  cp $39
+  jr c, fmh_vol
   ld c, $20                  ; key off melody channels 0..8 ($20+ch = 0)
 fmh_off:
   ld b, $00

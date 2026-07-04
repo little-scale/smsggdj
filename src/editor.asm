@@ -6740,10 +6740,14 @@ pdr_lbl:
   ld hl, str_rest
   jr pdr_npr
 pdr_name:
-  dec a
+  dec a                      ; a = note index
+  cp NOTE_WRAP
+  jr c, pdr_nidx
+  sub NOTE_WRAP              ; wrapped (B9+): re-label from A-2 up (A-2+, A#2+, ...)
+pdr_nidx:
   ld l, a
   add a, a
-  add a, l
+  add a, l                   ; * 3
   push de
   ld e, a
   ld d, 0
@@ -7276,15 +7280,15 @@ str_prst_off: .db "OFF  "      ; PRESET = OFF readout (not part of the block)
 
 ; field index -> grid row (groups separated by spacer rows);
 ; noise packs tighter to fit MODE/RATE in 16 rows
-f2r_tone:                    ; field -> grid row (field 15 FINE -> spacer row 13)
-  .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15, 0, 0, 0, 13
+f2r_tone:                    ; field -> grid row (FINE = field 15 at the last row 15)
+  .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 0, 0, 0, 15
 f2r_noise:
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
 f2r_wav:                     ; field -> grid row (HLD=4; field 15 FINE -> row 9)
   .db 0, 1, 2, 0, 4, 0, 5, 0, 0, 0, 0, 0, 7, 0, 0, 9
 ; grid row -> field index ($FF = spacer)
-r2f_tone:                    ; row 13 was a spacer -> now FINE (field 15)
-  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, 15, 10, 11
+r2f_tone:                    ; FINE (field 15) sits at the last row, below TBS
+  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, $FF, 15
 r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
 r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE/FINE(row 9)

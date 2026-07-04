@@ -19,9 +19,10 @@ CLK_NTSC = 3579545
 MIDI_LO = 45            # A2 (index 0 -- do NOT lower this; it would shift every
                         #     saved note index. Extend only the top.)
 MIDI_HI = 155           # B11 -- as high as the SN76489 goes (period ~2); useful
-                        #     for pitched noise. Octaves 10/11 wrap in the display.
-MIDI_WRAP = 132         # C10: first note whose octave is 2 digits; the editor
-                        #     shows these with a trailing '+' and a single digit.
+                        #     for pitched noise.
+MIDI_WRAP = 131         # B9: notes ABOVE this (B9+ = index 86+) are shown with a
+                        #     '+' and RE-LABELLED from A-2 up (A-2+, A#2+, ...), so
+                        #     the extended range reuses the low names + '+'.
 NAMES = ["C-", "C#", "D-", "D#", "E-", "F-",
          "F#", "G-", "G#", "A-", "A#", "B-"]
 

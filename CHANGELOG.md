@@ -7,9 +7,10 @@ The git history has the full detail; this is the curated summary.
 
 ### Added
 - **Note range extended up to B11** for pitched noise (as high as the SN76489
-  goes). Above B9 the note shows a `+` marker (under the "E" of NOTE) with the
-  octave wrapped to one digit — `C-0+` = C10, `B-1+` = B11. Existing notes are
-  unaffected (the low end is unchanged, so saved note indices don't shift).
+  goes). Notes above A#9 show a `+` marker and are re-labelled from `A-2` up
+  (`A-2+`, `A#2+`, …) — the extended range reuses the low names + `+`, so the
+  display stays 3 chars. Existing notes are unaffected (the low end is unchanged,
+  so saved note indices don't shift).
 - **FM instruments reach lower octaves.** The YM2413 note table is voiced two
   octaves below the PSG note of the same index, so walking the note pitch field
   (including up into the new `+` range) covers the whole FM range directly — no
@@ -69,6 +70,10 @@ The git history has the full detail; this is the curated summary.
   short tail (no save-format change).
 
 ### Fixed
+- **An FM instrument driven by a table no longer rings after the song stops.**
+  Stop keyed the FM voices off, but a table can hold a voice keyed-on (defeating
+  the HLD auto-key-off), so keying off just started the patch's release, which
+  rang out. Stop now also forces the FM channels to silence.
 - **An `H` command on a table's first step no longer hangs the tracker.** A
   self-referential or all-`H` table (e.g. `H00` on row 0 looping to itself)
   span forever within a tick; it now detaches the malformed table and the note
