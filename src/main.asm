@@ -709,6 +709,44 @@ fdt_store:
 
 ; Trigger an FM rhythm drum: set its level then pulse its $0E key-on bit
 ; (off->on = attack). IN: e = drum index 0-4, a = musical volume 0-F.
+; e = drum 0-4, ix+0 = note -> write the note's fnum/block (from the FM note
+; table, which is voiced down FM_OCT_SHIFT octaves) into the drum's rhythm-channel
+; carrier registers ($16+off fnum-low, $26+off block|fnum8), so the note tunes the
+; drum's operators. Channels are shared: BD=ch6, SD/HH=ch7, TOM/TCY=ch8. Preserves
+; e (the caller keys the drum next). Clobbers A/BC/HL.
+fm_drum_pitch:
+  push de                    ; keep e = drum for the caller
+  ld a, (ix+0)               ; note*2 -> FM note table entry
+  add a, a
+  ld l, a
+  ld h, 0
+  ld bc, (fm_note_ptr)
+  add hl, bc                 ; HL -> [fnum_low][block|fnum8]
+  ld a, e                    ; drum -> $16/$26 register offset (0=ch6,1=ch7,2=ch8)
+  ld bc, fm_drum_preg
+  add a, c
+  ld c, a
+  ld a, b
+  adc a, 0
+  ld b, a
+  ld a, (bc)
+  ld e, a                    ; e = register offset (drum saved on the stack)
+  ld b, (hl)                 ; fnum low
+  ld a, $16
+  add a, e
+  ld c, a
+  call fm_w                  ; $16+off = fnum low (preserves de/hl)
+  inc hl
+  ld b, (hl)                 ; block | fnum8
+  ld a, $26
+  add a, e
+  ld c, a
+  call fm_w                  ; $26+off = block | fnum8
+  pop de                     ; restore e = drum
+  ret
+fm_drum_preg:                ; drum 0-4 -> pitch-register offset (BD/SD/TOM/TCY/HH)
+  .db 0, 1, 2, 2, 1
+
 fm_drum_trig:
   call fm_drum_vol           ; set the level (preserves e = drum)
   ; key-on edge: clear the drum's bit, write $0E, set it, write again

@@ -803,11 +803,15 @@ iwsd_fm6:
 iwsd_fm10:
   ld a, 10
   ret
-iwsd_fmdrum:                 ; FMDRUM: INST TYPE VOL HLD(4)
+iwsd_fmdrum:                 ; FMDRUM: INST TYPE VOL HLD(4) DRUM(5)
   ld a, e
   cp 3
   ret c                      ; 0,1,2 unchanged
-  ld a, 4                    ; 3 (spacer) -> 4 (HLD)
+  cp 4
+  jr c, iwsd_fd4             ; 3 (spacer) -> 4 (HLD)
+  ret                        ; 4 -> 4, 5 -> 5 (DRUM)
+iwsd_fd4:
+  ld a, 4
   ret
 ins_wskip_u:
   ld e, a
@@ -893,11 +897,15 @@ iwsu_fm4:
 iwsu_fm6:
   ld a, 6
   ret
-iwsu_fmdrum:                 ; FMDRUM up: HLD(4) -> VOL(2) -> TYPE -> INST
+iwsu_fmdrum:                 ; FMDRUM up: DRUM(5) -> HLD(4) -> VOL(2) -> TYPE -> INST
   ld a, e
   cp 3
   ret c                      ; 0,1,2 unchanged
-  ld a, 2                    ; 3 (spacer) -> 2 (VOL)
+  cp 4
+  jr c, iwsu_fd2             ; 3 (spacer) -> 2 (VOL)
+  ret                        ; 4 -> 4 (HLD), 5 -> 5
+iwsu_fd2:
+  ld a, 2
   ret
 ins_is_wav:                  ; Z if the edited instrument is WAV (type 3)
   push de
@@ -1033,7 +1041,7 @@ imr_fm:
   ld a, 14                   ; FM: last field = PRESET
   ret
 imr_fmdrum:
-  ld a, 4                    ; FMDRUM: last field = HLD
+  ld a, 5                    ; FMDRUM: HLD + DRUM (field 5)
   ret
 imr_noise:
   ld a, 13                   ; NOISE: + MODE/RATE (form full, no FINE)
@@ -2134,6 +2142,8 @@ ine_seeddrum:
   inc hl
   inc hl
   ld (hl), $0F               ; +3 HLD = F (ring per the chip drum envelope)
+  inc hl
+  ld (hl), 0                 ; +4 DRUM = 0 (ALL: note picks the drum, fixed pitch)
   pop hl
 ine_tsr:
   call ins_max_row
@@ -2249,10 +2259,12 @@ ine_spd:                     ; field 4 = HLD (+3 low nibble; F = inf)
   ld (hl), a
   jp ine_mark
 
-ine_len:                     ; field 5 = DCY (+2 low nibble), or KIT on SMP
+ine_len:                     ; field 5 = DCY (+2 low nibble), KIT on SMP, DRUM on FMDRUM
   ld a, (hl)                 ; type at +0
   cp 2
   jr z, ine_kit
+  cp 5
+  jr z, ine_drum
   inc hl
   inc hl
   ld a, (hl)
@@ -2262,6 +2274,35 @@ ine_len:                     ; field 5 = DCY (+2 low nibble), or KIT on SMP
   ld a, (hl)
   and $F0
   or d
+  ld (hl), a
+  jp ine_mark
+ine_drum:                    ; FMDRUM DRUM selector (+4): L/R cycles 0-5 (ALL..HH)
+  ld de, 4
+  add hl, de
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld c, a
+  ld a, (hl)
+  and $07
+  cp 6
+  jr c, ind_ok
+  xor a
+ind_ok:
+  bit 3, c                   ; Right: next
+  jr z, ind_l
+  inc a
+  cp 6
+  jr c, ind_st
+  xor a                      ; wrap 5 -> 0
+  jr ind_st
+ind_l:
+  or a
+  jr nz, ind_dec
+  ld a, 6                    ; wrap 0 -> 5
+ind_dec:
+  dec a
+ind_st:
   ld (hl), a
   jp ine_mark
 ine_kit:                     ; SMP: kit 0-7 in +2, L/R cycles (wraps)
@@ -6871,10 +6912,15 @@ idr_map:
 idrl_f5:
   call ins_ptr
   ld a, (hl)
-  cp 2                       ; SMP -> "KIT", else DCY (ins_lbls[5])
+  cp 2                       ; SMP -> "KIT"
   jr z, idrl_kit
-  ld a, 5
+  cp 5                       ; FMDRUM -> "DRUM"
+  jr z, idrl_drum
+  ld a, 5                    ; else DCY (ins_lbls[5])
   jr idr_lblidx
+idrl_drum:
+  ld hl, str_drumlbl
+  jr idr_lblgo
 idrl_f13:                    ; SMP -> "TSP" (ins_lbls[6]), else RATE (ins_lbls[13])
   call ins_ptr
   ld a, (hl)
@@ -7125,10 +7171,12 @@ idr_spd:                     ; field 4 = HLD (+3 low nibble; F = inf)
   ld a, (hl)
   and $0F
   jp print_hex_nib
-idr_len:                     ; field 5 = DCY (+2 low nibble), or KIT 0-7 on SMP
+idr_len:                     ; field 5 = DCY (+2 low nibble), KIT on SMP, DRUM on FMDRUM
   ld a, (hl)                 ; type at +0
   cp 2
   jr z, idr_kit
+  cp 5
+  jr z, idr_drum
   inc hl
   inc hl
   ld a, (hl)
@@ -7140,6 +7188,23 @@ idr_kit:                     ; SMP: kit 0-7 in +2, shown 0-7
   ld a, (hl)
   and 7
   jp print_hex_nib
+idr_drum:                    ; FMDRUM: DRUM selector (+4) -> ALL/BD/SD/TOM/TCY/HH
+  ld de, 4
+  add hl, de
+  ld a, (hl)
+  and $07
+  cp 6
+  jr c, idrd_ok
+  xor a                      ; out of range -> ALL
+idrd_ok:
+  add a, a                   ; * 4 (4-char entries)
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, str_drums
+  add hl, de
+  ld b, 4
+  jp print_raw
 idr_mode:
   inc hl
   inc hl
@@ -7234,10 +7299,10 @@ r2f_fm:                      ; FM, grouped: INST/TYPE/VOL/HLD | TSP | TBL/TBS | 
   .db 0, 1, 2, 4, $FF, 6, $FF, 10, 11, $FF, 12, 14, $FF, $FF, $FF, $FF
 f2r_fm:                      ; field -> grid row (spacers after HLD, TSP, TBS)
   .db 0, 1, 2, 0, 3, 0, 5, 0, 0, 0, 7, 8, 10, 0, 11
-r2f_fmdrum:                  ; FMDRUM kit: INST/TYPE/VOL/HLD (note picks drum)
-  .db 0, 1, 2, $FF, 4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_fmdrum:                  ; field -> grid row (0,1,2,4 shown)
-  .db 0, 1, 2, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0
+r2f_fmdrum:                  ; FMDRUM: INST/TYPE/VOL/HLD/DRUM (field 5 at row 5)
+  .db 0, 1, 2, $FF, 4, 5, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_fmdrum:                  ; field -> grid row (0,1,2,4,5 shown)
+  .db 0, 1, 2, 0, 4, 5, 0, 0, 0, 0, 0, 0, 0
 
 .ENDS
 
@@ -7263,6 +7328,8 @@ ins_lbls:
   .db "RATE", 0
   .db "PRST", 0              ; field 14: FM custom-preset selector
   .db "FINE", 0              ; field 15: per-instrument finetune (TONE/WAV)
+str_drumlbl: .db "DRUM", 0   ; FMDRUM field 5 label
+str_drums:  .db "ALL BD  SD  TOM TCY HH  "   ; 6 x 4-char DRUM selector values
 str_tone:   .db "TONE "
 str_smp:    .db "KIT  "
 str_wavt:   .db "WAV  "

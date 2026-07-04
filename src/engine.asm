@@ -2533,7 +2533,25 @@ tn_fmdrum:
   ret
 tn_fd_go:
   ld (ix+20), $FF            ; drums ignore tables (kit = note picks drum)
+  ; DRUM field (record +4): 0 = ALL (note picks the drum, fixed pitch); 1-5 =
+  ; a fixed drum whose carrier pitch the note drives (little-scale FM-drum trick)
+  ld a, (ix+1)
+  call instr_rec             ; HL = instrument record (clobbers DE/HL)
+  ld de, 4
+  add hl, de
+  ld a, (hl)                 ; +4 DRUM
+  and $07
+  or a
+  jr z, tn_fd_all
+  cp 6
+  jr nc, tn_fd_all           ; out of range -> ALL
+  dec a                      ; 1-5 -> drum index 0-4
+  ld e, a
+  call fm_drum_pitch         ; note's fnum/block -> the drum's channel carrier
+  jr tn_fd_vol
+tn_fd_all:
   call tn_fd_drum            ; e = drum index 0-4 (from ix+0 note)
+tn_fd_vol:
   ld a, (ix+4)               ; VOL (AHD peak high nibble) -> musical 0-F
   rrca
   rrca

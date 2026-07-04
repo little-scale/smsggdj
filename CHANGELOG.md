@@ -18,6 +18,13 @@ The git history has the full detail; this is the curated summary.
 - **Per-instrument FINE tune** on TONE and WAV instruments (INSTR screen). A
   signed period-data offset (`00` = no change, `01` = a touch sharper, `FF` = a
   touch flatter), the base pitch trim the `F` command then tweaks per-row.
+- **Tunable FM drums.** The FMDRUM instrument gains a `DRUM` field: `ALL` (the
+  default — the note picks the drum at a fixed pitch, as before) or a single drum
+  (`BD`/`SD`/`TOM`/`TCY`/`HH`). Pick a single drum and the **note's pitch drives
+  that drum's carrier frequency** (the classic YM2413 drum-tuning trick), so you
+  play tuned/melodic drums. Note the chip shares carriers — `SD`+`HH` are on one
+  rhythm channel, `TOM`+`TCY` on another — so two of a shared pair can't hold
+  different pitches at the same instant. Existing songs default to `ALL`.
 - **CONT — continuous play across FILES and LOAD** (PROJECT, below MODE). Set
   `CONT` to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is the default) and
   entering FILES no longer stops the transport: whatever chains are playing keep
