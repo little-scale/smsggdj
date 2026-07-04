@@ -738,7 +738,7 @@ ins_wskip_d:
   ret c
   ld a, 15
   ret
-iwsd_wav:                    ; WAV: 0,1,2,4,6,12(WAVE),15(FINE)
+iwsd_wav:                    ; WAV: 0,1,2,4,6,12(WAVE)
   ld a, e
   cp 3
   ret c
@@ -749,13 +749,8 @@ iwsd_wav:                    ; WAV: 0,1,2,4,6,12(WAVE),15(FINE)
   cp 7
   jr c, iwsd_w6              ; 5,6 -> 6 (TSP)
   cp 12
-  jr c, iwsd_w12             ; 7..11 -> 12 (WAVE)
-  cp 13
-  ret c                      ; 12 unchanged
-  ld a, 15                   ; 13,14 -> 15 (FINE)
-  ret
-iwsd_w12:
-  ld a, 12
+  ret nc                     ; 12 unchanged
+  ld a, 12                   ; 7..11 -> 12 (WAVE)
   ret
 iwsd_w4:
   ld a, 4
@@ -792,7 +787,11 @@ iwsd_fm:                     ; FM: INST TYPE VOL HLD(4) TSP(6) TBL(10) TBS(11) P
   jr c, iwsd_fm10            ; 7,8,9 -> 10 (TBL)
   cp 13
   ret c                      ; 10,11,12 unchanged
-  ld a, 14                   ; 13 (spacer) -> 14 (PRESET)
+  cp 14
+  jr c, iwsd_fm14            ; 13 (spacer) -> 14 (PRESET)
+  ret                        ; 14 -> 14, 15 -> 15 (FINE)
+iwsd_fm14:
+  ld a, 14
   ret
 iwsd_fm4:
   ld a, 4
@@ -842,13 +841,8 @@ iwsu_wav:
   cp 7
   jr c, iwsu_w4              ; 5,6 -> 4 (HLD)
   cp 12
-  jr c, iwsu_w6              ; 7..11 -> 6 (TSP)
-  cp 13
-  ret c                      ; 12 unchanged (WAVE)
-  ld a, 12                   ; 13,14 -> 12 (WAVE)
-  ret
-iwsu_w6:
-  ld a, 6
+  ret nc                     ; 12 unchanged (WAVE)
+  ld a, 6                    ; 7..11 -> 6 (TSP)
   ret
 iwsu_w2:
   ld a, 2
@@ -886,7 +880,11 @@ iwsu_fm:                     ; FM up: PROG TBS TBL TSP HLD VOL TYPE INST
   jr c, iwsu_fm6             ; 7,8,9 -> 6 (TSP)
   cp 13
   ret c                      ; 10,11,12 unchanged
-  ld a, 12                   ; 13 (spacer) -> 12 (PROG)
+  cp 14
+  jr c, iwsu_fm12            ; 13 (spacer) -> 12 (PROG)
+  ret                        ; 14 -> 14 (PRESET), 15 -> 15
+iwsu_fm12:
+  ld a, 12
   ret
 iwsu_fm2:
   ld a, 2
@@ -1038,7 +1036,7 @@ ins_max_row:
   ld a, 15                   ; TONE: + FINE
   ret
 imr_fm:
-  ld a, 14                   ; FM: last field = PRESET
+  ld a, 15                   ; FM: PRESET + FINE
   ret
 imr_fmdrum:
   ld a, 5                    ; FMDRUM: HLD + DRUM (field 5)
@@ -1047,7 +1045,7 @@ imr_noise:
   ld a, 13                   ; NOISE: + MODE/RATE (form full, no FINE)
   ret
 imr_wav:
-  ld a, 15                   ; WAV: WAVE selector + FINE
+  ld a, 12                   ; WAV: WAVE selector (last)
   ret
 imr_smp:
   ld a, 13                   ; SMP: RATE(12) + TSP(13)
@@ -7284,25 +7282,25 @@ f2r_tone:                    ; field -> grid row (FINE = field 15 at the last ro
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 0, 0, 0, 15
 f2r_noise:
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
-f2r_wav:                     ; field -> grid row (HLD=4; field 15 FINE -> row 9)
-  .db 0, 1, 2, 0, 4, 0, 5, 0, 0, 0, 0, 0, 7, 0, 0, 9
+f2r_wav:                     ; field -> grid row (HLD=4 shown; 3,5,7-11 skipped)
+  .db 0, 1, 2, 0, 4, 0, 5, 0, 0, 0, 0, 0, 7
 ; grid row -> field index ($FF = spacer)
 r2f_tone:                    ; FINE (field 15) sits at the last row, below TBS
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, $FF, 15
 r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
-r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE/FINE(row 9)
-  .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, 15, $FF, $FF, $FF, $FF, $FF, $FF
+r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE
+  .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
 r2f_smp:                     ; grid row -> field (INST/TYPE/-/KIT/RATE/TSP)
   .db 0, 1, $FF, 5, 12, 13, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_smp:                     ; field -> grid row (blank row2; KIT=5 r3, RATE=12 r4, TSP=13 r5)
   .db 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 5
-r2f_fm:                      ; FM, grouped: INST/TYPE/VOL/HLD | TSP | TBL/TBS | PROG/PRST
-  .db 0, 1, 2, 4, $FF, 6, $FF, 10, 11, $FF, 12, 14, $FF, $FF, $FF, $FF
-f2r_fm:                      ; field -> grid row (spacers after HLD, TSP, TBS)
-  .db 0, 1, 2, 0, 3, 0, 5, 0, 0, 0, 7, 8, 10, 0, 11
+r2f_fm:                      ; FM: INST/TYPE/VOL/HLD | TSP | TBL/TBS | PROG/PRST | FINE
+  .db 0, 1, 2, 4, $FF, 6, $FF, 10, 11, $FF, 12, 14, $FF, 15, $FF, $FF
+f2r_fm:                      ; field -> grid row (FINE = field 15 at row 13)
+  .db 0, 1, 2, 0, 3, 0, 5, 0, 0, 0, 7, 8, 10, 0, 11, 13
 r2f_fmdrum:                  ; FMDRUM: INST/TYPE/VOL/HLD/DRUM (field 5 at row 5)
   .db 0, 1, 2, $FF, 4, 5, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 f2r_fmdrum:                  ; field -> grid row (0,1,2,4,5 shown)

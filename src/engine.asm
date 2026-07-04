@@ -2017,6 +2017,44 @@ lrb_lok:
 ; boundary. The carried phrase triggers the NEW song's instrument numbers (one
 ; song in RAM - timbre follows the load).
 
+; fm_fine: apply the instrument finetune (ix+27, signed) to a YM2413 pitch as an
+; fnum offset (+ = sharper, matching the F/TONE convention). IN d = $20-reg
+; (block<<1 | fnum8 | $30), e = fnum low; OUT d/e adjusted, fnum clamped 0-511.
+; Bank 1. Clobbers A/BC/HL.
+fm_fine:
+  ld a, (ix+27)
+  or a
+  ret z
+  ld l, e                    ; HL = 9-bit fnum ((d&1)<<8 | e)
+  ld a, d
+  and $01
+  ld h, a
+  ld a, (ix+27)              ; BC = sign-extended finetune
+  ld c, a
+  rlca
+  sbc a, a
+  ld b, a
+  add hl, bc                 ; fnum += finetune
+  bit 7, h
+  jr z, fmfi_hi              ; underflow -> 0
+  ld hl, 0
+  jr fmfi_pack
+fmfi_hi:
+  ld a, h
+  cp 2                       ; >= 512 -> clamp 511
+  jr c, fmfi_pack
+  ld hl, 511
+fmfi_pack:
+  ld e, l                    ; fnum low
+  ld a, d
+  and $FE                    ; clear the fnum8 bit, keep block + $30
+  ld c, a
+  ld a, h
+  and $01
+  or c
+  ld d, a
+  ret
+
 ; instr_rec: HL = instruments + A*16 (A = instrument # 0-15). The shared
 ; record-address helper (bank 1, always mapped). Clobbers A/DE.
 instr_rec:
@@ -2428,6 +2466,7 @@ tn_fm_go:
   ld a, (hl)
   or $30                     ; key-on ($10) | sustain ($20) | block | fnum8
   ld d, a                    ; -> $20-reg
+  call fm_fine               ; instrument finetune (ix+27) as an fnum offset
   ld a, (fm_ovr)             ; Y command overrides the program for this note
   inc a
   jr z, tn_fm_noovr          ; $FF -> no override

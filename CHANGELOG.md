@@ -16,9 +16,10 @@ The git history has the full detail; this is the curated summary.
   (including up into the new `+` range) covers the whole FM range directly — no
   per-instrument octave setting. The note name is PSG-referenced, so an FM
   instrument sounds two octaves below its label.
-- **Per-instrument FINE tune** on TONE and WAV instruments (INSTR screen). A
-  signed period-data offset (`00` = no change, `01` = a touch sharper, `FF` = a
-  touch flatter), the base pitch trim the `F` command then tweaks per-row.
+- **Per-instrument FINE tune** on TONE and FM instruments (INSTR screen). A
+  signed offset (`00` = no change, `01` = a touch sharper, `FF` = a touch
+  flatter) — applied to the PSG period on TONE and to the YM2413 F-number on FM.
+  On TONE it's the base pitch trim the `F` command then tweaks per-row.
 - **Tunable FM drums.** The FMDRUM instrument gains a `DRUM` field: `ALL` (the
   default — the note picks the drum at a fixed pitch, as before) or a single drum
   (`BD`/`SD`/`TOM`/`TCY`/`HH`). Pick a single drum and the **note's pitch drives
