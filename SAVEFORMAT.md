@@ -145,10 +145,13 @@ bank 0 — file offset `$3F60` on a 16/32 KB image; on an 8 KB cart the window
 mirrors, so it lands at `$1F60`. 10 bytes (v3, since v0.37):
 `'C' 'F' pal_sel sync_mode vid_sel fm_on cont key_delay key_speed checksum`
 (checksum = sum of the seven value bytes & `$FF`). `vid_sel`: `0` AUTO, `1`
-PAL, `2` NTSC; `fm_on`: `0` off / `1` on; `cont`: `0` OFF / `1`–`4` =
-T1/T2/T3/NO (the continuous-play carry channel); `key_delay` (1–60) and
-`key_speed` (1–30) are the DAS cursor-repeat delay/interval in frames (OPTIONS
-→ RDLY/RSPD). Written whenever you save a song, read at boot. **Legacy blocks**
+PAL, `2` NTSC; `fm_on`: `0` off / `1` on; `cont` holds the CONT handover mask
+(`b0`=T1 `b1`=T2 `b2`=T3 `b3`=N) but is **not restored at boot** — CONT is a
+per-set performance choice, so it always starts OFF regardless of the stored
+byte (which also sidesteps reinterpreting a pre-mask 0–4 value as a mask);
+`key_delay` (1–60) and `key_speed` (1–30) are the DAS cursor-repeat
+delay/interval in frames (OPTIONS → RDLY/RSPD). Written whenever you save a song,
+read at boot. **Legacy blocks**
 are still accepted — the loader tries the checksum at each length in turn:
 7-byte v1 (no `cont`/key-repeat, checksum of four at `+6`), then 8-byte v2 (no
 key-repeat, checksum at `+7`), then v3.

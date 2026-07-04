@@ -105,29 +105,37 @@ GROOVE and `2+Left` from GROOVE comes back.
 - **ECHO** — a tempo-synced delay that echoes T1 onto T2/T3 (below INSTR).
 - **PROJECT** — this song: name, tempo, transpose, mode, continuous play
   (**CONT**), and an `UNSAVED` flag when there are changes not yet written to a
-  slot. Set **CONT** to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is default) and
-  going to FILES doesn't stop playback, and **LOAD swaps the song under the
-  running clock**. In **SONG** mode the **new song starts from the top (song row
-  1)**, but each track keeps its **position within the phrase** (the 16th-note
-  step it was on), so the incoming song drops in **beat-matched** — no rhythmic
-  hiccup. In **LIVE** mode only the carried bridge keeps playing — **the other
-  tracks go silent on the load**, and you bring them back in yourself by queuing
-  chains (as usual for LIVE). The **chosen channel's playing phrase is carried
-  across the load** as a bridge: it keeps sounding through the transition — **with
-  its own instrument sound preserved** — and then rejoins at the top with the
-  others in SONG (in LIVE it **loops** until you queue something new). While a
-  track holds the bridge, a **`>` shows beside its name** on the SONG header (its
-  grid cells stay unmarked, so you can freshly queue a chain there). The bridge
-  plays from a private buffer, so **all 52 phrases / 40 chains / 16 instruments
-  are yours to use freely** — CONT costs you nothing and touches no song data. Pick
-  the
-  channel holding your groove (NO for drums, T1–T3 for a bass or pad); on the SONG
-  header a **`*`** to the right of that chosen track's name (whenever CONT is on)
-  shows which one will bridge; a **`>`** to the left of the name lights while it's
-  actually bridging. Samples
-  are silent while FILES is open (they return when you leave). The bridge keeps
-  the carried part's instrument; if that instrument uses a table, the table reads
-  the new song's slots.
+  slot. **CONT** is a **handover mask** drawn as four glyphs — one per track
+  (`1`=T1 `2`=T2 `3`=T3 `N`=noise), a dash where off. 1+L/R scrolls it through
+  the reachable settings: **OFF (`----`), any single track, or any pair** (e.g.
+  `1---`, `1-3-`, `-2-N`). Up to **two tracks** carry at once. CONT always starts
+  **OFF** each time you power on (it's a per-set choice, not saved). With CONT on,
+  going to FILES doesn't stop playback, and **LOAD swaps the song under the running
+  clock**. In **SONG** mode the **new song starts from the top (song row 1)**, but
+  each track keeps its **position within the phrase** (the 16th-note step it was
+  on), so the incoming song drops in **beat-matched** — no rhythmic hiccup. In
+  **LIVE** mode only the carried bridges keep playing — **the other tracks go
+  silent on the load**, and you bring them back in yourself by queuing chains (as
+  usual for LIVE). Each **carried track's playing phrase is carried across the
+  load** as a bridge: it keeps sounding through the transition — **with its own
+  instrument sound preserved** — and then rejoins at the top with the others in
+  SONG (in LIVE it **loops** until you queue something new). On the SONG header a
+  **`*`** to the right of a track's name (whenever CONT is on) marks each track set
+  to carry; a **`>`** to the left of the name lights while it's actually bridging
+  (its grid cells stay unmarked, so you can freshly queue a chain there). The
+  bridges play from private buffers, so **all 52 phrases / 40 chains / 16
+  instruments are yours to use freely** — CONT costs you nothing and touches no
+  song data. Pick the tracks holding your groove (N for drums, T1–T3 for a bass or
+  pad). Samples are silent while FILES is open (they return when you leave).
+  - **Beat-matched LOAD.** With CONT on and playing, **LOAD doesn't swap right
+    away — it waits for the next phrase downbeat** so the transition lands on the
+    beat. The FILES count line shows **`CUED nn IN xx`** (the queued slot, and the
+    phrase rows left before it fires). You can **back out of FILES** after pressing
+    LOAD and watch it drop in on the SONG screen — the queued swap fires wherever
+    you are. (Stop the transport, or turn CONT off, and LOAD is instant as before.)
+  - **Tempo match.** If the two songs are at different tempos, after the swap the
+    count line shows **`MATCH IN nnn`** — the rows of tempo glide still to run
+    before the new tempo is reached. See **SLID** below.
 - **PROJECT → SLID** (below CONT) sets the **tempo slide**: on a CONT load the
   tempo ramps from the old song's BPM to the new one's over this many bars —
   **OFF** (jump instantly) or **1–16 bars** (default 4). Because SMSGGDJ's tempo

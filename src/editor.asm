@@ -134,11 +134,19 @@
   label_dirty  db
   vstamp_clr   db            ; 1 = strip the OPTIONS version stamp's col-0 tile
   song_edited  db            ; 1 = song data changed since last save/load (PROJECT UNSAVED)
-  cont_play    db            ; 1 = CONT: keep the transport running on FILES + across LOAD
+  cont_play    db            ; CONT handover mask: bit0=T1 b1=T2 b2=T3 b3=N (0=OFF).
+                             ;   any set bit keeps the transport running on FILES/LOAD
+                             ;   and carries THAT channel's phrase across the swap.
   sram_live    db            ; 1 = FILES has SRAM mapped over the pool: KIT triggers gated
-  carry_flag   db            ; 1 = carry_buf holds the NO track's phrase across a LOAD
-  carry_buf    dsb 64        ; the carried phrase (planted in slot 51 after the swap)
-  carry_instr  dsb 16        ; the carried instrument's record (baked into slot 15)
+  carry_slot   dsb 4         ; per-channel -> its packed bridge buffer slot
+                             ;   (0..NCARRY-1), or $FF if that channel isn't carrying
+  carry_buf    dsb NCARRY*64 ; each carried channel's phrase (private buffer)
+  carry_instr  dsb NCARRY*16 ; each carried channel's instrument record
+  cont_load_armed db         ; 1 = a CONT load is queued, waiting for the boundary
+  cont_load_slot  db         ; the FILES slot to swap in when it fires
+  cont_load_ref   db         ; reference channel (lowest carried): watch its phrase row
+  cont_load_prow  db         ; that channel's row last frame (edge-detect the 15->0 wrap)
+  glide_cue_last  db         ; glide_bars last shown on the FILES line (repaint on change)
   ed_rep       db
   tmp_note     db
   tmp_instr    db
@@ -211,6 +219,10 @@ editor_init:
 ; input
 ; =============================================================
 editor_input:
+  ld a, (cont_load_armed)    ; a queued CONT load waits here for the phrase boundary
+  or a
+  call nz, cont_load_service
+  call cont_glide_cue        ; animate the FILES "MATCH IN nnn" tempo-glide countdown
   ; held-state disambiguation (no timing windows):
   ;   1 while 2 held = transport   2 while 1 held = cut/select
   ;   1 alone = insert/audition    1 double-tap = paste
@@ -1683,7 +1695,7 @@ dei_have:
   jr z, dei_dec
 dei_inc:
   ld a, d
-  cp USER_INSTR-1            ; instrument 15 is reserved for the CONT handoff
+  cp USER_INSTR-1            ; cap at the top instrument (all 16 usable)
   jr nc, dei_dec
   inc d
 dei_dec:
@@ -2845,27 +2857,33 @@ prp_play:                    ; 1 + L/R toggles SONG/LIVE (MODE) -- live, no stop
   ld (state_dirty), a        ; refresh transport glyph (SONG shows a playhead)
   ld a, 2
   jp prj_mark_field
-prp_cont:                    ; 1 + L/R cycles CONT: OFF / T1 / T2 / T3 / NO. A
-  ld a, (ed_rep)             ; non-OFF value keeps the transport running on FILES
-  ld c, a                    ; + LOAD and carries THAT channel's phrase across.
-  ld a, (cont_play)
-  bit 3, c                   ; right -> next
+prp_cont:                    ; 1 + L/R scrolls the CONT handover mask. Each bit is a
+  ld a, (ed_rep)             ; track carrying its phrase across a LOAD (b0=T1 b1=T2
+  ld c, a                    ; b2=T3 b3=N). Combos with more than NCARRY bits are
+  ld a, (cont_play)          ; skipped, so only OFF / a single / a valid pair appear.
+  and $0F                    ; ignore any stale high bits
+  bit 3, c                   ; right -> next valid combo
   jr z, pco_left
+pco_r:
   inc a
-  cp 5
-  jr c, pco_set
-  xor a                      ; wrap 4 -> 0
+  and $0F                    ; wrap 15 -> 0
+  call pco_valid
+  jr nc, pco_r
   jr pco_set
 pco_left:
-  bit 2, c                   ; left -> prev
+  bit 2, c                   ; left -> prev valid combo
   ret z
+pco_l:
   dec a
-  jp p, pco_set
-  ld a, 4                    ; wrap 0 -> 4 (NO)
+  and $0F                    ; wrap 0 -> 15
+  call pco_valid
+  jr nc, pco_l
 pco_set:
   ld (cont_play), a
   ld a, 3
   jp prj_mark_field
+  ; pco_valid (the popcount cap) + prd_cont (the glyph draw) live in the bank-1
+  ; ProjDraw2 section to keep the tight GG bank 0 from overflowing.
 
 ; -------------------------------------------------------------
 ; OPTIONS screen: the machine/rig page (persisted config block).
@@ -3115,11 +3133,11 @@ stg_r2f:
   .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, 6, 7, $FF
 .ENDIF
 
-prj_f2r:                     ; TMPO/TSP/MODE/CONT/SLID sit below the NAME readout
-  .db 3, 4, 5, 6, 7
-prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, then the fields,
-  .db $FF, $FE, $FF, 0, 1, 2, 3, 4, $FF, $FD, $FF, $FF, $FF, $FF, $FF, $FF
-                             ; blank, then row9 = UNSAVED status ($FD)
+prj_f2r:                     ; TMPO/TSP / MODE / CONT/SLID -- blank rows after TSP and
+  .db 3, 4, 6, 8, 9          ;   after MODE group the readout, transport and transition
+prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, TMPO, TSP, blank,
+  .db $FF, $FE, $FF, 0, 1, $FF, 2, $FF, 3, 4, $FF, $FD, $FF, $FF, $FF, $FF
+                             ; MODE, blank, CONT, SLID, blank, then UNSAVED ($FD)
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -6380,25 +6398,6 @@ prd_play:
 prd_pl4:
   ld b, 4
   jp print_raw
-prd_cont:                    ; OFF / T1 / T2 / T3 / NO (the carried channel)
-  ld a, (cont_play)
-  or a
-  jr nz, prd_cont_ch
-  ld hl, str_fmoff           ; "OFF " (shared with the FM field)
-  jr prd_pl4
-prd_cont_ch:
-  dec a                      ; 0..3 -> track_names offset *2
-  add a, a
-  ld e, a
-  ld d, 0
-  ld hl, track_names         ; "T1T2T3NO"
-  add hl, de
-  ld b, 2                    ; two-char name...
-  call print_raw
-  ld a, ' '                  ; ...padded to the 4-wide field
-  call print_char
-  ld a, ' '
-  jp print_char
 prd_sync:
   ld a, (sync_mode)
   add a, a
@@ -7282,6 +7281,55 @@ idr_rate:
   ld b, 5
   jp print_raw
 
+; CONT field draw (bank 1, jp-reached from prd_ dispatch): 4 glyphs, each track's
+; label when its handover bit is set, '-' when clear (b0=T1 b1=T2 b2=T3 b3=N).
+prd_cont:
+  ld a, (cont_play)
+  ld c, a                    ; C = mask, rotated one bit per column
+  ld b, 0                    ; B = track index 0..3
+prd_cont_g:
+  ld a, c
+  rrca                       ; bit 0 -> carry (this track's handover flag)
+  ld c, a
+  jr c, prd_cont_on
+  ld a, '-'
+  jr prd_cont_pc
+prd_cont_on:
+  ld a, b
+  cp 3
+  jr z, prd_cont_n
+  add a, '1'                 ; tracks 0..2 -> '1'..'3'
+  jr prd_cont_pc
+prd_cont_n:
+  ld a, 'N'                  ; track 3 -> noise
+prd_cont_pc:
+  push bc
+  call print_char
+  pop bc
+  inc b
+  ld a, b
+  cp 4
+  jr c, prd_cont_g
+  ret
+
+; pco_valid (bank 1, call-reached from prp_cont): A = handover mask. CARRY set if it
+; has <= NCARRY bits (a reachable combo). A is preserved; clobbers B/D/E.
+pco_valid:
+  ld e, a                    ; save the mask
+  ld b, 0                    ; B = popcount
+  ld d, 4
+pcv_l:
+  rrca
+  jr nc, pcv_z
+  inc b
+pcv_z:
+  dec d
+  jr nz, pcv_l
+  ld a, b
+  cp NCARRY+1                ; CARRY set when popcount <= NCARRY
+  ld a, e                    ; restore mask (LD doesn't touch flags)
+  ret
+
 .ENDS
 
 ; -------------------------------------------------------------
@@ -7416,12 +7464,22 @@ song_bridge_cues:
   ld ix, chst
   ld c, 0                    ; C = track index
 sbc_l:
-  ld a, (cont_play)          ; RIGHT: '*' on the CONT handover track
+  ld a, (cont_play)          ; RIGHT: '*' on every CONT handover track (mask bit C)
   or a
   jr z, sbc_chkbr            ; CONT off -> no star
-  dec a
-  cp c
-  jr nz, sbc_chkbr
+  ld b, c                    ; shift the mask right C times, test bit 0
+sbc_star_sh:
+  ld d, a                    ; (B==0 -> no shift, test as-is)
+  ld a, b
+  or a
+  ld a, d
+  jr z, sbc_star_t
+  rrca
+  dec b
+  jr sbc_star_sh
+sbc_star_t:
+  and 1
+  jr z, sbc_chkbr
   ld a, '*'
   ld b, 2                    ; offset +2 = right of the 2-char name
   call sbc_put
@@ -8046,6 +8104,9 @@ str_size:  .db "SONG", 0
 str_songs: .db "SONGS", 0
 str_sure:  .db "SURE "
 str_freed: .db "FREED ", 0
+str_cued:  .db "CUED ", 0
+str_cue_in: .db " IN ", 0
+str_match: .db "MATCH IN ", 0
 
 ; fl_entry: A = slot -> HL = directory entry ptr (SRAM). Preserves DE.
 fl_entry:
@@ -8231,6 +8292,12 @@ fld_count:                   ; "- nn SONGS ----" (or "FREED nn" after a purge)
   ld b, a
   ld c, 0
   call fl_set
+  ld a, (cont_load_armed)    ; a queued CONT load shows "CUED nn" over the rule
+  or a
+  jr nz, flc_cued
+  ld a, (glide_bars)         ; a running CONT tempo glide shows "MATCH IN nn" (bars)
+  or a
+  jr nz, flc_match
   ld a, (purge_ui)
   cp $80
   jr z, flc_freed
@@ -8266,6 +8333,63 @@ flc_fpad:
   call print_char
   pop bc
   djnz flc_fpad
+  ret
+flc_cued:                    ; "CUED nn IN xx": xx = phrase rows left before the swap
+  ld hl, str_cued            ;   fires (the ref track's row counting down to the wrap)
+  call fsp_str
+  ld a, (cont_load_slot)
+  call fsp_dec2
+  ld hl, str_cue_in          ; " IN "
+  call fsp_str
+  ld a, (cont_load_ref)      ; xx = 16 - ref channel's current within-phrase row
+  ld e, a
+  ld d, 0
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)
+  ld b, a
+  ld a, 16
+  sub b                      ; 16 (just wrapped) .. 1 (next row fires)
+  call fsp_dec2
+  ld b, 3
+flc_cpad:
+  ld a, ' '
+  push bc
+  call print_char
+  pop bc
+  djnz flc_cpad
+  ret
+flc_match:                   ; "MATCH IN nnn": rows of tempo glide still to run
+  ld hl, str_match           ;   (glide_bars * 16 - the phrase phase), so it counts
+  call fsp_str               ;   down in rows like the CUED line
+  ld a, (glide_bars)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; HL = glide_bars * 16 (16..256)
+  ld a, (chan_row)           ; - T1's within-phrase row (the bar phase)
+  ld e, a
+  ld d, 0
+  or a
+  sbc hl, de                 ; HL = rows remaining (1..256)
+  ld a, h
+  or a
+  jr z, fm_lo
+  ld a, 255                  ; clamp the lone 256 case (glide_len 16, row 0)
+  jr fm_pr
+fm_lo:
+  ld a, l
+fm_pr:
+  call print_dec3
+  ld b, 4
+flc_mpad:
+  ld a, ' '
+  push bc
+  call print_char
+  pop bc
+  djnz flc_mpad
   ret
 
 ; cm_files: up/down = slot cursor; left/right = name cursor (wraps 0..7).
@@ -8424,7 +8548,7 @@ fp_files:
   cp 1
   jr z, fpx_load             ; 1 LOAD
   cp 2
-  jr z, fpx_clear            ; 2 CLEAR
+  jp z, fpx_clear            ; 2 CLEAR
   jp fpx_close               ; 5 CANCEL (and anything else): close, no-op
 fpx_prgp:
   ld a, (purge_ui)
@@ -8450,7 +8574,15 @@ fpp_done:
   ld (purge_ui), a
   jp mark_all_dirty
 fpx_load:
-  call load_carry_pre        ; CONT: stash the NO track's phrase pre-swap
+  ld a, (cont_play)          ; CONT + playing: quantize the swap to the next phrase
+  and $0F                    ;   boundary instead of swapping now (cont_load_service
+  jr z, fpx_load_now         ;   fires it). CONT off or stopped -> swap immediately.
+  ld a, (play_state)
+  or a
+  jr z, fpx_load_now
+  jp cont_load_arm           ; queue it; stay in FILES with the CUED cue
+fpx_load_now:
+  call load_carry_pre        ; CONT: stash the carried phrase(s) pre-swap
   ld a, (files_row)          ; LOAD on the trailing empty slot = blank canvas
   ld hl, file_count
   cp (hl)
@@ -8496,6 +8628,135 @@ fpx_close:
   xor a
   ld (fmenu), a
   jp mark_all_dirty
+
+; ---- CONT quantized load: under CONT + playing, LOAD queues the swap for the next
+; phrase boundary (the lowest carried track's row 15->0) instead of swapping now.
+; The user stays in FILES ("CUED nn" on the count line); cont_load_service (called
+; each frame from editor_input while armed) watches the row and fires on the wrap.
+
+cont_load_arm:               ; LOAD gesture: queue slot files_row, stay in FILES
+  ld a, (files_row)
+  ld (cont_load_slot), a
+  ld a, (cont_play)          ; reference channel = lowest set bit of the handover mask
+  and $0F
+  ld c, 0
+cla_bit:
+  rrca
+  jr c, cla_have
+  inc c
+  jr cla_bit
+cla_have:
+  ld a, c
+  ld (cont_load_ref), a
+  ld e, c                    ; prime the edge detector with the ref row now, so the
+  ld d, 0                    ;   swap waits for a genuine 15->0 wrap (not an instant
+  ld hl, chan_row            ;   fire if we happen to be sitting on row 0)
+  add hl, de
+  ld a, (hl)
+  ld (cont_load_prow), a
+  ld a, 1
+  ld (cont_load_armed), a
+  xor a                      ; dismiss the action menu; the CUED cue shows instead
+  ld (fmenu), a
+  jp mark_all_dirty
+
+cont_load_service:           ; called each frame while armed (from editor_input), in
+  ld a, (play_state)         ;   ANY screen -- the queued load survives leaving FILES
+  or a                       ;   and fires on the boundary wherever you are. Stopped
+  jr z, cont_load_fire       ;   while armed -> just load now (no boundary to wait on).
+  ld a, (cont_load_ref)      ; watch the ref channel's within-phrase row
+  ld e, a
+  ld d, 0
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)                 ; C = current row
+  ld c, a
+  ld a, (cont_load_prow)     ; B = row last frame
+  ld b, a
+  ld a, c
+  ld (cont_load_prow), a     ; remember for next frame
+  cp b                       ; row advanced? refresh the FILES "IN xx" countdown
+  jr z, cls_chk
+  ld a, (scr_mode)
+  cp SCR_FILES
+  jr nz, cls_chk
+  push bc
+  xor a
+  call mark_dirty_a          ; grid row 0 = the CUED countdown line
+  pop bc
+cls_chk:
+  ld a, c
+  or a
+  ret nz                     ; not at row 0 yet: keep waiting
+  ld a, b
+  or a
+  ret z                      ; already sat on 0: wait for a real 15->0 edge
+  ; boundary reached -> fall through and fire
+cont_load_fire:
+  xor a
+  ld (cont_load_armed), a
+  call load_carry_pre        ; snapshot the carried phrase(s) at the downbeat (from RAM)
+  ld a, (sram_live)          ; still in FILES (SRAM already mapped over the pool)?
+  push af
+  or a
+  jr nz, clf_load            ; yes: SRAM mapped + samples already aborted
+  ld a, 1                    ; no (we left FILES): map SRAM over the pool ourselves
+  ld (sram_live), a
+  call smp_abort             ; SRAM is about to cover the sample pool
+clf_load:
+  ld a, (cont_load_slot)     ; blank-canvas slot (== count) -> song_new, else load
+  ld hl, file_count
+  cp (hl)
+  jr c, clf_file
+  call song_new
+  jr clf_reb
+clf_file:
+  ld a, 1                    ; skip the discarded post-decode checksum (~5 frames)
+  ld (rle_nocheck), a
+  ld a, (cont_load_slot)
+  call rle_song_load
+clf_reb:
+  call load_rebase
+  pop af                     ; were we inside FILES when it fired?
+  or a
+  jr nz, clf_infiles
+  xor a                      ; fired outside FILES: restore the pool + re-enable samples
+  ld ($FFFC), a
+  ld (sram_live), a
+  jp mark_all_dirty
+clf_infiles:
+  jp fpx_close               ; fired inside FILES: keep SRAM mapped (fpx_close re-maps)
+
+; cont_glide_cue: while a CONT tempo glide runs and FILES is open, repaint the count
+; line each row so the "MATCH IN nnn" countdown animates, then once more when it ends.
+; Called every frame from editor_input. glide_cue_last = last row shown ($FF = idle).
+cont_glide_cue:
+  ld a, (scr_mode)
+  cp SCR_FILES
+  ret nz
+  ld a, (cont_load_armed)    ; CUED owns the line while a load is queued
+  or a
+  ret nz
+  ld a, (glide_bars)
+  or a
+  jr z, cgc_idle
+  ld a, (chan_row)           ; gliding: repaint on each row change
+  ld b, a
+  ld a, (glide_cue_last)
+  cp b
+  ret z
+  ld a, b
+  ld (glide_cue_last), a
+  xor a
+  jp mark_dirty_a            ; grid row 0 = the MATCH countdown
+cgc_idle:
+  ld a, (glide_cue_last)     ; glide ended: one repaint to clear MATCH, then settle
+  inc a                      ; $FF -> 0 (Z): already idle
+  ret z
+  ld a, $FF
+  ld (glide_cue_last), a
+  xor a
+  jp mark_dirty_a
 
 ; fc_files: 1-hold+2 on FILES. Toggle the action menu.
 fc_files:

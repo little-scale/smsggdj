@@ -16,11 +16,32 @@ The git history has the full detail; this is the curated summary.
 - **PROJECT → SLID** sets the tempo-slide length: **OFF** (instant, the old jump)
   or **1–16 bars**. Sits below CONT; default 4 bars. (Not yet persisted across a
   reboot — resets to 4.)
-- **CONT handover track marker.** On the SONG header, the track CONT is set to
-  carry shows a **`*`** to the **right** of its name whenever CONT is on, so you
-  can see at a glance which track will bridge the next load. While it's actually
-  bridging, a **`>` handover-playhead** shows to the **left** of the name (aligned
-  with the grid play markers) alongside the `*`.
+- **CONT is a multi-track handover mask.** CONT is no longer a single channel —
+  it's a 4-bit mask (`b0`=T1 `b1`=T2 `b2`=T3 `b3`=N), drawn as four glyphs
+  (`----` / `1---` / `1-3N` …). 1+L/R scrolls it, and the selector only offers
+  reachable combos — **OFF, any single track, or any pair** (up to two tracks
+  carry at once). Each carried track bridges the load simultaneously and
+  independently, from its own private buffer, so you can hold e.g. a bassline
+  **and** a drum part across a transition. Under the hood the two carried tracks
+  are packed into a pair of private buffers via a channel→slot map, so any of the
+  four channels can be chosen — only the *count* is capped at two (a RAM budget
+  choice; the song block plus stack leaves room for two).
+- **CONT handover track markers.** On the SONG header, **every** track CONT is set
+  to carry shows a **`*`** to the **right** of its name whenever CONT is on. While
+  a track is actually bridging, a **`>` handover-playhead** shows to the **left**
+  of the name (aligned with the grid play markers).
+- **CONT LOAD is beat-quantized (CUED).** With CONT on and the transport running,
+  pressing **LOAD** doesn't swap immediately — it **queues** the swap for the next
+  phrase boundary (the lowest carried track's 16-step downbeat), so the whole
+  transition (tempo glide *and* the song swap) lands on the beat. The FILES count
+  line shows **`CUED nn IN xx`** — `nn` = the queued slot, `xx` = phrase rows left
+  before it fires. The queued load **survives leaving FILES**: arm it, back out to
+  the SONG view, and it drops in on the boundary wherever you are. Stopping the
+  transport (or CONT being off) loads immediately as before.
+- **Tempo-match indicator.** While a CONT tempo glide is ramping, the FILES count
+  line shows **`MATCH IN nnn`** — the rows of glide still to run before the tempos
+  are matched (only shown when the tempos actually differ). It counts down in rows
+  like the CUED line and clears itself when the match completes.
 
 ### Changed
 - **Faster song load (much smaller glitch under CONT).** Two wins stack:
@@ -46,12 +67,12 @@ The git history has the full detail; this is the curated summary.
   new song** (song row 1) but keeps each track's **position within the phrase**
   (the 16th-note step it was on), so the incoming song enters on the beat with no
   rhythmic hiccup — instead of continuing from wherever the old song happened to
-  be. The CONT channel (T1/T2/T3/NO) still carries its playing phrase across the
-  load as a bridge: in SONG it plays once and then rejoins the others at the top;
-  in LIVE it **loops** and holds the groove until you queue a chain from the new
-  song. **In LIVE the other tracks are silenced on the load** — only the carried
-  bridge keeps playing, and you bring the rest back in by queuing chains, so the
-  transition stays performer-driven (they no longer auto-play the new song).
+  be. The carried tracks (the CONT mask) still carry their playing phrase across
+  the load as a bridge: in SONG each plays once and then rejoins the others at the
+  top; in LIVE each **loops** and holds the groove until you queue a chain from the
+  new song. **In LIVE the other tracks are silenced on the load** — only the
+  carried bridges keep playing, and you bring the rest back in by queuing chains,
+  so the transition stays performer-driven (they no longer auto-play the new song).
 - **The bridging track no longer shows a false playhead on the SONG grid.** The
   bridge plays a reserved off-grid chain, so the old `>` on that track's row
   wrongly flagged a cell as already-playing — now suppressed, so you can queue and
@@ -73,6 +94,18 @@ The git history has the full detail; this is the curated summary.
   instrument (the first note's, or the channel's current one) is snapshotted so the
   bridge sounds the same through the load instead of inheriting the new song's
   timbre. (A table the bridge instrument uses still reads the new song's tables.)
+- **CONT defaults to OFF (`----`) and is no longer persisted.** It's a per-set
+  performance choice, so it always boots to OFF regardless of the saved config
+  (this also sidesteps the pre-mask 0–4 → mask reinterpretation of old configs).
+- **PROJECT screen spacing.** Blank rows now separate the readout, transport and
+  transition groups — a gap after **TSP** (before MODE) and after **MODE** (before
+  CONT), so TMPO/TSP · MODE · CONT/SLID read as three groups.
+- **Fixed: a stale CONT bridge could trap a track.** Silencing or re-arming a
+  track (`live_track_stop` / `lq_arm`) didn't clear the bridge sentinel (`ix+11`),
+  so a track that had bridged an earlier load but wasn't re-carried could be left
+  marked as bridging — triggering it then routed to the bridge handler (which reads
+  no queue) and it never fired. The sentinel is now cleared whenever a track is
+  silenced or re-armed, so it always advances via the normal song path.
 
 ## v0.37 — 2026-07-04
 

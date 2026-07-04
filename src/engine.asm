@@ -98,12 +98,16 @@
 .DEFINE NUM_PHRASES 52
 .DEFINE NUM_CHAINS  40
 .DEFINE NUM_INSTR   16
+; NCARRY: how many CONT handover tracks can bridge a load AT ONCE. The bridge plays
+; each carried channel from a private RAM buffer (carry_buf/carry_instr, NCARRY x
+; 64+16 B), so it touches no pool slot -- but that RAM is scarce (8 KB shared with
+; the 6912 B song block + the stack), so simultaneous carries are capped here.
+; Carried channels are PACKED into slots 0..NCARRY-1 via carry_slot[], so any of the
+; four tracks can carry; only the count is limited. 2 = ~166 B stack headroom (safe);
+; 3 = ~86 B (tight). Selecting more than NCARRY tracks carries the first NCARRY.
+.DEFINE NCARRY      2
 ; USER_* are the editor's navigation/allocation limits. All slots are usable, so
-; these equal the pool counts. The CONT beat-carry handoff still BORROWS the top
-; phrase (NUM_PHRASES-1) / chain (NUM_CHAINS-1) / instrument (NUM_INSTR-1) as
-; scratch while bridging a load -- so a song that fills those slots and is then
-; performed with CONT will have them overwritten. Compose freely; just don't lean
-; on the very top slots if you're doing CONT transitions.
+; these equal the pool counts (the CONT bridge uses private buffers, not pool slots).
 .DEFINE USER_PHRASES NUM_PHRASES     ; all 52 phrases usable
 .DEFINE USER_CHAINS  NUM_CHAINS      ; all 40 chains usable
 .DEFINE USER_INSTR   NUM_INSTR       ; all 16 instruments usable
@@ -1303,6 +1307,8 @@ lq_arm:
   ld (ix+7), b               ; silent track: load this row at
   ld (ix+8), $FF             ; the next phrase boundary
   ld (ix+10), $FF
+  ld (ix+11), $FF            ; clear any stale BRIDGE_MK so advance_track takes the
+                             ;   normal song path (at_load), not at_bridge
   ld (ix+6), 1
   ret
 
@@ -1336,6 +1342,8 @@ lts_clrm:
 lts_ch:
   ld (ix+6), 0
   ld (ix+10), $FF
+  ld (ix+11), $FF            ; drop any (stale) BRIDGE_MK/chain sentinel, so a later
+                             ;   re-arm advances via the normal song path, not at_bridge
   ld (ix+2), 0               ; volume 0: the wave gate sees it
   ld hl, psg_vols
   ld e, c
@@ -1424,12 +1432,27 @@ pr_ppdone:
   add hl, de
   jr pr_readstep
 pr_bridge:
-  ld a, (cur_row)            ; HL = carry_buf + row*4 (the carried phrase step)
+  ld a, (cur_trig_ch)        ; slot = carry_slot[channel] (packed buffer index)
+  ld e, a
+  ld d, 0
+  ld hl, carry_slot
+  add hl, de
+  ld a, (hl)                 ; HL = carry_buf + slot*64 (this channel's private
+  add a, a                   ;   phrase) + row*4 (its current step)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a                   ; slot * 64
+  ld e, a
+  ld d, 0
+  ld hl, carry_buf
+  add hl, de
+  ld a, (cur_row)
   add a, a
   add a, a
   ld e, a
   ld d, 0
-  ld hl, carry_buf
   add hl, de
 pr_readstep:
   ; instrument byte first, so a trigger uses it
@@ -2294,14 +2317,26 @@ instr_rec:
   add hl, de
   ret
 instr_rec_bridge:
+  ld a, (cur_trig_ch)        ; slot = carry_slot[channel] (packed buffer index)
+  ld e, a
+  ld d, 0
+  ld hl, carry_slot
+  add hl, de
+  ld a, (hl)                 ; HL = carry_instr + slot*16 (this channel's snapshot)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
   ld hl, carry_instr
+  add hl, de
   ret
 
-; carry_chan_ix: IX = the carried channel's struct (chst + (CONT-1)*32).
-; Caller guarantees CONT != OFF. Clobbers A/DE.
-carry_chan_ix:
-  ld a, (cont_play)
-  dec a                      ; CONT-1 = channel 0..3
+; chan_ix_c: IX = channel C's struct (chst + C*32). C = channel index 0..3.
+; Clobbers A/DE; preserves BC.
+chan_ix_c:
+  ld a, c
   add a, a
   add a, a
   add a, a
@@ -2358,20 +2393,23 @@ cra_loop:
   jr c, cra_loop
   ret
 cra_live:
-  ld a, (cont_play)
-  dec a                      ; carried track: leave it playing the bridge
-  ld c, a
-  xor a
-crl_loop:
-  cp c
-  jr z, crl_next             ; skip the carried track
-  push af
+  ld c, 0                    ; carried tracks (carry_slot[C] != $FF) keep bridging;
+crl_loop:                    ;   silence the rest so they don't loop the new song
+  ld a, c                    ;   untriggered
+  ld e, a
+  ld d, 0
+  ld hl, carry_slot
+  add hl, de
+  ld a, (hl)
+  inc a                      ; $FF -> 0 (Z): channel C not carried
+  jr nz, crl_next            ; carried: leave it playing the bridge
+  ld a, c
   push bc
   call live_track_stop       ; A = track: deactivate + silence now
   pop bc
-  pop af
 crl_next:
-  inc a
+  inc c
+  ld a, c
   cp 4
   jr c, crl_loop
   ret
@@ -2410,20 +2448,38 @@ atb_stop:
 load_carry_post:
   call cont_tempo_glide      ; ramp old tempo -> new song's tempo over GLIDE_BARS
   call cont_restart_all      ; SONG: every track re-enters the new song at row 0,
-                             ;   keeping its within-phrase step (seamless phase)
-  ld a, (carry_flag)
-  or a
-  ret z
-  xor a
-  ld (carry_flag), a
-  ; Put the carried channel in bridge mode. It plays the carried phrase from
-  ; carry_buf and the carried instrument from carry_instr (both private buffers,
-  ; via the sentinels) -- no pool slot is touched, so all 52/40/16 stay intact and
-  ; the load never dirties the song. chan_row keeps ticking, so the bridge plays on
-  ; from the same within-phrase step. advance_track loops it (LIVE) or merges it
-  ; into the new song at ix+7 (SONG). Force active in case that column is empty.
-  push ix
-  call carry_chan_ix
+                             ;   keeping its within-phrase step (seamless phase).
+                             ;   LIVE (cra_live) reads carry_slot to spare the bridges.
+  push ix                    ; plant the bridge on every carried channel (carry_slot[C]
+  ld c, 0                    ;   != $FF). carry_slot persists so the bridge can index
+lcp_loop:                    ;   its buffer; load_carry_pre resets it next time.
+  ld a, c
+  ld e, a
+  ld d, 0
+  ld hl, carry_slot
+  add hl, de
+  ld a, (hl)
+  inc a                      ; $FF -> 0 (Z): channel C not carried
+  jr z, lcp_skip
+  push bc
+  call carry_plant_chan      ; put channel C in bridge mode
+  pop bc
+lcp_skip:
+  inc c
+  ld a, c
+  cp 4
+  jr c, lcp_loop
+  pop ix
+  ret
+
+; carry_plant_chan: C = channel. Put it in CONT bridge mode -- it plays the carried
+; phrase from carry_buf+C*64 and instrument from carry_instr+C*16 (private buffers,
+; via the sentinels), so no pool slot is touched: all 52/40/16 stay intact and the
+; load never dirties the song. chan_row keeps ticking, so the bridge plays on from
+; the same within-phrase step. advance_track loops it (LIVE) or merges it into the
+; new song at ix+7 (SONG). Force active in case that column is empty. Clobbers A/DE.
+carry_plant_chan:
+  call chan_ix_c             ; IX = channel C
   ld (ix+11), BRIDGE_MK      ; process_chan -> carry_buf ; advance_track -> at_bridge
   ld (ix+1), NUM_INSTR       ; instr_rec -> carry_instr
   ld (ix+10), $FF            ; not a real phrase: a load mid-bridge won't re-stash
@@ -2431,31 +2487,67 @@ load_carry_post:
   ld (ix+6), 1
   ld a, (play_mode)          ; LIVE: the bridge has no song position, so blank ix+7
   or a                       ;   ($FF). The queue gesture treats "tap the row you're
-  jr z, lcp_ix7              ;   already on" as a stop-toggle; with ix+7 = $FF that
+  jr z, cpc_ix7              ;   already on" as a stop-toggle; with ix+7 = $FF that
   ld (ix+7), $FF             ;   never matches, so triggering ANY row (incl. row 0)
-lcp_ix7:                     ;   reliably queues a chain. (SONG keeps its row-0 merge
-  pop ix                     ;   target from cont_restart_all.)
-  ret
+cpc_ix7:                     ;   reliably queues a chain. (SONG keeps its row-0 merge
+  ret                        ;   target from cont_restart_all.)
 
 load_carry_pre:
   ld a, (play_state)
   or a
   ret z
-  ld a, (cont_play)          ; OFF: nothing to carry (also guards carry_chan_ix)
-  or a
+  ld a, (cont_play)          ; OFF (mask 0): nothing to carry
+  and $0F
   ret z
   call groove_base           ; snapshot the OLD tempo (avg frames-per-row) before
   call groove_avg_calc       ;   the swap wipes the grooves -- the glide starts here
   ld (glide_from), a
   push ix
-  call carry_chan_ix         ; IX = the carried channel
+  ld a, $FF                  ; reset the channel->slot map (nothing carried yet)
+  ld (carry_slot+0), a
+  ld (carry_slot+1), a
+  ld (carry_slot+2), a
+  ld (carry_slot+3), a
+  ld a, (cont_play)
+  and $0F
+  ld e, a                    ; E = selection mask, rotated one bit per channel
+  ld c, 0                    ; C = channel index
+  ld b, 0                    ; B = next free packed buffer slot
+lcpre_loop:
+  srl e                      ; bit0 -> carry: is channel C selected?
+  jr nc, lcpre_next
+  ld a, b                    ; buffers full? ignore any extra selected channels
+  cp NCARRY
+  jr nc, lcpre_next
+  push bc
+  push de
+  call carry_snapshot_chan   ; B=slot, C=channel: stash if live; CARRY set if it took
+  pop de                     ;   the slot (pop's don't disturb CARRY)
+  pop bc
+  jr nc, lcpre_next          ; channel silent / no phrase: slot not consumed
+  inc b                      ; slot used -> the next carried channel takes the next one
+lcpre_next:
+  inc c
+  ld a, c
+  cp 4
+  jr c, lcpre_loop
+  pop ix
+  ret
+
+; carry_snapshot_chan: C = channel, B = target packed buffer slot. If the channel is
+; active and playing a real phrase, copy that phrase into carry_buf+B*64, snapshot its
+; instrument into carry_instr+B*16, record carry_slot[C] = B, and return CARRY SET.
+; If it can't be carried (silent / no phrase) return CARRY CLEAR (slot untouched).
+; Clobbers A/DE/HL/IX (IX = channel C on exit); B/C preserved.
+carry_snapshot_chan:
+  call chan_ix_c             ; IX = channel C
   ld a, (ix+6)
   or a
-  jr z, lcpre_no             ; silent: nothing to carry
+  jr z, csc_skip             ; silent: nothing to carry
   ld a, (ix+10)
   cp NUM_PHRASES
-  jr nc, lcpre_no            ; no real phrase loaded
-  ld l, a                    ; stash phrase_pool + phrase*64
+  jr nc, csc_skip            ; no real phrase loaded
+  ld l, a                    ; HL = phrase_pool + phrase*64 (the source phrase)
   ld h, 0
   add hl, hl
   add hl, hl
@@ -2465,27 +2557,59 @@ load_carry_pre:
   add hl, hl
   ld de, phrase_pool
   add hl, de
-  ld de, carry_buf
+  ld a, b                    ; DE = carry_buf + slot*64 (the packed private buffer)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  push hl
+  ld hl, carry_buf
+  add hl, de
+  ex de, hl                  ; DE = dest
+  pop hl                     ; HL = src
+  push bc                    ; save B(slot)+C(channel): this ldir eats BC
   ld bc, 64
   ldir
-  call carry_bake_instr      ; snapshot the carried instrument + point the phrase
-                             ;   at the reserved slot (IX = carried channel)
-  ld a, 1
-  ld (carry_flag), a
-lcpre_no:
-  pop ix
+  pop bc
+  push bc                    ; carry_bake_instr's ldir eats BC too
+  call carry_bake_instr      ; snapshot the instrument into carry_instr + B*16
+  pop bc
+  ld a, c                    ; carry_slot[C] = B
+  ld e, a
+  ld d, 0
+  ld hl, carry_slot
+  add hl, de
+  ld (hl), b
+  scf                        ; CARRY set: this slot was consumed
+  ret
+csc_skip:
+  or a                       ; CARRY clear: channel not carried
   ret
 
-; carry_bake_instr: choose the handoff instrument -- the first note's explicit
-; instrument in carry_buf, else the carried channel's live instrument (ix+1) --
-; copy its 16-byte record into carry_instr, and rewrite every explicit
-; instrument byte in carry_buf to the reserved slot (USER_INSTR). The bridge then
-; plays one fixed timbre regardless of the new song's instrument table (load_carry
-; _post bakes carry_instr into slot USER_INSTR and sets ix+1 so "inherit" steps
-; use it too). IX = carried channel. Clobbers A/BC/DE/HL.
+; carry_bake_instr: B = packed slot, IX = the channel's struct. Choose the handoff
+; instrument -- the first note's explicit instrument in carry_buf+B*64, else the
+; channel's live instrument (ix+1) -- and copy its 16-byte record into
+; carry_instr+B*16. The bridge then plays one fixed timbre regardless of the new
+; song's instrument table (played via the ix+1 = NUM_INSTR sentinel). Clobbers
+; A/BC/DE/HL; preserves IX (B is consumed).
 carry_bake_instr:
-  ld hl, carry_buf           ; find the first step that holds a note
-  ld b, 16
+  push bc                    ; keep the slot (B) across the scan loop's djnz
+  ld a, b                    ; HL = carry_buf + slot*64 (this channel's carried phrase)
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, carry_buf
+  add hl, de
+  ld b, 16                   ; find the first step that holds a note
 cbi_scan:
   ld a, (hl)                 ; note (index+1; 0 = none)
   or a
@@ -2506,10 +2630,22 @@ cbi_chan:
   and $0F
 cbi_found:
   call instr_rec             ; HL = instruments + A*16 (clobbers A/DE)
-  ld de, carry_instr
+  pop bc                     ; recover the packed slot into B (pushed at entry)
+  ld a, b                    ; DE = carry_instr + slot*16
+  add a, a
+  add a, a
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  push hl
+  ld hl, carry_instr
+  add hl, de
+  ex de, hl                  ; DE = dest
+  pop hl                     ; HL = src record
   ld bc, 16
-  ldir                       ; snapshot the record before the song swap; the bridge
-  ret                        ;   plays it via the ix+1 = NUM_INSTR sentinel
+  ldir                       ; snapshot the record before the song swap
+  ret
 
 ; tbl_skip_hops: advance ix+21 (the table's next row) past any H rows, so an H
 ; costs no table step *and* the pointer rests on the real loop target (which
@@ -3753,11 +3889,9 @@ cfgl_v3c:
   jr cfgl_cont
 cfgl_v2:
   dec hl                     ; hl -> +6 cont
-cfgl_cont:
-  ld a, (hl)                 ; cont 0-4 (OFF/T1/T2/T3/NO)
-  cp 5
-  jr nc, cfgl_done
-  ld (cont_play), a
+cfgl_cont:                   ; CONT is a per-set performance choice, not persisted:
+  xor a                      ;   always boot to OFF (----), whatever the block holds
+  ld (cont_play), a          ;   (also sidesteps the pre-mask 0-4 -> mask ambiguity)
   jr cfgl_vals
 cfgl_v1:
   xor a                      ; legacy 7-byte block: CONT defaults OFF
