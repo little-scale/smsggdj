@@ -61,16 +61,14 @@ The git history has the full detail; this is the curated summary.
   LIVE. The reserved handoff chain is planted outside the song grid, so the old
   "reload = loop" step re-derived a chain from the song and dropped the bridge
   after one bar; it now loops the reserved chain in place until a chain is queued.
-- **The CONT bridge always lands, and keeps its own instrument sound.** The
-  carried phrase is planted into the **top phrase / chain (52nd / 40th)** and its
-  instrument into the **top instrument (16th)** as scratch, so the handoff no
-  longer depends on the loaded song leaving those free (it used to silently skip
-  if the song touched them). The carried instrument (the first note's, or the
-  channel's current one) is snapshotted so the bridge sounds the same through the
-  load instead of inheriting the new song's timbre. **All 52 phrases / 40 chains /
-  16 instruments stay fully usable** — the bridge just overwrites those top slots
-  during a load, so avoid relying on them in songs you perform with CONT. (A table
-  the bridge instrument uses still reads the new song's tables.)
+- **The CONT bridge always lands, keeps its own instrument sound, and touches no
+  song data.** The carried phrase and instrument are played from private buffers
+  (`carry_buf` / `carry_instr`) via a sentinel — the bridge reads no pool slot, so
+  **all 52 phrases / 40 chains / 16 instruments stay fully usable and editable
+  even during CONT**, and a load no longer marks the song "unsaved". The carried
+  instrument (the first note's, or the channel's current one) is snapshotted so the
+  bridge sounds the same through the load instead of inheriting the new song's
+  timbre. (A table the bridge instrument uses still reads the new song's tables.)
 
 ## v0.37 — 2026-07-04
 

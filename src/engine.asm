@@ -107,6 +107,12 @@
 .DEFINE USER_PHRASES NUM_PHRASES     ; all 52 phrases usable
 .DEFINE USER_CHAINS  NUM_CHAINS      ; all 40 chains usable
 .DEFINE USER_INSTR   NUM_INSTR       ; all 16 instruments usable
+; CONT bridge sentinels: a carried channel bridging a load plays from the private
+; buffers (carry_buf / carry_instr), NOT any pool slot. ix+11 == BRIDGE_MK marks
+; it (process_chan reads carry_buf, advance_track loops/merges it); ix+1 ==
+; NUM_INSTR routes instr_rec to carry_instr. Neither collides with a real
+; chain (0..39 / $FF) or instrument (0..15).
+.DEFINE BRIDGE_MK    $FE
 
 .RAMSECTION "engvars" SLOT 3
   play_state   db
@@ -1019,6 +1025,9 @@ sc_next:
   ret
 
 advance_track:
+  ld a, (ix+11)              ; CONT bridge: loop it (LIVE) or merge into the new
+  cp BRIDGE_MK               ;   song (SONG) -- it plays carry_buf, not a real chain
+  jp z, at_bridge
   ld a, (eng_mode)
   cp MODE_PHRASE
   jp z, rep_bump             ; phrase loops in place: count it
@@ -1099,7 +1108,7 @@ at_nextrow:
   add hl, de
   ld a, (hl)
   cp $FF
-  jp z, atn_loop             ; nothing queued: reload = loop (in place if reserved)
+  jp z, at_load              ; nothing queued: reload = loop this chain
   cp $FE
   jr z, ats_stop             ; queued stop reached chain end: deactivate the track
   ld (ix+7), a
@@ -1202,28 +1211,6 @@ at_silent:
 at_off:
   ld (ix+6), 0
   ld (ix+10), $FF
-  ret
-
-; LIVE, nothing queued: loop the current chain. Normally at_load re-derives the
-; chain from song[ix+7] (a track's row == the chain it loops). But the CONT
-; handoff chain (NUM_CHAINS-1) is planted OUTSIDE the song, so at_load would drop
-; the bridge and jump to the new song's old-row material after one bar. When the
-; track is on that reserved chain, loop it in place instead -- the bridge holds
-; the groove until the performer queues a real chain (which takes the queue path
-; above). A normal track on the last chain is re-derivable, so this matches
-; at_load's same-chain loop (rep_bump + reload) for it too.
-atn_loop:
-  ld a, (ix+11)
-  cp NUM_CHAINS-1
-  jr nz, at_load
-  call rep_bump              ; same-chain loop: count the repeat (I command)
-  ld (ix+8), 0
-  call chain_entry           ; reserved chain step 0 = the bridge phrase
-  ld a, (hl)
-  ld (ix+10), a
-  inc hl
-  ld a, (hl)
-  ld (ix+9), a
   ret
 
 ; A = top row of the contiguous (populated) block in column C containing the
@@ -1397,6 +1384,9 @@ process_chan:
   ld a, (ix+6)               ; advance_track may have silenced an empty chain
   or a
   jp z, pr_next
+  ld a, (ix+11)              ; CONT bridge: play the carried phrase from carry_buf
+  cp BRIDGE_MK               ;   (private buffer), skipping the pool + play counter
+  jr z, pr_bridge
   ld a, (ix+10)
   cp $FF
   jp z, pr_next
@@ -1432,9 +1422,21 @@ pr_ppdone:
   add hl, de
   ld de, phrase_pool
   add hl, de
-
+  jr pr_readstep
+pr_bridge:
+  ld a, (cur_row)            ; HL = carry_buf + row*4 (the carried phrase step)
+  add a, a
+  add a, a
+  ld e, a
+  ld d, 0
+  ld hl, carry_buf
+  add hl, de
+pr_readstep:
   ; instrument byte first, so a trigger uses it
   inc hl
+  ld a, (ix+11)              ; bridge: leave ix+1 as the sentinel (-> carry_instr)
+  cp BRIDGE_MK
+  jr z, pr_note
   ld a, (hl)
   cp $10
   jr nc, pr_note
@@ -2277,8 +2279,11 @@ fmfi_pack:
   ret
 
 ; instr_rec: HL = instruments + A*16 (A = instrument # 0-15). The shared
-; record-address helper (bank 1, always mapped). Clobbers A/DE.
+; record-address helper (bank 1, always mapped). Clobbers A/DE. A >= NUM_INSTR
+; is the CONT bridge sentinel (ix+1) -> the snapshotted carry_instr record.
 instr_rec:
+  cp NUM_INSTR
+  jr nc, instr_rec_bridge
   add a, a
   add a, a
   add a, a
@@ -2287,6 +2292,9 @@ instr_rec:
   ld d, 0
   ld hl, instruments
   add hl, de
+  ret
+instr_rec_bridge:
+  ld hl, carry_instr
   ret
 
 ; carry_chan_ix: IX = the carried channel's struct (chst + (CONT-1)*32).
@@ -2368,6 +2376,37 @@ crl_next:
   jr c, crl_loop
   ret
 
+; at_bridge: the carried channel is on the CONT bridge (ix+11 == BRIDGE_MK, playing
+; carry_buf). SONG: leave the bridge, merging into the new song from ix+7 (the row-0
+; target cont_restart_all set). LIVE: take a queued chain if one is armed, else keep
+; looping the bridge (carry_buf replays via chan_row). Bank 1, reached by jp from
+; advance_track; jp's back to the bank-0 at_load / mark_vis_a. IX = channel, C = idx.
+at_bridge:
+  ld a, (play_mode)
+  or a
+  jp z, at_load              ; SONG: merge (at_load reads song[ix+7] -> real chain)
+  ld hl, live_q
+  ld e, c
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  ret z                      ; nothing queued: keep bridging (loop)
+  cp $FE
+  jr z, atb_stop             ; queued stop
+  ld (ix+7), a               ; take the queued row
+  ld (hl), $FF
+  call mark_vis_a
+  jp at_load                 ; load the queued chain (exits bridge mode)
+atb_stop:
+  ld (hl), $FF
+  ld (ix+6), 0
+  ld (ix+10), $FF
+  ld (ix+2), 0
+  ld (ix+4), STG_IDLE
+  ld a, (ix+7)
+  jp mark_vis_a
+
 load_carry_post:
   call cont_tempo_glide      ; ramp old tempo -> new song's tempo over GLIDE_BARS
   call cont_restart_all      ; SONG: every track re-enters the new song at row 0,
@@ -2377,44 +2416,25 @@ load_carry_post:
   ret z
   xor a
   ld (carry_flag), a
-  ; phrase NUM_PHRASES-1 / chain NUM_CHAINS-1 / instrument NUM_INSTR-1 are reserved
-  ; (the editor never hands them to a song), so the plant always lands -- no
-  ; collision check. Each ldir fully overwrites the slot, replacing stale content.
-  ld hl, carry_instr         ; bake the carried instrument into the reserved slot
-  ld de, instruments + USER_INSTR*16
-  ld bc, 16
-  ldir
-  ld hl, carry_buf           ; plant the phrase in the reserved slot
-  ld de, phrase_pool + 51*64
-  ld bc, 64
-  ldir
-  ld hl, chains + 39*32      ; chain 39 = [phrase 51], rest empty
-  ld (hl), 51
-  inc hl
-  ld (hl), 0
-  inc hl
-  ld b, 15
-lcp_fill:
-  ld (hl), $FF
-  inc hl
-  ld (hl), 0
-  inc hl
-  djnz lcp_fill
-  push ix                    ; override the carried channel's CURRENT phrase with
-  call carry_chan_ix         ;   the bridge (chan_row keeps ticking, so it plays on
-  ld (ix+10), 51             ;   from the same step). ix+7 was set to the new song's
-  ld (ix+11), 39             ;   row-0 block top by cont_restart_all, so when the
-  ld (ix+8), 0               ;   bridge phrase ends it merges at the top like the
-  ld (ix+6), 1               ;   others. Force active in case that column is empty.
-  ld (ix+1), USER_INSTR      ;   inherit-instrument steps use the baked slot too
+  ; Put the carried channel in bridge mode. It plays the carried phrase from
+  ; carry_buf and the carried instrument from carry_instr (both private buffers,
+  ; via the sentinels) -- no pool slot is touched, so all 52/40/16 stay intact and
+  ; the load never dirties the song. chan_row keeps ticking, so the bridge plays on
+  ; from the same within-phrase step. advance_track loops it (LIVE) or merges it
+  ; into the new song at ix+7 (SONG). Force active in case that column is empty.
+  push ix
+  call carry_chan_ix
+  ld (ix+11), BRIDGE_MK      ; process_chan -> carry_buf ; advance_track -> at_bridge
+  ld (ix+1), NUM_INSTR       ; instr_rec -> carry_instr
+  ld (ix+10), $FF            ; not a real phrase: a load mid-bridge won't re-stash
+  ld (ix+8), 0
+  ld (ix+6), 1
   ld a, (play_mode)          ; LIVE: the bridge has no song position, so blank ix+7
   or a                       ;   ($FF). The queue gesture treats "tap the row you're
   jr z, lcp_ix7              ;   already on" as a stop-toggle; with ix+7 = $FF that
   ld (ix+7), $FF             ;   never matches, so triggering ANY row (incl. row 0)
 lcp_ix7:                     ;   reliably queues a chain. (SONG keeps its row-0 merge
   pop ix                     ;   target from cont_restart_all.)
-  ld a, 1                    ; the working copy now differs from the slot
-  ld (song_edited), a
   ret
 
 load_carry_pre:
@@ -2488,21 +2508,8 @@ cbi_found:
   call instr_rec             ; HL = instruments + A*16 (clobbers A/DE)
   ld de, carry_instr
   ld bc, 16
-  ldir                       ; snapshot the record before the song swap
-  ld hl, carry_buf + 1       ; rewrite instrument bytes -> reserved slot
-  ld b, 16
-cbi_rw:
-  ld a, (hl)
-  cp NUM_INSTR
-  jr nc, cbi_rwn             ; leave $FF (inherit) alone -- ix+1 covers it
-  ld (hl), USER_INSTR
-cbi_rwn:
-  inc hl
-  inc hl
-  inc hl
-  inc hl
-  djnz cbi_rw
-  ret
+  ldir                       ; snapshot the record before the song swap; the bridge
+  ret                        ;   plays it via the ix+1 = NUM_INSTR sentinel
 
 ; tbl_skip_hops: advance ix+21 (the table's next row) past any H rows, so an H
 ; costs no table step *and* the pointer rests on the real loop target (which

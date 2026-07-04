@@ -7336,8 +7336,8 @@ pu_so_l:
   ld a, (ix+6)
   or a
   jr z, pu_so_cmp
-  ld a, (ix+11)              ; on the reserved CONT bridge chain? no grid playhead
-  cp NUM_CHAINS-1            ;   -- the bridge isn't placed in the song, so a cell
+  ld a, (ix+11)              ; the CONT bridge sentinel? no grid playhead -- the
+  cp BRIDGE_MK               ;   bridge plays carry_buf, not a song chain, so a cell
   jr z, pu_so_cmp            ;   marker would falsely flag row ix+7 as playing
   ld b, (ix+7)
 pu_so_cmp:
@@ -7382,7 +7382,7 @@ bcs_l:
   or a
   jr z, bcs_no
   ld a, (ix+11)
-  cp NUM_CHAINS-1
+  cp BRIDGE_MK
   jr nz, bcs_no
   ld a, 1                    ; this track holds the bridge
   jr bcs_cmp
@@ -7433,7 +7433,7 @@ sbc_chkbr:
   or a
   jr z, sbc_next
   ld a, (ix+11)
-  cp NUM_CHAINS-1
+  cp BRIDGE_MK
   jr nz, sbc_next
   ld a, '>'
   ld b, $FF                  ; offset -1 = left of the name (the play-marker column)
