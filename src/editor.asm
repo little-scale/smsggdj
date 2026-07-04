@@ -231,6 +231,9 @@ editor_input:
   ld a, (sel_active)
   or a
   jp nz, sel_input
+  call fmc_check             ; FILES action menu: a button-2 press = CANC (bank 1)
+  or a
+  jp nz, ei_dtick
   ; ---- button 1 pressed ----
   ld a, (pad_edge)
   and PAD_B1
@@ -8254,11 +8257,12 @@ flm_na:
   ld b, a
   ld c, 9                    ; left of the mini-map (col 25); names sit at 4..11
   call fl_set
-  ld a, (purge_ui)           ; armed purge item shows "SURE" instead of its label
-  cp 3
-  jr c, flm_lbl
+  ld a, (purge_ui)           ; the armed item (purge_ui = fmsel+1) shows "SURE"
+  or a
+  jr z, flm_lbl              ; nothing armed
   cp $80
-  jr nc, flm_lbl
+  jr nc, flm_lbl             ; a FREED result -> normal label
+  dec a                      ; armed item index = purge_ui - 1
   ld hl, fl_slot
   cp (hl)
   jr nz, flm_lbl
@@ -8502,37 +8506,38 @@ fp_files:
   or a
   ret z                      ; not in the menu: nothing
   ld a, (fmsel)
+  cp 5
+  jp z, fpx_close            ; CANC: close immediately (no confirm)
+  ; every other item is 2-tap: first tap arms (shows SURE), second runs. purge_ui
+  ; holds the armed item as fmsel+1 (1..5); 0 = none, $80 = a FREED result.
+  inc a
+  ld b, a                    ; B = this item's armed code (fmsel+1)
+  ld a, (purge_ui)
+  cp b
+  jr z, fpf_run              ; already armed for THIS item -> run it
+  ld a, b                    ; first tap -> arm it (the word shows SURE)
+  ld (purge_ui), a
+  jp mark_all_dirty
+fpf_run:
+  ld a, (fmsel)
   cp 3
-  jr z, fpx_prgp             ; 3 PRGP: purge unreachable phrases (2-tap confirm)
-  cp 4
-  jr z, fpx_prgc             ; 4 PRGC: purge unused chains (2-tap)
-  xor a                      ; SAVE/LOAD/CLEA/CANC clear any purge confirm/result
+  jr nc, fpf_purge           ; 3/4 = purge: keep purge_ui for the FREED readout
+  xor a                      ; SAVE/LOAD/CLEAR: consume the confirm state
   ld (purge_ui), a
   ld a, (fmsel)
   or a
   jr z, fpx_save             ; 0 SAVE
   cp 1
   jr z, fpx_load             ; 1 LOAD
-  cp 2
-  jp z, fpx_clear            ; 2 CLEAR
-  jp fpx_close               ; 5 CANCEL (and anything else): close, no-op
-fpx_prgp:
-  ld a, (purge_ui)
+  jp fpx_clear               ; 2 CLEAR
+fpf_purge:
+  ld a, (fmsel)
   cp 3
-  jr z, fpp_runp             ; second tap (armed) -> run it
-  ld a, 3                    ; first tap -> arm: the word shows SURE
-  ld (purge_ui), a
-  jp mark_all_dirty
+  jr z, fpp_runp             ; 3 PURGP
+  jr fpp_runc                ; 4 PURGC
 fpp_runp:
   call purge_phrases
   jr fpp_done
-fpx_prgc:
-  ld a, (purge_ui)
-  cp 4
-  jr z, fpp_runc
-  ld a, 4
-  ld (purge_ui), a
-  jp mark_all_dirty
 fpp_runc:
   call purge_chains
 fpp_done:
@@ -8857,6 +8862,26 @@ scd_home:                    ; VRAM write address = SONG title row, just after "
   ld b, NAME_ROW             ;   (cols NAME_COL+5.. -- fits before the transport glyph
   ld c, NAME_COL+5           ;   on both flavors: 9 chars clears the GG col-14 STATE)
   jp set_text_at
+
+; fmc_check: in the FILES action menu, a button-2 press acts like CANC (close it).
+; Returns A=1 if it closed the menu (caller consumes the input), else A=0. Bank 1
+; (called every frame from editor_input) to spare the tight GG bank 0.
+fmc_check:
+  ld a, (scr_mode)
+  cp SCR_FILES
+  jr nz, fmc_no
+  ld a, (fmenu)
+  or a
+  jr z, fmc_no
+  ld a, (pad_edge)
+  and PAD_B2
+  jr z, fmc_no
+  call fpx_close
+  ld a, 1
+  ret
+fmc_no:
+  xor a
+  ret
 
 ; fc_files: 1-hold+2 on FILES. Toggle the action menu.
 fc_files:

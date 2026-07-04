@@ -104,6 +104,12 @@ The git history has the full detail; this is the curated summary.
 - **PROJECT screen spacing.** Blank rows now separate the readout, transport and
   transition groups — a gap after **TSP** (before MODE) and after **MODE** (before
   CONT), so TMPO/TSP · MODE · CONT/SLID read as three groups.
+- **FILES action menu: two-tap confirm on every item, and button 2 cancels.**
+  **SAVE / LOAD / CLEAR** now arm on the first tap (the item shows **`SURE`**) and
+  run on the second, matching PURGP/PURGC — so a single mis-tap can't overwrite,
+  replace or wipe a song. Only **CANC** runs on the first tap. Moving the cursor
+  cancels a pending confirm. And while the menu is open, a press of **button 2**
+  closes it (same as CANC), so you don't have to scroll down to CANC.
 - **Fixed: a stale CONT bridge could trap a track.** Silencing or re-arming a
   track (`live_track_stop` / `lq_arm`) didn't clear the bridge sentinel (`ix+11`),
   so a track that had bridged an earlier load but wasn't re-carried could be left
