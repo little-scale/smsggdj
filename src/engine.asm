@@ -97,16 +97,16 @@
 .DEFINE SONG_ROWS   128
 .DEFINE NUM_PHRASES 52
 .DEFINE NUM_CHAINS  40
-; The last phrase / chain slot is reserved for the CONT beat-carry handoff (the
-; bridge is planted in phrase NUM_PHRASES-1 / chain NUM_CHAINS-1). The editor caps
-; user navigation + allocation at these counts so a song can never occupy them,
-; which makes the handoff always land. The pools themselves stay full-size.
-.DEFINE USER_PHRASES NUM_PHRASES-1   ; user phrases 0..50 (51 reserved)
-.DEFINE USER_CHAINS  NUM_CHAINS-1    ; user chains  0..38 (39 reserved)
-.DEFINE NUM_INSTR    16
-.DEFINE USER_INSTR   NUM_INSTR-1     ; user instruments 0..14 (15 reserved) -- the
-                                     ; CONT handoff bakes the carried instrument
-                                     ; into slot 15 and points the bridge at it.
+.DEFINE NUM_INSTR   16
+; USER_* are the editor's navigation/allocation limits. All slots are usable, so
+; these equal the pool counts. The CONT beat-carry handoff still BORROWS the top
+; phrase (NUM_PHRASES-1) / chain (NUM_CHAINS-1) / instrument (NUM_INSTR-1) as
+; scratch while bridging a load -- so a song that fills those slots and is then
+; performed with CONT will have them overwritten. Compose freely; just don't lean
+; on the very top slots if you're doing CONT transitions.
+.DEFINE USER_PHRASES NUM_PHRASES     ; all 52 phrases usable
+.DEFINE USER_CHAINS  NUM_CHAINS      ; all 40 chains usable
+.DEFINE USER_INSTR   NUM_INSTR       ; all 16 instruments usable
 
 .RAMSECTION "engvars" SLOT 3
   play_state   db

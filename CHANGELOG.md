@@ -61,21 +61,16 @@ The git history has the full detail; this is the curated summary.
   LIVE. The reserved handoff chain is planted outside the song grid, so the old
   "reload = loop" step re-derived a chain from the song and dropped the bridge
   after one bar; it now loops the reserved chain in place until a chain is queued.
-- **The CONT handoff slots are now permanently reserved**, so the bridge always
-  lands. It borrows the last phrase and last chain; previously, if the loaded song
-  happened to use those slots the whole handoff was silently skipped (a chain from
-  the new song loaded instead). The editor now caps at **51 phrases / 39 chains**
-  (the top slot of each is reserved), so a song can't occupy them. The pools stay
-  full-size, so the save format is unchanged; a song written before this that used
-  the last phrase/chain still loads (a CONT load overwrites those slots).
-- **The CONT bridge now keeps its own instrument sound.** Previously the carried
-  phrase played through whatever the *newly loaded* song had at those instrument
-  numbers, so the timbre could change completely across a load. Now the carried
-  instrument (the first note's, or the channel's current one) is snapshotted and
-  baked into a reserved instrument slot, and the bridge's notes are pointed at it —
-  so it sounds the same through the transition. Cost: **15 usable instruments**
-  (the last slot is reserved; save format unchanged). Note a table the instrument
-  uses still reads the new song's tables.
+- **The CONT bridge always lands, and keeps its own instrument sound.** The
+  carried phrase is planted into the **top phrase / chain (52nd / 40th)** and its
+  instrument into the **top instrument (16th)** as scratch, so the handoff no
+  longer depends on the loaded song leaving those free (it used to silently skip
+  if the song touched them). The carried instrument (the first note's, or the
+  channel's current one) is snapshotted so the bridge sounds the same through the
+  load instead of inheriting the new song's timbre. **All 52 phrases / 40 chains /
+  16 instruments stay fully usable** — the bridge just overwrites those top slots
+  during a load, so avoid relying on them in songs you perform with CONT. (A table
+  the bridge instrument uses still reads the new song's tables.)
 
 ## v0.37 — 2026-07-04
 

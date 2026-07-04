@@ -117,10 +117,11 @@ GROOVE and `2+Left` from GROOVE comes back.
   its own instrument sound preserved** — and then rejoins at the top with the
   others in SONG (in LIVE it **loops** until you queue something new). While a
   track holds the bridge, a **`>` shows beside its name** on the SONG header (its
-  grid cells stay unmarked, so you can freshly queue a chain there). This uses
-  three permanently reserved slots (the last phrase, chain and instrument), so you
-  write with **51 phrases, 39 chains and 15 instruments** — you don't have to keep
-  anything free yourself. Pick the
+  grid cells stay unmarked, so you can freshly queue a chain there). The bridge
+  **borrows the top phrase, chain and instrument** (52nd / 40th / 16th) as scratch
+  while it plays. All slots are yours to use — just note that if you both fill
+  those top slots in a song **and** perform it with CONT, a load will overwrite
+  them. Pick the
   channel holding your groove (NO for drums, T1–T3 for a bass or pad); on the SONG
   header a **`*`** to the right of that chosen track's name (whenever CONT is on)
   shows which one will bridge; a **`>`** to the left of the name lights while it's
