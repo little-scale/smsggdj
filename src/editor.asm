@@ -1665,8 +1665,11 @@ de_cmd:
 de_param:
   inc hl
   inc hl
-  inc hl
+  ld a, (hl)                 ; +2 command id
+  cp CMD_RETRIG
+  inc hl                     ; -> +3 param
   ld d, (hl)
+  push af                    ; remember Z = this is an R command
   ld a, (ed_rep)
   ld c, a
   bit 3, c
@@ -1689,6 +1692,13 @@ dep_d:
   sub 16
   ld d, a
 dep_store:
+  pop af                     ; R xy: the interval nibble y can't be 0 (Rx0 is a
+  jr nz, dep_st2             ; dead no-op) -- floor it at 1 so it steps to Rx1
+  ld a, d
+  and $0F
+  jr nz, dep_st2
+  inc d                      ; y was 0 -> 1
+dep_st2:
   ld (hl), d
   jp mark_phr_dirty
 
@@ -3293,8 +3303,11 @@ tbp_edit:
   ; param: L/R +-1, U/D +-$10
   inc hl
   inc hl
-  inc hl
+  ld a, (hl)                 ; +2 command id
+  cp CMD_RETRIG
+  inc hl                     ; -> +3 param
   ld d, (hl)
+  push af                    ; Z = R command
   ld a, (ed_rep)
   ld c, a
   bit 3, c
@@ -3317,6 +3330,13 @@ tep_d:
   sub 16
   ld d, a
 tep_st:
+  pop af                     ; R xy: floor the interval nibble at 1 (Rx0 no-op)
+  jr nz, tep_st2
+  ld a, d
+  and $0F
+  jr nz, tep_st2
+  inc d
+tep_st2:
   ld (hl), d
   jp tb_mark
 

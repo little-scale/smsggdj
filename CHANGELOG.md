@@ -50,6 +50,11 @@ The git history has the full detail; this is the curated summary.
   short tail (no save-format change).
 
 ### Fixed
+- **The `R` (retrigger) interval can no longer be dialled to 0.** `Rx0` armed no
+  retrigger (a dead value); editing an `R` command's parameter now floors the
+  interval nibble at 1, so it steps straight to `Rx1` (phrase and table columns).
+  Note that a very small interval re-strikes faster than the envelope decays, so
+  it sustains — for audible rolls, use `R08`-ish with `DCY 0` (see the manual).
 - **KIT (sample) instruments play again.** A regression in the CONT work left the
   new `sram_live` guard clobbering the accumulator that held the sample count, so
   the kit-slot bounds check silenced *every* KIT note (not just those over an

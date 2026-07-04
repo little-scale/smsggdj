@@ -329,7 +329,7 @@ take a two-digit parameter `xy`.
 | `N` | Noise | Override noise mode/rate for this note |
 | `O` | Output (pan) | **Game Gear stereo:** `O11` centre, `O10` left, `O01` right |
 | `P` | Pitch bend | Continuous bend (positive bends down) |
-| `R` | Retrigger | Re-fire the note every y ticks; x fades the volume each re-fire (TONE/NOISE — ignored on samples) |
+| `R` | Retrigger | Re-fire the note every y ticks (y ≥ 1); x fades the volume each re-fire (TONE/NOISE — ignored on samples). For audible repeated hits/rolls, use `y` ≥ the note's decay length (e.g. `R08` with `DCY 0`) so the note decays to silence between strikes; small `y` re-strikes faster than the envelope can fall, giving a sustained buzz |
 | `S` | Speed | Sample playback rate: `S01` = 2× (up an octave, half length), `S02` = ½× (down an octave), `S03` = 4× (up two octaves); `S00` = normal |
 | `T` | Tempo | Set tempo in BPM |
 | `V` | Vibrato | One-shot vibrato: speed x, depth y |
