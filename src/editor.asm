@@ -146,6 +146,7 @@
   tmp_param    db
   ed_field     db            ; INSTR: field being drawn
   drawn_a      dsb 4         ; playhead rows currently on screen
+  br_shown     dsb 4         ; per-track CONT-bridge cue state (1 = '>' shown)
   dirty_rows   dsb 16
 .ENDS
 
@@ -2648,7 +2649,7 @@ cm_proj:
   bit 1, c                   ; down
   jr z, cp_up
   ld a, (prj_row)
-  cp 3
+  cp 4
   jr nc, cp_up
   call prj_mark_field
   inc a
@@ -2684,6 +2685,8 @@ prp_press:
   ret                        ; NEW/DEMO/SAVE/LOAD live on the FILES screen now
 prp_edit:
   ld a, (prj_row)
+  cp 4
+  jp z, prp_glide
   cp 3
   jp z, prp_cont
   cp 2
@@ -3112,11 +3115,11 @@ stg_r2f:
   .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, 6, 7, $FF
 .ENDIF
 
-prj_f2r:                     ; TMPO/TSP/MODE/CONT sit below the NAME readout (rows 3-6)
-  .db 3, 4, 5, 6
-prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, TMPO/TSP/MODE/CONT,
-  .db $FF, $FE, $FF, 0, 1, 2, 3, $FF, $FD, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-                             ; blank, then row8 = UNSAVED status ($FD)
+prj_f2r:                     ; TMPO/TSP/MODE/CONT/SLID sit below the NAME readout
+  .db 3, 4, 5, 6, 7
+prj_r2f:                     ; row0 blank, row1 NAME ($FE), blank, then the fields,
+  .db $FF, $FE, $FF, 0, 1, 2, 3, 4, $FF, $FD, $FF, $FF, $FF, $FF, $FF, $FF
+                             ; blank, then row9 = UNSAVED status ($FD)
 
 ; -------------------------------------------------------------
 ; GROOVE screen: one column of tick counts (0 ends the groove)
@@ -5483,47 +5486,8 @@ pu_ch_new:
   ret z
   jp mark_dirty_a
 
-pu_song:
-  ; SONG: one playhead per track (absolute song rows)
-  ld ix, chst
-  ld hl, drawn_a
-  ld c, 4
-pu_so_l:
-  ld b, $FF
-  ld a, (play_state)
-  or a
-  jr z, pu_so_cmp
-  ld a, (eng_mode)
-  cp MODE_SONG
-  jr nz, pu_so_cmp
-  ld a, (ix+6)
-  or a
-  jr z, pu_so_cmp
-  ld b, (ix+7)
-pu_so_cmp:
-  ld a, (hl)
-  cp b
-  jr z, pu_so_next
-  cp $FF
-  jr z, pu_so_new
-  push bc
-  call mark_vis_a
-  pop bc
-pu_so_new:
-  ld (hl), b
-  ld a, b
-  cp $FF
-  jr z, pu_so_next
-  push bc
-  call mark_vis_a
-  pop bc
-pu_so_next:
-  inc hl
-  ld de, 32
-  add ix, de
-  dec c
-  jr nz, pu_so_l
-  ret
+; pu_song (SONG playhead bookkeeping) is parked in bank 1 (PuSong section, below)
+; -- bank 0 is full on the GG build; playhead_update reaches it via jp.
 
 ; IX = chst struct of the edited track
 ed_chst:
@@ -5653,6 +5617,8 @@ dl_so_pr:
   ld a, c
   cp 4
   jr c, dl_so_hdr
+  ; CONT bridge cue ('>' by a bridging track's name) is drawn in bank 1
+  call song_bridge_cues
   xor a
   ld (text_attr), a
   ret
@@ -6337,7 +6303,9 @@ prd_addr:
   jp z, prd_play
   cp 3
   jp z, prd_cont
-  ret                        ; only fields 0..3 are drawn now
+  cp 4
+  jp z, prd_glide
+  ret                        ; fields 0..4
 pr_draw_name:                ; $FE row: "NAME" label + the loaded song's 8-char name
   xor a
   ld (text_attr), a
@@ -6523,6 +6491,58 @@ prd_sram:
   ld hl, str_s32k            ; 6 slots = 32K (two banks)
   jr prd_p4
 
+; PROJECT SLID field: CONT tempo-slide length (bank 1, jp-reached). OFF or N bars.
+prd_glide:
+  ld a, (glide_len)
+  or a
+  jr nz, prg_num
+  ld hl, str_fmoff           ; "OFF "
+  ld b, 4
+  jp print_raw
+prg_num:
+  cp 10
+  jr c, prg_units
+  ld a, '1'                  ; 10-16: leading '1'
+  call print_char
+  ld a, (glide_len)
+  sub 10
+  add a, '0'
+  call print_char
+  ld a, 'B'
+  call print_char
+  ld a, ' '
+  jp print_char
+prg_units:
+  add a, '0'
+  call print_char
+  ld a, 'B'
+  call print_char
+  ld a, ' '
+  call print_char
+  ld a, ' '
+  jp print_char
+prp_glide:                   ; 1 + L/R sets SLID: 0 = OFF/instant, 1-16 = ramp bars
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld c, a
+  ld a, (glide_len)
+  bit 3, c                   ; right +1 (max 16)
+  jr z, pgl_left
+  cp 16
+  jr nc, pgl_left
+  inc a
+pgl_left:
+  bit 2, c                   ; left -1 (min 0 = OFF)
+  jr z, pgl_set
+  or a
+  jr z, pgl_set
+  dec a
+pgl_set:
+  ld (glide_len), a
+  ld a, 4
+  jp prj_mark_field
+
 ; OPTIONS key-repeat readouts/editors (bank 1, jp-reached from the bank-0
 ; st_draw_row / stp_edit dispatch). Values are frames; drawn as decimal.
 prd_rdly:
@@ -6609,6 +6629,7 @@ prj_lbls:
   .db "TSP ", 0
   .db "MODE", 0
   .db "CONT", 0
+  .db "SLID", 0              ; field 4: CONT tempo-slide length (bars)
 stg_lbls:
   .db "VID ", 0
   .db "SRAM", 0
@@ -7293,6 +7314,155 @@ fm_preset_names:               ; 8 x 5 chars (display + web editor labels)
   .db "PLUCK"
   .db "SINE "
 str_prst_off: .db "OFF  "      ; PRESET = OFF readout (not part of the block)
+.ENDS
+
+; SONG-screen playhead bookkeeping, parked in bank 1 (bank 0 is full on GG).
+; Reached via jp from playhead_update; calls mark_vis_a cross-bank.
+.BANK 1 SLOT 1
+.SECTION "PuSong" FREE
+pu_song:
+  ; SONG: one playhead per track (absolute song rows)
+  ld ix, chst
+  ld hl, drawn_a
+  ld c, 4
+pu_so_l:
+  ld b, $FF
+  ld a, (play_state)
+  or a
+  jr z, pu_so_cmp
+  ld a, (eng_mode)
+  cp MODE_SONG
+  jr nz, pu_so_cmp
+  ld a, (ix+6)
+  or a
+  jr z, pu_so_cmp
+  ld a, (ix+11)              ; on the reserved CONT bridge chain? no grid playhead
+  cp NUM_CHAINS-1            ;   -- the bridge isn't placed in the song, so a cell
+  jr z, pu_so_cmp            ;   marker would falsely flag row ix+7 as playing
+  ld b, (ix+7)
+pu_so_cmp:
+  ld a, (hl)
+  cp b
+  jr z, pu_so_next
+  cp $FF
+  jr z, pu_so_new
+  push bc
+  call mark_vis_a
+  pop bc
+pu_so_new:
+  ld (hl), b
+  ld a, b
+  cp $FF
+  jr z, pu_so_next
+  push bc
+  call mark_vis_a
+  pop bc
+pu_so_next:
+  inc hl
+  ld de, 32
+  add ix, de
+  dec c
+  jr nz, pu_so_l
+  ; fall through: reconcile the bridge-cue state and flag the header dirty on change
+
+; bridge_cue_sync: per track, is it holding the CONT bridge chain (active + on
+; the reserved chain)? If that set changed since last frame, flag the labels
+; dirty so the header cue ('>' by the track name) repaints/clears. Clobbers
+; A/BC/DE/HL/IX.
+bridge_cue_sync:
+  ld ix, chst
+  ld hl, br_shown
+  ld b, 4
+  ld c, 0                    ; C = changed accumulator
+bcs_l:
+  ld a, (play_state)
+  or a
+  jr z, bcs_no
+  ld a, (ix+6)
+  or a
+  jr z, bcs_no
+  ld a, (ix+11)
+  cp NUM_CHAINS-1
+  jr nz, bcs_no
+  ld a, 1                    ; this track holds the bridge
+  jr bcs_cmp
+bcs_no:
+  xor a
+bcs_cmp:
+  cp (hl)
+  jr z, bcs_same
+  ld (hl), a                 ; state changed for this track
+  ld c, 1
+bcs_same:
+  inc hl
+  push bc
+  ld de, 32
+  add ix, de
+  pop bc
+  djnz bcs_l
+  ld a, c
+  or a
+  ret z                      ; unchanged: nothing to redraw
+  ld a, 1
+  ld (label_dirty), a        ; repaint the header (song_bridge_cues) next frame
+  ret
+
+; song_bridge_cues: draw a marker beside each track name on the SONG header row:
+; '>' while a track holds the CONT bridge chain, '*' on the CONT handover track
+; (when CONT is on and it's not currently bridging), else a space (so a stale
+; marker clears). Called from dl_so_hdr. Marker column = so_track_col-1.
+song_bridge_cues:
+  ld ix, chst
+  ld c, 0                    ; C = track index
+sbc_l:
+  ld a, (play_state)         ; bridging now? (playing + active + on the bridge chain)
+  or a
+  jr z, sbc_star
+  ld a, (ix+6)
+  or a
+  jr z, sbc_star
+  ld a, (ix+11)
+  cp NUM_CHAINS-1
+  jr z, sbc_glyph
+sbc_star:
+  ld a, (cont_play)          ; not bridging: mark the CONT handover track with '*'
+  or a
+  jr z, sbc_clr              ; CONT off -> blank
+  dec a                      ; cont_play-1 = the handover track index
+  cp c
+  jr nz, sbc_clr
+  ld a, '*'
+  jr sbc_draw
+sbc_clr:
+  ld a, ' '
+  jr sbc_draw
+sbc_glyph:
+  ld a, '>'
+sbc_draw:
+  push ix
+  push bc                    ; save track index (C)
+  ld b, a                    ; B = glyph
+  ld a, c
+  call so_track_col          ; A = cell column (preserves BC)
+  add a, 2                   ; right of the 2-char name (grid play markers own the
+  ld c, a                    ;   left column, so keep the CONT cue clear of them)
+  push bc                    ; save glyph (B) + column (C)
+  ld b, GRID_ROW-1           ; row above the grid
+  call set_text_at
+  pop bc
+  xor a
+  ld (text_attr), a
+  ld a, b                    ; glyph
+  call print_char
+  pop bc                     ; track index
+  pop ix
+  ld de, 32
+  add ix, de
+  inc c
+  ld a, c
+  cp 4
+  jr c, sbc_l
+  ret
 .ENDS
 
 ; form-map tables are cold data: park in bank 1 (read cross-bank).

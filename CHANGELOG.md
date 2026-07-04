@@ -5,6 +5,22 @@ The git history has the full detail; this is the curated summary.
 
 ## v0.38 — unreleased
 
+### Added
+- **CONT tempo glide (prototype).** After a CONT load, the tempo now **ramps**
+  from the old song's BPM to the new song's instead of jumping. It plays a scratch
+  groove whose average frames-per-row steps toward the target each bar, then hands
+  off to the new song's real groove. Skipped when the tempos already match or when
+  clock-slaved (SYNC IN/IN24). Because tempo is quantised (integer frames per row),
+  this MVP steps through whole rungs — smooth for small changes, a little steppy
+  for big jumps; a finer (fractional-average) version can follow.
+- **PROJECT → SLID** sets the tempo-slide length: **OFF** (instant, the old jump)
+  or **1–16 bars**. Sits below CONT; default 4 bars. (Not yet persisted across a
+  reboot — resets to 4.)
+- **CONT handover track marker.** On the SONG header, the track CONT is set to
+  carry shows a **`*`** beside its name whenever CONT is on, so you can see at a
+  glance which track will bridge the next load (it becomes `>` while it's actually
+  bridging).
+
 ### Changed
 - **Switching MODE (SONG ↔ LIVE) no longer stops the transport.** Toggling the
   PROJECT **MODE** field while playing now flips live: from the next bar each
@@ -20,8 +36,18 @@ The git history has the full detail; this is the curated summary.
   be. The CONT channel (T1/T2/T3/NO) still carries its playing phrase across the
   load as a bridge: in SONG it plays once and then rejoins the others at the top;
   in LIVE it **loops** and holds the groove until you queue a chain from the new
-  song. (In LIVE the non-carried tracks keep looping their current chains on the
-  new song's data — playback stays performer-driven.)
+  song. **In LIVE the other tracks are silenced on the load** — only the carried
+  bridge keeps playing, and you bring the rest back in by queuing chains, so the
+  transition stays performer-driven (they no longer auto-play the new song).
+- **The bridging track no longer shows a false playhead on the SONG grid.** The
+  bridge plays a reserved off-grid chain, so the old `>` on that track's row
+  wrongly flagged a cell as already-playing — now suppressed, so you can queue and
+  newly trigger that chain. Instead, a **`>` appears beside the track's name**
+  (T1/T2/T3/NO header) while it's holding the bridge (and clears the moment you
+  trigger a chain there), so you can still see which track is carrying the groove.
+  In LIVE, triggering **any** row on the bridging track — including the very first
+  — reliably queues that chain (the "tap the row you're on = stop" gesture no
+  longer misfires on the bridge, which has no song position).
 - **Fixed as part of the above:** the CONT bridge phrase now actually loops in
   LIVE. The reserved handoff chain is planted outside the song grid, so the old
   "reload = loop" step re-derived a chain from the song and dropped the bridge

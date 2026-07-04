@@ -107,19 +107,31 @@ GROOVE and `2+Left` from GROOVE comes back.
   (**CONT**), and an `UNSAVED` flag when there are changes not yet written to a
   slot. Set **CONT** to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is default) and
   going to FILES doesn't stop playback, and **LOAD swaps the song under the
-  running clock**. In SONG mode the **new song starts from the top (song row 1)**,
-  but each track keeps its **position within the phrase** (the 16th-note step it
-  was on), so the incoming song drops in **beat-matched** — no rhythmic hiccup.
-  The **chosen channel's playing phrase is carried across the load** as a bridge:
-  it keeps sounding through the transition — **with its own instrument sound
-  preserved** — and then rejoins at the top with the others (in LIVE it **loops**
-  until you queue something new). This uses three permanently reserved slots (the
-  last phrase, chain and instrument), so you write with **51 phrases, 39 chains
-  and 15 instruments** — you don't have to keep anything free yourself. Pick the
-  channel holding your groove (NO for drums, T1–T3 for a bass or pad). Samples
+  running clock**. In **SONG** mode the **new song starts from the top (song row
+  1)**, but each track keeps its **position within the phrase** (the 16th-note
+  step it was on), so the incoming song drops in **beat-matched** — no rhythmic
+  hiccup. In **LIVE** mode only the carried bridge keeps playing — **the other
+  tracks go silent on the load**, and you bring them back in yourself by queuing
+  chains (as usual for LIVE). The **chosen channel's playing phrase is carried
+  across the load** as a bridge: it keeps sounding through the transition — **with
+  its own instrument sound preserved** — and then rejoins at the top with the
+  others in SONG (in LIVE it **loops** until you queue something new). While a
+  track holds the bridge, a **`>` shows beside its name** on the SONG header (its
+  grid cells stay unmarked, so you can freshly queue a chain there). This uses
+  three permanently reserved slots (the last phrase, chain and instrument), so you
+  write with **51 phrases, 39 chains and 15 instruments** — you don't have to keep
+  anything free yourself. Pick the
+  channel holding your groove (NO for drums, T1–T3 for a bass or pad); on the SONG
+  header a **`*`** marks that chosen track (whenever CONT is on) so you can see
+  which one will bridge — it turns into `>` while it's actually bridging. Samples
   are silent while FILES is open (they return when you leave). The bridge keeps
   the carried part's instrument; if that instrument uses a table, the table reads
   the new song's slots.
+- **PROJECT → SLID** (below CONT) sets the **tempo slide**: on a CONT load the
+  tempo ramps from the old song's BPM to the new one's over this many bars —
+  **OFF** (jump instantly) or **1–16 bars** (default 4). Because SMSGGDJ's tempo
+  is quantised, the slide steps through the reachable BPMs rather than gliding
+  perfectly, but over a few bars it reads as a smooth acceleration/deceleration.
 - **FILES** — save, load and manage your songs on the cartridge (below SONG).
 - **OPTIONS** — this machine: region, sync, colours (above SONG; PROJECT is
   to its right).

@@ -65,6 +65,7 @@
 
 .DEFINE NUM_TABLES  16
 .DEFINE NUM_GROOVES 16
+.DEFINE GLIDE_BARS  4          ; CONT tempo-glide length, in 16-row bars (fixed)
 
 ; AHD envelope stages (ix+4). Anything else reads as idle.
 .DEFINE STG_ATK     0          ; ramp 0 -> peak at ATK rate
@@ -117,7 +118,19 @@
   mute_flags   db            ; bits 0-3
   eng_start    db            ; song row playback began on
   eng_len      db            ; song rows until the wrap to row 0
-  groove_sel   db            ; active groove
+  groove_sel   db            ; active groove ($10 = NUM_GROOVES: the glide scratch)
+  ; CONT tempo glide: ramp frames-per-row from the old song's tempo to the new
+  ; one over GLIDE_BARS bars after a CONT load. Plays a flat scratch groove.
+  glide_len    db            ; SLID field: glide length in bars (0 = off/instant)
+  glide_bars   db            ; bars remaining (0 = not gliding)
+  glide_span   db            ; glide_len-1 (Bresenham denominator for this glide)
+  glide_from   db            ; old song's avg frames-per-row (captured pre-swap)
+  glide_cur    db            ; current avg frames-per-row (this bar)
+  glide_step   db            ; +1 / $FF per Bresenham step (toward the target)
+  glide_diff   db            ; |to - from| (total steps to distribute)
+  glide_acc    db            ; Bresenham accumulator
+  glide_sel    db            ; real groove_sel to restore when the glide ends
+  glide_scratch dsb 16       ; the flat scratch groove played during the glide
   hop_now      db            ; H just fired on this channel: hop NOW, same tick
   hop_guard    db            ; per-tick hop budget (kills an all-H spin)
   cur_trig_ch  db            ; channel being processed (for WAV)
@@ -381,6 +394,7 @@ lqc_n:
   ret
 
 engine_stop:
+  call glide_abort           ; end any CONT tempo glide (restore the real groove)
   xor a
   ld (play_state), a
   ld (sync_wait), a
@@ -627,6 +641,8 @@ et_gwrap:
   xor a
 et_gstore:
   ld (groove_pos), a
+  or a
+  call z, glide_bar          ; groove wrapped (new bar): step the CONT tempo glide
 
   ; advance + process every track at its own row (per-channel hop)
   call step_channels
@@ -915,6 +931,8 @@ esan_hi:
 ; HL = start of the selected groove
 groove_base:
   ld a, (groove_sel)
+  cp NUM_GROOVES             ; sentinel -> the CONT tempo-glide scratch groove
+  jr z, gb_glide
   add a, a
   add a, a
   add a, a
@@ -923,6 +941,9 @@ groove_base:
   ld d, 0
   ld hl, grooves
   add hl, de
+  ret
+gb_glide:
+  ld hl, glide_scratch
   ret
 
 ; -------------------------------------------------------------
@@ -1990,6 +2011,155 @@ st_ok:
   pop bc
   ret
 
+; --- CONT tempo glide (bank 1) -------------------------------------------------
+; groove_avg_calc: HL = groove base -> A = average frames-per-row (rounded,
+; min 1). Clobbers B/C/DE/HL.
+groove_avg_calc:
+  ld d, 0                    ; D = sum
+  ld e, 0                    ; E = count
+  ld b, 16
+gac_l:
+  ld a, (hl)
+  or a
+  jr z, gac_done             ; 0-terminator ends the groove
+  add a, d
+  ld d, a
+  inc e
+  inc hl
+  djnz gac_l
+gac_done:
+  ld a, e
+  or a
+  jr nz, gac_div
+  ld a, 6                    ; empty groove -> a safe default
+  ret
+gac_div:
+  ld a, d                    ; A = round(sum / count) by repeated subtraction
+  ld c, 0                    ; C = quotient
+gac_dl:
+  cp e
+  jr c, gac_rnd
+  sub e
+  inc c
+  jr gac_dl
+gac_rnd:
+  add a, a                   ; 2*remainder >= count -> round up
+  cp e
+  jr c, gac_q
+  inc c
+gac_q:
+  ld a, c
+  or a
+  ret nz
+  inc a                      ; never 0
+  ret
+
+; glide_write: fill the scratch groove flat with glide_cur. Clobbers A/B/HL.
+glide_write:
+  ld a, (glide_cur)
+  ld hl, glide_scratch
+  ld b, 16
+glw_l:
+  ld (hl), a
+  inc hl
+  djnz glw_l
+  ret
+
+; glide_abort: end any active glide, restoring the real groove selection.
+glide_abort:
+  ld a, (glide_bars)
+  or a
+  ret z
+  xor a
+  ld (glide_bars), a
+  ld a, (glide_sel)
+  ld (groove_sel), a
+  ret
+
+; glide_bar: one bar boundary while a glide is active -- Bresenham-step glide_cur
+; toward the target over GLIDE_BARS-1 intervals, then hand off to the real groove.
+; Called from engine_tick at the groove wrap. Clobbers A/B/HL (preserves nothing
+; the caller needs there).
+glide_bar:
+  ld a, (glide_bars)
+  or a
+  ret z                      ; not gliding
+  dec a
+  ld (glide_bars), a
+  jr nz, glide_bar_go        ; last bar done: hand off to the real groove (glide_bars
+  ld a, (glide_sel)          ;   is already 0, so glide_abort would no-op -- restore
+  ld (groove_sel), a         ;   groove_sel directly here)
+  ret
+glide_bar_go:
+  ld a, (glide_span)
+  ld c, a                    ; C = Bresenham span (glide_len - 1)
+  ld a, (glide_acc)
+  ld hl, glide_diff
+  add a, (hl)                ; acc += diff
+gbr_step:
+  cp c
+  jr c, gbr_done
+  sub c                      ; acc -= span, and step glide_cur toward the target
+  push af
+  ld a, (glide_cur)
+  ld hl, glide_step
+  add a, (hl)                ; += (+1 / -1)
+  ld (glide_cur), a
+  pop af
+  jr gbr_step
+gbr_done:
+  ld (glide_acc), a
+  jp glide_write
+
+; cont_tempo_glide: begin ramping from the old song's tempo (glide_from, captured
+; pre-swap) to the new song's active-groove tempo over GLIDE_BARS bars. Skipped
+; when slaved (external clock owns tempo) or when the tempos already match.
+; Clobbers A/BC/DE/HL.
+cont_tempo_glide:
+  call glide_abort           ; a load mid-glide: drop the old glide first
+  ld a, (glide_len)          ; SLID = 0 -> instant tempo change (no glide)
+  or a
+  ret z
+  call sync_is_slave
+  jr z, ctg_off              ; IN/IN24: external clock drives tempo
+  call groove_base           ; HL = the new song's active groove
+  call groove_avg_calc       ; A = new average
+  ld c, a                    ; C = to
+  ld a, (glide_from)
+  cp c
+  jr z, ctg_off              ; same tempo -> nothing to glide
+  ld (glide_cur), a          ; start the ramp at the old tempo
+  jr c, ctg_up               ; from < to -> slowing down (step +1)
+  sub c                      ; from > to: diff = from - to, step -1 (speeding up)
+  ld b, a
+  ld a, $FF
+  jr ctg_set
+ctg_up:
+  ld a, c                    ; diff = to - from
+  ld hl, glide_from
+  sub (hl)
+  ld b, a
+  ld a, 1
+ctg_set:
+  ld (glide_step), a
+  ld a, b
+  ld (glide_diff), a
+  xor a
+  ld (glide_acc), a
+  ld a, (glide_len)
+  ld (glide_bars), a
+  dec a
+  ld (glide_span), a         ; Bresenham denominator = glide_len - 1
+  ld a, (groove_sel)
+  ld (glide_sel), a          ; remember the real groove
+  ld a, NUM_GROOVES
+  ld (groove_sel), a         ; play the scratch groove during the ramp
+  jp glide_write             ; write bar 1 (= the old tempo)
+ctg_off:
+  xor a
+  ld (glide_bars), a
+  ret
+
 ; load_rebase: called after LOAD swapped the song block while the transport is
 ; running (CONT). The channels keep their positions (chain/phrase/row indices
 ; now read the NEW song's pools), but two globals derived from the old data
@@ -2154,14 +2324,18 @@ crc_off:
   ld (ix+10), $FF
   ret
 
-; cont_restart_all: SONG mode only -- restart all four tracks at the top of the
-; new song (phase preserved). LIVE is performer-driven, so it's left as-is. The
-; carried track is restarted too; the plant below then overrides its CURRENT
-; phrase with the bridge (reserved) phrase, keeping its row-0 merge target.
+; cont_restart_all: bring the tracks into the new song on a CONT load.
+;   SONG -- restart all four at the new song's top (phase preserved). The carried
+;     track is restarted too; the plant below overrides its CURRENT phrase with
+;     the bridge, keeping its row-0 merge target.
+;   LIVE -- performer-driven, so silence every track EXCEPT the carried bridge.
+;     The performer brings the rest back in by queuing chains (lq_arm re-arms a
+;     silent track). Without this, the non-carried tracks would keep looping the
+;     new song's chains at their old positions -- audible without being triggered.
 cont_restart_all:
   ld a, (play_mode)
   or a
-  ret nz                     ; LIVE: no song restart
+  jr nz, cra_live
   ld ix, chst
   ld c, 0
 cra_loop:
@@ -2175,8 +2349,27 @@ cra_loop:
   cp 4
   jr c, cra_loop
   ret
+cra_live:
+  ld a, (cont_play)
+  dec a                      ; carried track: leave it playing the bridge
+  ld c, a
+  xor a
+crl_loop:
+  cp c
+  jr z, crl_next             ; skip the carried track
+  push af
+  push bc
+  call live_track_stop       ; A = track: deactivate + silence now
+  pop bc
+  pop af
+crl_next:
+  inc a
+  cp 4
+  jr c, crl_loop
+  ret
 
 load_carry_post:
+  call cont_tempo_glide      ; ramp old tempo -> new song's tempo over GLIDE_BARS
   call cont_restart_all      ; SONG: every track re-enters the new song at row 0,
                              ;   keeping its within-phrase step (seamless phase)
   ld a, (carry_flag)
@@ -2214,7 +2407,12 @@ lcp_fill:
   ld (ix+8), 0               ;   bridge phrase ends it merges at the top like the
   ld (ix+6), 1               ;   others. Force active in case that column is empty.
   ld (ix+1), USER_INSTR      ;   inherit-instrument steps use the baked slot too
-  pop ix
+  ld a, (play_mode)          ; LIVE: the bridge has no song position, so blank ix+7
+  or a                       ;   ($FF). The queue gesture treats "tap the row you're
+  jr z, lcp_ix7              ;   already on" as a stop-toggle; with ix+7 = $FF that
+  ld (ix+7), $FF             ;   never matches, so triggering ANY row (incl. row 0)
+lcp_ix7:                     ;   reliably queues a chain. (SONG keeps its row-0 merge
+  pop ix                     ;   target from cont_restart_all.)
   ld a, 1                    ; the working copy now differs from the slot
   ld (song_edited), a
   ret
@@ -2226,6 +2424,9 @@ load_carry_pre:
   ld a, (cont_play)          ; OFF: nothing to carry (also guards carry_chan_ix)
   or a
   ret z
+  call groove_base           ; snapshot the OLD tempo (avg frames-per-row) before
+  call groove_avg_calc       ;   the swap wipes the grooves -- the glide starts here
+  ld (glide_from), a
   push ix
   call carry_chan_ix         ; IX = the carried channel
   ld a, (ix+6)

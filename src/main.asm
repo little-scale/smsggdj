@@ -199,6 +199,8 @@ init:
   ld (key_delay), a          ;   override via a saved v3 config block)
   ld a, DAS_SPEED
   ld (key_speed), a
+  ld a, GLIDE_BARS           ; CONT tempo-slide default length (PROJECT SLID field)
+  ld (glide_len), a
   ld a, $FF
   ld (fm_ovr), a             ; one-shot FM program override starts clear
   call load_font
