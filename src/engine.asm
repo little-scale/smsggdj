@@ -2318,10 +2318,10 @@ tn_sspd:
   ld a, (smp_count)
   or a
   jr z, tn_squiet            ; empty pool: just silence the host
+  ld d, a                    ; D = sample count (grab before sram_live clobbers A)
   ld a, (sram_live)          ; FILES has SRAM over the pool (CONT playing):
   or a                       ;   a fetch would feed SRAM bytes as audio
   jr nz, tn_squiet
-  ld d, a                    ; D = sample count
   ; kit system: 8 kits of 8 -> sample = kit*8 + (note & 7). kit = instrument
   ; record +2 (0-7); slots past the loaded count are empty -> silence.
   ld a, (ix+1)               ; HL = instruments + instr*16 + 2  (the kit byte)

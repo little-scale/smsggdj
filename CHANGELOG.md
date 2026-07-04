@@ -44,6 +44,10 @@ The git history has the full detail; this is the curated summary.
   short tail (no save-format change).
 
 ### Fixed
+- **KIT (sample) instruments play again.** A regression in the CONT work left the
+  new `sram_live` guard clobbering the accumulator that held the sample count, so
+  the kit-slot bounds check silenced *every* KIT note (not just those over an
+  empty slot). The count is now grabbed before the guard runs.
 - **A save can no longer overwrite the OPTIONS config block.** Bank-0 heap
   placement (saving *and* compaction) is now capped below the config at `$3F60`
   ($1F60 on 8 KB carts): a near-raw blob bumps to bank 1 on a 32 KB cart or
