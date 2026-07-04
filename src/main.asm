@@ -321,6 +321,8 @@ main_loop:
   call draw_state
   call draw_region_boot
   call editor_draw
+  call song_cue_draw           ; SONG-row CUED/MATCH readout (after editor_draw so it
+                               ;   lands on top of any label redraw this frame)
 
   ld hl, (frame)
   inc hl

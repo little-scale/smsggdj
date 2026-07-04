@@ -2503,35 +2503,92 @@ load_carry_pre:
   call groove_avg_calc       ;   the swap wipes the grooves -- the glide starts here
   ld (glide_from), a
   push ix
-  ld a, $FF                  ; reset the channel->slot map (nothing carried yet)
-  ld (carry_slot+0), a
-  ld (carry_slot+1), a
-  ld (carry_slot+2), a
-  ld (carry_slot+3), a
-  ld a, (cont_play)
-  and $0F
-  ld e, a                    ; E = selection mask, rotated one bit per channel
-  ld c, 0                    ; C = channel index
-  ld b, 0                    ; B = next free packed buffer slot
-lcpre_loop:
-  srl e                      ; bit0 -> carry: is channel C selected?
-  jr nc, lcpre_next
-  ld a, b                    ; buffers full? ignore any extra selected channels
-  cp NCARRY
-  jr nc, lcpre_next
-  push bc
-  push de
-  call carry_snapshot_chan   ; B=slot, C=channel: stash if live; CARRY set if it took
-  pop de                     ;   the slot (pop's don't disturb CARRY)
-  pop bc
-  jr nc, lcpre_next          ; channel silent / no phrase: slot not consumed
-  inc b                      ; slot used -> the next carried channel takes the next one
-lcpre_next:
+  ; Pass 1 -- keep an in-flight bridge. A track still bridging (ix+11 == BRIDGE_MK)
+  ; that's still in the mask plays from a private buffer the load never touches, so
+  ; it carries straight across: keep its carry_slot[C]. Clear every other channel's
+  ; slot (fresh candidates, or a bridge that's been deselected -- freeing its buffer).
+  ld c, 0
+lcp1_loop:
+  call sel_c                 ; selected in the CONT mask?
+  jr nc, lcp1_clear
+  call chan_ix_c             ; IX = channel C
+  ld a, (ix+11)
+  cp BRIDGE_MK
+  jr z, lcp1_next            ; selected + already bridging -> keep carry_slot[C]
+lcp1_clear:
+  ld hl, carry_slot
+  ld a, c
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld (hl), $FF
+lcp1_next:
   inc c
   ld a, c
   cp 4
-  jr c, lcpre_loop
+  jr c, lcp1_loop
+  ; Pass 2 -- snapshot each selected channel that has no slot yet (not a kept bridge)
+  ; and is playing a real phrase, into the lowest free packed slot.
+  ld c, 0
+lcp2_loop:
+  call sel_c
+  jr nc, lcp2_next
+  ld hl, carry_slot          ; already carried (a kept bridge)? leave it
+  ld a, c
+  ld e, a
+  ld d, 0
+  add hl, de
+  ld a, (hl)
+  cp $FF
+  jr nz, lcp2_next
+  call carry_free_slot       ; A = lowest free slot, or $FF if both buffers are full
+  cp $FF
+  jr z, lcp2_next
+  ld b, a                    ; B = target slot
+  call carry_snapshot_chan   ; B=slot, C=channel: snapshots + maps carry_slot[C] if live
+lcp2_next:
+  inc c
+  ld a, c
+  cp 4
+  jr c, lcp2_loop
   pop ix
+  ret
+
+; sel_c: CARRY set if bit C of the CONT mask (cont_play) is set. Preserves BC.
+sel_c:
+  push bc
+  ld a, (cont_play)
+  ld b, c
+  inc b                      ; test bit C: rotate right C+1 times, carry = bit C
+scl_l:
+  rrca
+  djnz scl_l
+  pop bc
+  ret
+
+; carry_free_slot: A = the lowest buffer slot (0..NCARRY-1) not present in carry_slot[],
+; or $FF if all NCARRY are taken. Preserves C; clobbers A/B/DE/HL.
+carry_free_slot:
+  ld e, 0                    ; E = candidate slot
+cfs_cand:
+  ld a, e
+  cp NCARRY
+  jr nc, cfs_none
+  ld hl, carry_slot
+  ld b, 4
+cfs_scan:
+  ld a, (hl)
+  cp e
+  jr z, cfs_used
+  inc hl
+  djnz cfs_scan
+  ld a, e                    ; candidate not used by any channel -> it's free
+  ret
+cfs_used:
+  inc e
+  jr cfs_cand
+cfs_none:
+  ld a, $FF
   ret
 
 ; carry_snapshot_chan: C = channel, B = target packed buffer slot. If the channel is

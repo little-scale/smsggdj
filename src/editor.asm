@@ -147,6 +147,7 @@
   cont_load_ref   db         ; reference channel (lowest carried): watch its phrase row
   cont_load_prow  db         ; that channel's row last frame (edge-detect the 15->0 wrap)
   glide_cue_last  db         ; glide_bars last shown on the FILES line (repaint on change)
+  song_cue_shown  db         ; 1 = SONG name-row CUED/MATCH readout currently drawn
   ed_rep       db
   tmp_note     db
   tmp_instr    db
@@ -8107,6 +8108,8 @@ str_freed: .db "FREED ", 0
 str_cued:  .db "CUED ", 0
 str_cue_in: .db " IN ", 0
 str_match: .db "MATCH IN ", 0
+str_song_cue:  .db "CUE IN ", 0    ; compact SONG-row CUED readout (9 chars w/ xx)
+str_song_mtch: .db "MATCH ", 0     ; compact SONG-row MATCH readout (9 chars w/ nnn)
 
 ; fl_entry: A = slot -> HL = directory entry ptr (SRAM). Preserves DE.
 fl_entry:
@@ -8334,23 +8337,8 @@ flc_fpad:
   pop bc
   djnz flc_fpad
   ret
-flc_cued:                    ; "CUED nn IN xx": xx = phrase rows left before the swap
-  ld hl, str_cued            ;   fires (the ref track's row counting down to the wrap)
-  call fsp_str
-  ld a, (cont_load_slot)
-  call fsp_dec2
-  ld hl, str_cue_in          ; " IN "
-  call fsp_str
-  ld a, (cont_load_ref)      ; xx = 16 - ref channel's current within-phrase row
-  ld e, a
-  ld d, 0
-  ld hl, chan_row
-  add hl, de
-  ld a, (hl)
-  ld b, a
-  ld a, 16
-  sub b                      ; 16 (just wrapped) .. 1 (next row fires)
-  call fsp_dec2
+flc_cued:                    ; "CUED nn IN xx" (13 chars) padded to fill the rule
+  call cue_draw_cued
   ld b, 3
 flc_cpad:
   ld a, ' '
@@ -8359,30 +8347,8 @@ flc_cpad:
   pop bc
   djnz flc_cpad
   ret
-flc_match:                   ; "MATCH IN nnn": rows of tempo glide still to run
-  ld hl, str_match           ;   (glide_bars * 16 - the phrase phase), so it counts
-  call fsp_str               ;   down in rows like the CUED line
-  ld a, (glide_bars)
-  ld l, a
-  ld h, 0
-  add hl, hl
-  add hl, hl
-  add hl, hl
-  add hl, hl                 ; HL = glide_bars * 16 (16..256)
-  ld a, (chan_row)           ; - T1's within-phrase row (the bar phase)
-  ld e, a
-  ld d, 0
-  or a
-  sbc hl, de                 ; HL = rows remaining (1..256)
-  ld a, h
-  or a
-  jr z, fm_lo
-  ld a, 255                  ; clamp the lone 256 case (glide_len 16, row 0)
-  jr fm_pr
-fm_lo:
-  ld a, l
-fm_pr:
-  call print_dec3
+flc_match:                   ; "MATCH IN nnn" (12 chars) padded to fill the rule
+  call cue_draw_match
   ld b, 4
 flc_mpad:
   ld a, ' '
@@ -8757,6 +8723,140 @@ cgc_idle:
   ld (glide_cue_last), a
   xor a
   jp mark_dirty_a
+
+; cue_draw_cued: print "CUED nn IN xx" (13 chars) at the current VRAM address. xx =
+; phrase rows until the swap fires. Clobbers A/BC/DE/HL.
+cue_draw_cued:
+  ld hl, str_cued
+  call fsp_str
+  ld a, (cont_load_slot)
+  call fsp_dec2
+  ld hl, str_cue_in
+  call fsp_str
+  ld a, (cont_load_ref)      ; xx = 16 - the ref channel's within-phrase row
+  ld e, a
+  ld d, 0
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)
+  ld b, a
+  ld a, 16
+  sub b
+  jp fsp_dec2
+
+; cue_draw_match: print "MATCH IN nnn" (12 chars) at the current VRAM address. nnn =
+; glide_bars*16 - phrase phase (rows of tempo glide left). Clobbers A/BC/DE/HL.
+cue_draw_match:
+  ld hl, str_match
+  call fsp_str
+  ld a, (glide_bars)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; HL = glide_bars * 16 (16..256)
+  ld a, (chan_row)           ; - T1's within-phrase row (the bar phase)
+  ld e, a
+  ld d, 0
+  or a
+  sbc hl, de                 ; HL = rows remaining (1..256)
+  ld a, h
+  or a
+  jr z, cdm_lo
+  ld a, 255                  ; clamp the lone 256 case (glide_len 16, row 0)
+  jr cdm_pr
+cdm_lo:
+  ld a, l
+cdm_pr:
+  jp print_dec3
+
+; song_cue_draw: draw the CUED/MATCH transition readout on the SONG title row (after
+; "SONG"), so the countdown is visible after you back out of FILES. Runs in the draw
+; phase each frame (self-refreshing); blanks the field once when the transition ends.
+song_cue_draw:
+  ld a, (scr_mode)
+  cp SCR_SONG
+  jr nz, scd_gone
+  xor a
+  ld (text_attr), a
+  ld a, (cont_load_armed)
+  or a
+  jr nz, scd_cued
+  ld a, (glide_bars)
+  or a
+  jr nz, scd_match
+  ld a, (song_cue_shown)     ; SONG but idle: blank once if a cue was showing
+  or a
+  ret z
+  jr scd_blank
+scd_gone:                    ; left SONG: the new screen owns the row; just drop the flag
+  ld a, (song_cue_shown)
+  or a
+  ret z
+  xor a
+  ld (song_cue_shown), a
+  ret
+scd_cued:                    ; "CUE IN xx" (9 chars): rows until the queued swap fires
+  call scd_home
+  ld hl, str_song_cue        ; "CUE IN "
+  call fsp_str
+  ld a, (cont_load_ref)      ; xx = 16 - the ref channel's within-phrase row
+  ld e, a
+  ld d, 0
+  ld hl, chan_row
+  add hl, de
+  ld a, (hl)
+  ld b, a
+  ld a, 16
+  sub b
+  call fsp_dec2
+  jr scd_mark
+scd_match:                   ; "MATCH nnn" (9 chars): rows of tempo glide still to run
+  call scd_home
+  ld hl, str_song_mtch       ; "MATCH "
+  call fsp_str
+  ld a, (glide_bars)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl                 ; glide_bars * 16
+  ld a, (chan_row)
+  ld e, a
+  ld d, 0
+  or a
+  sbc hl, de
+  ld a, h
+  or a
+  jr z, scd_m_lo
+  ld a, 255                  ; clamp the lone 256 case
+  jr scd_m_pr
+scd_m_lo:
+  ld a, l
+scd_m_pr:
+  call print_dec3
+scd_mark:
+  ld a, 1
+  ld (song_cue_shown), a
+  ret
+scd_blank:
+  call scd_home
+  ld b, 9
+scd_bl:
+  ld a, ' '
+  push bc
+  call print_char
+  pop bc
+  djnz scd_bl
+  xor a
+  ld (song_cue_shown), a
+  ret
+scd_home:                    ; VRAM write address = SONG title row, just after "SONG "
+  ld b, NAME_ROW             ;   (cols NAME_COL+5.. -- fits before the transport glyph
+  ld c, NAME_COL+5           ;   on both flavors: 9 chars clears the GG col-14 STATE)
+  jp set_text_at
 
 ; fc_files: 1-hold+2 on FILES. Toggle the action menu.
 fc_files:

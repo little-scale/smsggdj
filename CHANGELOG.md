@@ -42,6 +42,10 @@ The git history has the full detail; this is the curated summary.
   line shows **`MATCH IN nnn`** — the rows of glide still to run before the tempos
   are matched (only shown when the tempos actually differ). It counts down in rows
   like the CUED line and clears itself when the match completes.
+- **CUED / MATCH countdowns show on the SONG screen too.** After you back out of
+  FILES to watch a transition, the SONG title row shows a compact **`CUE IN xx`**
+  (rows until the queued swap) and then **`MATCH nnn`** (rows of tempo glide left),
+  so the countdown follows you out of FILES. FILES keeps its fuller readout.
 
 ### Changed
 - **Faster song load (much smaller glitch under CONT).** Two wins stack:
@@ -106,6 +110,11 @@ The git history has the full detail; this is the curated summary.
   marked as bridging — triggering it then routed to the bridge handler (which reads
   no queue) and it never fired. The sentinel is now cleared whenever a track is
   silenced or re-armed, so it always advances via the normal song path.
+- **An in-flight CONT bridge survives a back-to-back load.** If you loaded again
+  while a track was still holding its bridge (in LIVE, before you'd triggered it
+  back into the song), that track used to drop to silence — it had no real phrase
+  to re-snapshot. It's now kept across the second load (its private buffer is
+  untouched by the swap), so you can chain transitions without losing the groove.
 
 ## v0.37 — 2026-07-04
 
