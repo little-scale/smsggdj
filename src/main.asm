@@ -607,6 +607,26 @@ flp_loop:
   cp $08
   jr c, flp_loop
   ret
+; STOP: key off every FM voice + all rhythm drums, but keep rhythm MODE enabled
+; (this tracker runs channels 0-5 melody / 6-8 drums, rhythm always on) and keep
+; FM routing, so a stopped song leaves no FM/table note ringing and PLAY resumes
+; cleanly. Caller gates on fm_on. Clobbers A/BC.
+fm_hush:
+  ld c, $20                  ; key off melody channels 0..8 ($20+ch = 0)
+fmh_off:
+  ld b, $00
+  call fm_w
+  inc c
+  ld a, c
+  cp $29
+  jr c, fmh_off
+  ld c, $0E                  ; rhythm mode on, all drum keys off
+  ld b, $20
+  call fm_w
+  ld a, $20
+  ld (fm_rhythm), a          ; shadow matches: no stale drum keys on resume
+  ret
+
 ; FM-OFF: drop FM routing and key everything off
 fm_silence:
   xor a

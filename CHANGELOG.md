@@ -6,6 +6,18 @@ The git history has the full detail; this is the curated summary.
 ## v0.37 — unreleased
 
 ### Added
+- **Note range extended up to B11** for pitched noise (as high as the SN76489
+  goes). Above B9 the note shows a `+` marker (under the "E" of NOTE) with the
+  octave wrapped to one digit — `C-0+` = C10, `B-1+` = B11. Existing notes are
+  unaffected (the low end is unchanged, so saved note indices don't shift).
+- **FM instruments reach lower octaves.** The YM2413 note table is voiced two
+  octaves below the PSG note of the same index, so walking the note pitch field
+  (including up into the new `+` range) covers the whole FM range directly — no
+  per-instrument octave setting. The note name is PSG-referenced, so an FM
+  instrument sounds two octaves below its label.
+- **Per-instrument FINE tune** on TONE and WAV instruments (INSTR screen). A
+  signed period-data offset (`00` = no change, `01` = a touch sharper, `FF` = a
+  touch flatter), the base pitch trim the `F` command then tweaks per-row.
 - **CONT — continuous play across FILES and LOAD** (PROJECT, below MODE). Set
   `CONT` to **T1 / T2 / T3 / NO** (1+L/R cycles; `OFF` is the default) and
   entering FILES no longer stops the transport: whatever chains are playing keep
@@ -50,6 +62,16 @@ The git history has the full detail; this is the curated summary.
   short tail (no save-format change).
 
 ### Fixed
+- **An `H` command on a table's first step no longer hangs the tracker.** A
+  self-referential or all-`H` table (e.g. `H00` on row 0 looping to itself)
+  span forever within a tick; it now detaches the malformed table and the note
+  plays on.
+- **`K00` no longer makes channels repeat a row / fall out of sync.** The cut
+  command clobbered the sequencer's channel-loop index (via the FM key-off), so
+  later tracks skipped a tick each time it fired. The index is now preserved.
+- **Tables and FM instruments go silent when the song stops.** Stop only
+  silenced the PSG; the FM voices held their note. Stop now keys off every FM
+  voice and drum (rhythm mode stays enabled for a clean resume).
 - **The `R` (retrigger) interval can no longer be dialled to 0.** `Rx0` armed no
   retrigger (a dead value); editing an `R` command's parameter now floors the
   interval nibble at 1, so it steps straight to `Rx1` (phrase and table columns).

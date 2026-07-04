@@ -729,9 +729,18 @@ ins_wskip_d:
   call ins_is_fmdrum
   jr z, iwsd_fmdrum
   call ins_is_wav
+  jr z, iwsd_wav
+  ; TONE gets FINE (field 15); NOISE is unchanged (its form is already full)
+  call ins_is_noise
   ld a, e
-  ret nz                     ; TONE/NOISE: no gap
-  cp 3                       ; WAV fields 0,1,2,4,6,12: hop the gaps
+  ret z                      ; NOISE: no gap, no FINE
+  cp 12                      ; TONE: 0-11 valid; 12,13,14 -> 15 (FINE)
+  ret c
+  ld a, 15
+  ret
+iwsd_wav:                    ; WAV: 0,1,2,4,6,12(WAVE),15(FINE)
+  ld a, e
+  cp 3
   ret c
   cp 4
   jr c, iwsd_w4              ; 3 -> 4 (HLD)
@@ -740,8 +749,13 @@ ins_wskip_d:
   cp 7
   jr c, iwsd_w6              ; 5,6 -> 6 (TSP)
   cp 12
-  ret nc                     ; 12
-  ld a, 12                   ; 7..11 -> 12 (WAVE)
+  jr c, iwsd_w12             ; 7..11 -> 12 (WAVE)
+  cp 13
+  ret c                      ; 12 unchanged
+  ld a, 15                   ; 13,14 -> 15 (FINE)
+  ret
+iwsd_w12:
+  ld a, 12
   ret
 iwsd_w4:
   ld a, 4
@@ -804,8 +818,17 @@ ins_wskip_u:
   call ins_is_fmdrum
   jr z, iwsu_fmdrum
   call ins_is_wav
+  jr z, iwsu_wav
+  ; TONE up: FINE (15) -> TBS (11); NOISE unchanged
+  call ins_is_noise
   ld a, e
-  ret nz
+  ret z                      ; NOISE: no FINE
+  cp 12                      ; TONE: 12,13,14 -> 11 (TBS)
+  ret c
+  ld a, 11
+  ret
+iwsu_wav:
+  ld a, e
   cp 3
   ret c
   cp 4
@@ -815,8 +838,13 @@ ins_wskip_u:
   cp 7
   jr c, iwsu_w4              ; 5,6 -> 4 (HLD)
   cp 12
-  ret nc                     ; 12
-  ld a, 6                    ; 7..11 -> 6 (TSP)
+  jr c, iwsu_w6              ; 7..11 -> 6 (TSP)
+  cp 13
+  ret c                      ; 12 unchanged (WAVE)
+  ld a, 12                   ; 13,14 -> 12 (WAVE)
+  ret
+iwsu_w6:
+  ld a, 6
   ret
 iwsu_w2:
   ld a, 2
@@ -883,6 +911,13 @@ ins_is_smp:                  ; Z if the edited instrument is SMP (type 2)
   call ins_ptr
   ld a, (hl)
   cp 2
+  pop de
+  ret
+ins_is_noise:                ; Z if the edited instrument is NOISE (type 1)
+  push de
+  call ins_ptr
+  ld a, (hl)
+  cp 1
   pop de
   ret
 ins_is_fm:                   ; Z if the edited instrument is FM (type 4)
@@ -992,7 +1027,7 @@ ins_max_row:
   jr z, imr_fm               ; FM: + PROG (12) + PRESET (14)
   cp 5
   jr z, imr_fmdrum
-  ld a, 11                   ; TONE short form
+  ld a, 15                   ; TONE: + FINE
   ret
 imr_fm:
   ld a, 14                   ; FM: last field = PRESET
@@ -1001,10 +1036,10 @@ imr_fmdrum:
   ld a, 4                    ; FMDRUM: last field = HLD
   ret
 imr_noise:
-  ld a, 13                   ; NOISE: + MODE/RATE
+  ld a, 13                   ; NOISE: + MODE/RATE (form full, no FINE)
   ret
 imr_wav:
-  ld a, 12                   ; WAV: + WAVE selector
+  ld a, 15                   ; WAV: WAVE selector + FINE
   ret
 imr_smp:
   ld a, 13                   ; SMP: RATE(12) + TSP(13)
@@ -1744,7 +1779,37 @@ inp_edit:
   jp z, ine_f13
   cp 14
   jp z, ine_preset
+  cp 15
+  jp z, ine_fine
   jp ine_rate
+ine_fine:                    ; field 15: instrument finetune (record +13, signed
+  ld de, 13                  ; period units). L/R +-1, U/D +-16 (coarse)
+  add hl, de
+  ld d, (hl)
+  ld a, (ed_rep)
+  ld c, a
+  bit 3, c
+  jr z, inf_l
+  inc d
+inf_l:
+  bit 2, c
+  jr z, inf_u
+  dec d
+inf_u:
+  bit 0, c
+  jr z, inf_d
+  ld a, d
+  add a, 16
+  ld d, a
+inf_d:
+  bit 1, c
+  jr z, inf_st
+  ld a, d
+  sub 16
+  ld d, a
+inf_st:
+  ld (hl), d
+  jp ine_mark
 ine_f13:                     ; field 13: SMP transpose (+8), else NOISE rate
   ld a, (hl)                 ; type at +0 (HL = instrument record)
   cp 2
@@ -6656,6 +6721,27 @@ pdr_npr:
   pop hl
   ld b, 3
   call print_raw
+  ; octave-wrap marker: '+' at col 7 (under the 'E' of NOTE) for notes past B9,
+  ; whose 3-char name shows the octave mod 10 (C10 -> "C-0+"). Blank otherwise.
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 7
+  push de
+  call set_text_at
+  pop de
+  ld a, (tmp_note)
+  or a
+  jr z, pdr_nowrap
+  dec a
+  cp NOTE_WRAP
+  jr c, pdr_nowrap
+  ld a, '+'
+  jr pdr_wpr
+pdr_nowrap:
+  ld a, ' '
+pdr_wpr:
+  call print_char
 
   ; instrument (1 char)
   ld a, 1
@@ -6883,7 +6969,14 @@ idr_addr:
   jp z, idr_f13
   cp 14
   jp z, idr_preset
+  cp 15
+  jp z, idr_fine
   jp idr_rate
+idr_fine:                    ; field 15: instrument finetune (record +13, signed)
+  ld de, 13
+  add hl, de
+  ld a, (hl)
+  jp print_hex_a
 idr_f13:                     ; field 13: SMP transpose (+8), else NOISE rate
   ld a, (hl)                 ; type at +0 (HL = instrument record)
   cp 2
@@ -7118,19 +7211,19 @@ str_prst_off: .db "OFF  "      ; PRESET = OFF readout (not part of the block)
 
 ; field index -> grid row (groups separated by spacer rows);
 ; noise packs tighter to fit MODE/RATE in 16 rows
-f2r_tone:
-  .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15
+f2r_tone:                    ; field -> grid row (field 15 FINE -> spacer row 13)
+  .db 0, 1, 2, 4, 5, 6, 8, 10, 11, 12, 14, 15, 0, 0, 0, 13
 f2r_noise:
   .db 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15
-f2r_wav:                     ; field -> grid row (HLD=4 shown; 3,5,7-11 skipped)
-  .db 0, 1, 2, 0, 4, 0, 5, 0, 0, 0, 0, 0, 7
+f2r_wav:                     ; field -> grid row (HLD=4; field 15 FINE -> row 9)
+  .db 0, 1, 2, 0, 4, 0, 5, 0, 0, 0, 0, 0, 7, 0, 0, 9
 ; grid row -> field index ($FF = spacer)
-r2f_tone:
-  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, $FF, 10, 11
+r2f_tone:                    ; row 13 was a spacer -> now FINE (field 15)
+  .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, $FF, 7, 8, 9, 15, 10, 11
 r2f_noise:
   .db 0, 1, 2, $FF, 3, 4, 5, $FF, 6, 7, 8, 9, 10, 11, 12, 13
-r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE (no ATK/DCY/tables)
-  .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE/FINE(row 9)
+  .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, 15, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
 r2f_smp:                     ; grid row -> field (INST/TYPE/-/KIT/RATE/TSP)
@@ -7169,6 +7262,7 @@ ins_lbls:
   .db "MODE", 0
   .db "RATE", 0
   .db "PRST", 0              ; field 14: FM custom-preset selector
+  .db "FINE", 0              ; field 15: per-instrument finetune (TONE/WAV)
 str_tone:   .db "TONE "
 str_smp:    .db "KIT  "
 str_wavt:   .db "WAV  "

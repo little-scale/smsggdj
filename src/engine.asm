@@ -392,6 +392,9 @@ es_vols:
   ld (psg_vols+1), a
   ld (psg_vols+2), a
   ld (psg_vols+3), a
+  ld a, (fm_on)              ; FM voices ring until keyed off (the PSG silence
+  or a                       ; above doesn't touch them) -- hush FM melody +
+  call nz, fm_hush           ; drums so a stopped song / FM table goes quiet
   ret
 
 ; -------------------------------------------------------------
@@ -1601,8 +1604,10 @@ pr_cmd:
   jr z, pr_next              ; Z (probability) is resolved in the trigger peek
   cp CMD_JTRANS
   jr z, pr_next              ; J (transpose mask) is resolved in the trigger peek
-  call exec_command          ; channel-scope
-  jp pr_next
+  push bc                    ; C = step_channels' loop index; some handlers
+  call exec_command          ; (xc_kill's FM key-off) clobber it -- preserve it
+  pop bc                     ; so the channel walk doesn't skip/desync (matches
+  jp pr_next                 ; the table path's exec_command guard)
 prc_grv:
   ld a, d
   and $0F
@@ -2138,13 +2143,16 @@ lcpre_no:
 ; then plays on its own step). Detected at advance time -- the H row is never
 ; applied. Guarded against an all-H / self-referential spin. Clobbers A/HL/DE,
 ; preserves BC/IX. (Bank 1, always mapped -- callable from the bank-0 hot path.)
+; Returns CARRY CLEAR when ix+21 rests on a real (non-H) row, CARRY SET when it
+; couldn't resolve one within the guard (a self-referential / all-H table). The
+; caller must NOT re-apply the row on a carry-set return, or it spins forever.
 tbl_skip_hops:
   xor a
   ld (hop_guard), a
 tsh_loop:
   ld a, (ix+20)
   cp NUM_TABLES
-  ret nc                     ; no table running
+  jr nc, tsh_ok              ; no table running: nothing to skip
   ld l, a                    ; HL = tables + tbl*64 + row*4 + 2 (command column)
   ld h, 0
   add hl, hl
@@ -2165,7 +2173,7 @@ tsh_loop:
   inc hl
   ld a, (hl)                 ; command column
   cp CMD_HOP
-  ret nz                     ; real row: stop here, it gets applied next step
+  jr nz, tsh_ok              ; real row: rests here, applied on its own step
   inc hl
   ld a, (hl)                 ; param low nibble = loop target row
   and $0F
@@ -2174,8 +2182,12 @@ tsh_loop:
   inc a
   ld (hop_guard), a
   cp 16
-  ret nc                     ; pathological hop chain: bail
-  jr tsh_loop
+  jr c, tsh_loop
+  scf                        ; all-H / self-referential chain: carry set = bail
+  ret
+tsh_ok:
+  or a                       ; carry clear = landed on a real row
+  ret
 
 .ENDS
 
@@ -2286,6 +2298,16 @@ tn_mods:
   ld (ix+15), a              ; vib phase
   ld (ix+16), a              ; trem phase
   ld (ix+12), a              ; pitched-noise flag off by default
+  ; per-instrument finetune (record +13, signed period units) -> ix+27, the
+  ; base the F command tweaks per-row. Applied to TONE/NOISE/WAV via calc_period.
+  push bc                    ; keep type in b
+  ld a, (ix+1)
+  call instr_rec             ; HL = record base (clobbers DE/HL)
+  ld de, 13
+  add hl, de
+  ld a, (hl)                 ; +13 finetune, signed. + raises pitch (calc_period
+  ld (ix+27), a              ;   subtracts it from the period), matching the F cmd:
+  pop bc                     ;   $01 = a touch sharper, $FF = a touch flatter.
   ld a, b
   cp 2                       ; SMP: note picks the sample
   jr z, tn_smp
@@ -2962,7 +2984,8 @@ cf_tadv:
   and $0F
   ld (ix+21), a
   call tbl_skip_hops         ; step over any H row(s): the loop point rests on
-  jr cf_env                  ; the real target, which plays on its own step
+  jr c, cf_tdetach           ; the real target, which plays on its own step
+  jr cf_env
 cf_thop:
   ; reached only if the *current* row is itself H (e.g. the first row after a
   ; trigger). Redirect, skip any chained H, then apply the real target now.
@@ -2971,7 +2994,11 @@ cf_thop:
   and $0F
   ld (ix+21), a
   call tbl_skip_hops
-  jp ct_apply
+  jr c, cf_tdetach           ; all-H / self-referential table: stop it (was an
+  jp ct_apply                ;   infinite loop -- H on row 0 looping to itself)
+cf_tdetach:
+  ld (ix+20), $FF            ; detach the malformed table; the note plays on
+  jr cf_env                  ;   without table modulation
 
 cf_env:
   ; --- arp phase (C command): cycle 0,x,y each tick ---
