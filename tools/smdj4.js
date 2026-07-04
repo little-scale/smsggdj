@@ -5,14 +5,16 @@
 // Shared by the migration tool and savetool v2. Pure Uint8Array; runs in the
 // browser (window.SMDJ4) or node (module.exports / `node smdj4.js` self-test).
 //
-// PROPOSED on-cart format (the contract the M2 ROM codec must match):
+// On-cart format (the contract the ROM codec matches; see SAVEFORMAT.md):
 //   The .sav is a LINEAR logical image; the ROM maps logical off -> physical
 //   bank = off>>14, addr = $8000 + (off & $3FFF) via $FFFC. Layout:
-//     [0]    superblock 32 B:  "SMDJ4"(5) ver(1) count(1)
-//                              config(7: 'C''F' pal sync vid fm cksum) reserved
-//     [32]   directory: 32 entries x 8 B:
-//              valid(1,$A5) raw(1) heap_off(2,LE) blob_len(2,LE) cksum(2,LE)
-//     [288]  heap: blobs (RLE or raw) packed contiguous to end of SRAM.
+//     [0]     superblock 32 B: "SMDJ4"(5) ver(1) count(1) reserved(25)
+//     [32]    directory: 32 entries x 32 B:
+//               valid(1,$A5) raw(1) heap_off(2,LE) blob_len(2,LE) cksum(2,LE)
+//               +8 echo(8) +16 name(8) +24 reserved(8)
+//     [1056]  heap: blobs (RLE or raw); bank-0 placement capped below the
+//             OPTIONS config block at $3F60 ($1F60 on an 8K cart), which
+//             lives OUTSIDE this structure (the ROM reads it at CPU $BF60).
 //   Song identity = directory index (slot N), preserving the slot UX.
 
 (function (root) {
@@ -188,7 +190,7 @@
     return buildSav(songs, cartKB || 32, readSmdj3Config(smdj3sav));
   }
 
-  const api = { SMDJ3, SMDJ4, SUPER, DIR_ENTRIES, DIR_ENTRY, HEAP_OFF,
+  const api = { SMDJ3, SMDJ4, SUPER, DIR_ENTRIES, DIR_ENTRY, HEAP_OFF, cfgOff,
                 checksum, expand, wrapSmdj4, buildSav, readSav,
                 readSmdj3Sav, unwrapSmdj3, readSmdj3Config, migrateSav };
   if (typeof module === "object" && module.exports) module.exports = api;

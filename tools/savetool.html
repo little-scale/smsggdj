@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<!-- SMSGGDJ song/save manager: drop a .sav to extract songs, drop
-     .smdj songs (or bare 5,376-byte song blocks) to build a .sav.
-     Everything runs locally in the browser. See SAVEFORMAT.md. -->
+<!-- SMSGGDJ song/save manager (SMDJ4-native): drop a .sav/.srm to unpack its
+     songs, drop .smdj4 songs to build a cart image. Legacy SMDJ3 saves and
+     .smdj songs are migrated on drop (expanded to the SMDJ4 block).
+     Everything runs locally in the browser. Format contract: SAVEFORMAT.md. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -45,33 +46,36 @@
 </head>
 <body>
 <h1><span>SMSGGDJ</span> songs &amp; saves</h1>
-<p class="dim">Drop a <b>.sav</b> (Emulicious / Everdrive cart image) to
-unpack its songs, or drop <b>.smdj</b> songs — bare 5,376-byte song
-blocks are wrapped automatically. Then download songs per slot, or the
-assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
+<p class="dim">Drop an <b>SMDJ4 .sav / .srm</b> (Emulicious / Everdrive cart
+image) to unpack its songs, or drop <b>.smdj4</b> songs to fill slots. Legacy
+<b>SMDJ3</b> saves and <b>.smdj</b> songs are migrated on drop. Then view or
+download songs per slot, or download the assembled cart image at your cart's
+SRAM size. Nothing leaves this page.</p>
 
-<div class="zone" id="zone">drop .sav / .smdj files here (or click)</div>
+<div class="zone" id="zone">drop .sav / .srm / .smdj4 / legacy .smdj here (or click)</div>
 <input type="file" id="file" multiple hidden>
 
 <div style="margin-top:14px">
   <label class="dim">Cart SRAM:
     <select id="size">
-      <option value="8">8 KB &mdash; 1 slot</option>
-      <option value="16" selected>16 KB &mdash; 3 slots</option>
-      <option value="32">32 KB &mdash; 6 slots</option>
+      <option value="8">8 KB</option>
+      <option value="16" selected>16 KB</option>
+      <option value="32">32 KB</option>
     </select>
   </label>
-  <span id="cfgrow" style="margin-left:18px">
+  <span class="dim">(capacity is compressed-size based; 32 slots max)</span>
+  <br><span id="cfgrow" style="display:inline-block; margin-top:8px">
     <label class="dim"><input type="checkbox" id="cfgon"> config:</label>
     <select id="cfgcol">
-      <option value="0">pal 0</option><option value="1">pal 1</option>
+      <option value="0" selected>pal 0</option><option value="1">pal 1</option>
       <option value="2">pal 2</option><option value="3">pal 3</option>
       <option value="4">pal 4</option><option value="5">pal 5</option>
-      <option value="6" selected>pal 6</option><option value="7">pal 7</option>
+      <option value="6">pal 6</option><option value="7">pal 7</option>
     </select>
     <select id="cfgsync">
-      <option value="0">OUT</option><option value="1">PULSE</option>
-      <option value="2">IN</option><option value="3" selected>OFF</option>
+      <option value="0" selected>OFF</option><option value="1">OUT</option>
+      <option value="2">PULSE</option><option value="3">IN</option>
+      <option value="5">IN24</option>
     </select>
     <select id="cfgvid">
       <option value="0" selected>AUTO</option><option value="1">PAL</option>
@@ -97,34 +101,29 @@ assembled cart image at your cart's SRAM size. Nothing leaves this page.</p>
 <script src="smdj4.js"></script>
 <script>
 "use strict";
-// ---- the save contract (must match SAVEFORMAT.md) ----
-const MAGIC = "SMDJ3", STRIDE = 0x1520, HDR = 16, DATA = 5376;
-const BLOB = HDR + DATA, BANK = 0x4000;
-// cart SRAM size -> slot count + .sav bytes (32K = two 16K banks)
-const SIZES = { 8:  { slots: 1, bytes: 0x2000 },
-                16: { slots: 3, bytes: 0x4000 },
-                32: { slots: 6, bytes: 0x8000 } };
-let size = 16;                       // 8 | 16 | 32 (KB)
-let slots = new Array(SIZES[size].slots).fill(null);
+// Everything is SMDJ4-internally: legacy SMDJ3 input is expanded at the border.
+// Geometry comes from smdj4.js (the single source of truth for the layout).
+const L3 = SMDJ4.SMDJ3, L4 = SMDJ4.SMDJ4;       // block layouts
+const P4 = L4.pools;
+const VOFF4 = { phrase: P4.phrases[0], chain: P4.chains[0], song: P4.song[0],
+                instr: P4.instr[0], groove: P4.grooves[0] };
+const DIRN = SMDJ4.DIR_ENTRIES;                  // 32 slots
+const WRAP4 = 16 + L4.LEN;                       // .smdj4 = 16-byte header + block
+
+let slots = new Array(DIRN).fill(null);          // {block, echo?, name?} | null
 let savName = "smsggdj.sav";
-let smdj4Songs = [];                  // SMDJ4 read-only view: songs from loadSmdj4
 
-function numSlots() { return SIZES[size].slots; }
-function savBytes() { return SIZES[size].bytes; }
-
-// OPTIONS config block (colour + sync). The ROM writes it at $BF60, which
-// is $3F60 in a 16K/32K image (past slot 2) but mirrors to $1F60 on an 8K
-// cart (past slot 0) — so the file offset depends on the image size.
 const SCHEMES = ["0","1","2","3","4","5","6","7"],
-      SYNCS = ["OUT","PULSE","IN","OFF"],
+      SYNCS = ["OFF","OUT","PULSE","IN","MIDI","IN24"],   // sync_mode order (genmddj)
       VIDEOS = ["AUTO","PAL","NTSC"],
       FMS = ["OFF","ON"];
-const cfgOff = len => len <= 0x2000 ? 0x1F60 : 0x3F60;
+
+// ---- config block ('C''F' pal sync vid fm [cont] ck), at SMDJ4.cfgOff ----
 function readConfig(d) {
-  const o = cfgOff(d.length);
+  const o = SMDJ4.cfgOff(d.length);
   if (o + 7 > d.length || d[o] !== 0x43 || d[o + 1] !== 0x46) return null;
   const col = d[o + 2], sync = d[o + 3], vid = d[o + 4], fm = d[o + 5];
-  if (col > 7 || sync > 3 || vid > 2 || fm > 1) return null;
+  if (col > 7 || sync > 5 || vid > 2 || fm > 1) return null;
   const sum = (col + sync + vid + fm) & 0xff;
   // legacy 7-byte block (ck at +6) or v2 8-byte block (+6 = CONT, ck at +7)
   if (sum === d[o + 6]) return { col, sync, vid, fm };
@@ -132,107 +131,39 @@ function readConfig(d) {
     return { col, sync, vid, fm, cont: d[o + 6] };
   return null;
 }
-function writeConfig(img) {
-  if (!document.getElementById("cfgon").checked) return;
-  const o = cfgOff(img.length);
-  if (o + 7 > img.length) return;
+function cfg7() {                                 // UI -> 7-byte legacy block
+  if (!document.getElementById("cfgon").checked) return null;
   const col = +document.getElementById("cfgcol").value;
   const sync = +document.getElementById("cfgsync").value;
   const vid = +document.getElementById("cfgvid").value;
   const fm = +document.getElementById("cfgfm").value;
-  img[o] = 0x43; img[o + 1] = 0x46;
-  img[o + 2] = col; img[o + 3] = sync; img[o + 4] = vid; img[o + 5] = fm;
-  img[o + 6] = (col + sync + vid + fm) & 0xff;
+  return Uint8Array.from([0x43, 0x46, col, sync, vid, fm,
+                          (col + sync + vid + fm) & 0xff]);
 }
-function syncCfgUI() {   // config persists on every cart size now
-  ["cfgon", "cfgcol", "cfgsync", "cfgvid", "cfgfm"].forEach(id => document.getElementById(id).disabled = false);
-}
-// slots 0-2 live in bank 0, 3-5 in bank 1 (second 16K at 0x4000)
-function slotOffset(n) {
-  const bank = (n / 3) | 0, idx = n % 3;
-  return bank * BANK + idx * STRIDE;
-}
-
-function setSize(s, keep) {
-  const old = slots;
-  size = s;
-  slots = new Array(numSlots()).fill(null);
-  if (keep) {
-    for (let n = 0; n < numSlots() && n < old.length; n++) slots[n] = old[n];
-    const dropped = old.slice(numSlots()).filter(Boolean).length;
-    if (dropped) note(`${dropped} song(s) dropped — ${size}K has ${numSlots()} slot(s)`, true);
-  }
-  document.getElementById("size").value = s;
-  syncCfgUI();
-  render();
-}
-
-function checksum(d) {
-  let s = 0;
-  for (let i = 0; i < d.length; i++) s = (s + d[i]) & 0xffff;
-  return s;
-}
-
-function magicOf(d) { return String.fromCharCode(...d.slice(0, 5)); }
-
-function validBlob(b) {
-  return b.length === BLOB && magicOf(b) === MAGIC &&
-         (b[5] | (b[6] << 8)) === checksum(b.slice(HDR));
-}
-
-function wrapBlock(data) {
-  const b = new Uint8Array(BLOB);
-  for (let i = 0; i < 5; i++) b[i] = MAGIC.charCodeAt(i);
-  const c = checksum(data);
-  b[5] = c & 0xff; b[6] = c >> 8;
-  b.set(data, HDR);
-  return b;
-}
-
-function loadSav(d, name) {
-  savName = name;
-  size = d.length >= 0x8000 ? 32 : d.length >= 0x4000 ? 16 : 8;
-  slots = new Array(numSlots()).fill(null);
-  document.getElementById("size").value = size;
-  let found = 0;
-  for (let n = 0; n < numSlots(); n++) {
-    const off = slotOffset(n);
-    const blob = d.slice(off, off + BLOB);
-    slots[n] = validBlob(blob) ? blob : null;
-    if (slots[n]) found++;
-  }
-  const cfg = readConfig(d);
+function cfgToUI(cfg) {
   document.getElementById("cfgon").checked = !!cfg;
-  if (cfg) {
-    document.getElementById("cfgcol").value = cfg.col;
-    document.getElementById("cfgsync").value = cfg.sync;
-    document.getElementById("cfgvid").value = cfg.vid;
-    document.getElementById("cfgfm").value = cfg.fm;
+  if (!cfg) return;
+  document.getElementById("cfgcol").value = cfg.col;
+  document.getElementById("cfgsync").value = cfg.sync;
+  document.getElementById("cfgvid").value = cfg.vid;
+  document.getElementById("cfgfm").value = cfg.fm;
+}
+
+// ---- helpers ----
+const nameStr = nm => { let s = ""; for (const c of (nm || [])) { if (!c) break; s += String.fromCharCode(c); } return s; };
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+function nameBytes(s) {                           // filename stem -> 8-char slot name
+  const out = new Uint8Array(8).fill(0x20);
+  const up = s.toUpperCase();
+  for (let i = 0; i < 8 && i < up.length; i++) {
+    const c = up.charCodeAt(i);
+    out[i] = (c >= 0x20 && c <= 0x5F) ? c : 0x20; // font covers $20-$5F
   }
-  syncCfgUI();
-  note(`${name}: ${size}K image, ${found} song(s) found` +
-       (cfg ? `, config ${SCHEMES[cfg.col]}/${SYNCS[cfg.sync]}/${VIDEOS[cfg.vid]}/FM ${FMS[cfg.fm]}` : ""));
+  return out;
 }
+const magicOf = d => String.fromCharCode(...d.slice(0, 5));
+const stem = n => n.replace(/\.(sav|srm|smdj4?|bin)$/i, "");
 
-function addSong(blob, name) {
-  for (let n = 0; n < numSlots(); n++) {
-    if (!slots[n]) {
-      slots[n] = blob;
-      note(`${name} -> slot ${n + 1}`);
-      return;
-    }
-  }
-  note(`${name}: all ${numSlots()} slots full at ${size}K — clear one or pick a bigger size`, true);
-}
-
-function buildSav() {
-  const img = new Uint8Array(savBytes()).fill(0xff);
-  slots.forEach((b, n) => { if (b) img.set(b, slotOffset(n)); });
-  writeConfig(img);
-  return img;
-}
-
-// ------------------------------------------------------- UI
 function download(bytes, name) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([bytes],
@@ -240,90 +171,116 @@ function download(bytes, name) {
   a.download = name;
   a.click();
 }
-
 function note(msg, bad) {
   const el = document.getElementById("note");
   el.textContent = msg;
   el.className = bad ? "bad" : "dim";
 }
 
-function render() {
-  const box = document.getElementById("slots");
-  box.innerHTML = "";
-  slots.forEach((b, n) => {
-    const div = document.createElement("div");
-    div.className = "slot" + (b ? "" : " empty");
-    div.innerHTML = `<div class="num">${n + 1}</div>
-      <div class="info">${b
-        ? `song — checksum ok <span class="dim">(${BLOB} bytes)</span>`
-        : "empty"}</div>
-      <button data-k="view" ${b ? "" : "disabled"}>view</button>
-      <button data-k="dl" ${b ? "" : "disabled"}>download .smdj</button>
-      <button data-k="clear" ${b ? "" : "disabled"}>clear</button>`;
-    div.addEventListener("click", e => {
-      const k = e.target.dataset.k;
-      if (k === "dl") download(slots[n],
-        savName.replace(/\.sav$/i, "") + `-slot${n + 1}.smdj`);
-      if (k === "view") openViewer(n);
-      if (k === "clear") { slots[n] = null; render(); }
-    });
-    box.appendChild(div);
-  });
-  const any = slots.some(b => b);
-  document.getElementById("dlsav").disabled = !any;
-  document.getElementById("dlall").disabled = !any;
+// ---- ingest: everything lands in `slots` as SMDJ4 blocks ----
+function addSong(entry, label) {
+  for (let n = 0; n < DIRN; n++) {
+    if (!slots[n]) { slots[n] = entry; note(`${label} -> slot ${n}`); return true; }
+  }
+  note(`${label}: all ${DIRN} slots full`, true);
+  return false;
 }
 
-// ---- SMDJ4 (RLE directory) read-only view -- uses smdj4.js ----
-function loadSmdj4(d, name) {
-  let songs;
-  try { songs = SMDJ4.readSav(d); }
-  catch (e) { note(`${name}: ${e.message}`, true); return; }
-  smdj4Songs = songs;
-  document.getElementById("viewer").classList.remove("open");
-  const used = songs.filter(Boolean).length;
-  let heapEnd = SMDJ4.HEAP_OFF;
-  songs.forEach((s, i) => { if (s) { const e = SMDJ4.SUPER + i * SMDJ4.DIR_ENTRY;
-    heapEnd = Math.max(heapEnd, SMDJ4.HEAP_OFF + (d[e+2]|(d[e+3]<<8)) + (d[e+4]|(d[e+5]<<8))); } });
-  note(`${name}: SMDJ4 image — ${used} song(s), ${d.length - heapEnd} B free. ` +
-       `Read-only view; build SMDJ4 saves with migrate.html.`);
-  const box = document.getElementById("slots");
-  box.innerHTML = "";
-  songs.forEach((s, n) => {
+function loadSav4(d, name) {
+  savName = stem(name) + ".sav";
+  const songs = SMDJ4.readSav(d);
+  slots = new Array(DIRN).fill(null);
+  let found = 0, bad = 0;
+  songs.forEach((s, i) => {
     if (!s) return;
-    const e = SMDJ4.SUPER + n * SMDJ4.DIR_ENTRY, len = d[e+4] | (d[e+5] << 8);
-    const nm = nameStr(s.name);
-    const div = document.createElement("div");
-    div.className = "slot";
-    div.innerHTML = `<div class="num">${n}</div>
-      <div class="info">${nm ? `<b>${esc(nm)}</b> — ` : ""}${s.checksumOK ? "checksum ok" : '<span class="bad">checksum BAD</span>'}
-        <span class="dim">(6912 B → ${len}${s.raw ? " raw" : ""})</span></div>
-      <button data-k="view4">view</button>
-      <button data-k="dl4">download .smdj4</button>`;
-    div.addEventListener("click", ev => {
-      const k = ev.target.dataset.k;
-      if (k === "view4") openViewer4(n);
-      if (k === "dl4")
-        download(SMDJ4.wrapSmdj4(s.block), name.replace(/\.sav$/i, "") + `-slot${n}.smdj4`);
-    });
-    box.appendChild(div);
+    if (!s.checksumOK) { bad++; return; }
+    slots[i] = { block: s.block, echo: s.echo, name: s.name };
+    found++;
   });
-  document.getElementById("dlsav").disabled = true;
-  document.getElementById("dlall").disabled = true;
+  cfgToUI(readConfig(d));
+  document.getElementById("viewer").classList.remove("open");
+  note(`${name}: SMDJ4 image, ${found} song(s)` +
+       (bad ? ` (${bad} failed checksum, skipped)` : ""));
+}
+
+function loadSav3(d, name) {                      // legacy image: migrate on drop
+  const songs = SMDJ4.readSmdj3Sav(d);
+  let added = 0;
+  songs.forEach((s, i) => {
+    if (!s || !s.checksumOK) return;
+    if (addSong({ block: SMDJ4.expand(s.block), echo: s.echo,
+                  name: nameBytes(stem(name) + i) }, `${name} slot ${i}`)) added++;
+  });
+  const cfg = readConfig(d);
+  if (cfg) cfgToUI(cfg);
+  note(`${name}: SMDJ3 image — migrated ${added} song(s) to SMDJ4`);
 }
 
 async function addFiles(files) {
   for (const f of files) {
     const d = new Uint8Array(await f.arrayBuffer());
-    if (d.length >= 5 && magicOf(d) === "SMDJ4") { loadSmdj4(d, f.name); return; }
-    if (d.length === BLOB && validBlob(d)) addSong(d, f.name);
-    else if (d.length === DATA) addSong(wrapBlock(d), f.name + " (wrapped)");
-    else if (d.length >= 0x2000 && d.length <= 0x10000) loadSav(d, f.name);
-    else note(`${f.name}: not a .sav, .smdj or song block`, true);
+    if (magicOf(d) === "SMDJ4") {
+      if (d.length === WRAP4) {                   // single .smdj4 song
+        const block = d.slice(16, 16 + L4.LEN);
+        const cs = d[5] | (d[6] << 8);
+        if (SMDJ4.checksum(block) !== cs) { note(`${f.name}: bad checksum`, true); continue; }
+        addSong({ block, echo: d.slice(7, 15), name: nameBytes(stem(f.name)) }, f.name);
+      } else {
+        loadSav4(d, f.name);                      // full image
+      }
+    } else if (d.length >= 0x2000 && d.length <= 0x10000 &&
+               SMDJ4.readSmdj3Sav(d).some(Boolean)) {
+      loadSav3(d, f.name);                        // legacy SMDJ3 image
+    } else if (d.length === L4.LEN) {             // bare SMDJ4 block
+      addSong({ block: d.slice(), name: nameBytes(stem(f.name)) }, f.name);
+    } else {
+      const b3 = SMDJ4.unwrapSmdj3(d);            // .smdj / bare 5376 block
+      if (b3) addSong({ block: SMDJ4.expand(b3), name: nameBytes(stem(f.name)) },
+                      `${f.name} (migrated)`);
+      else note(`${f.name}: not an SMDJ4/SMDJ3 save or song`, true);
+    }
   }
   render();
 }
 
+// ---- render ----
+function render() {
+  const box = document.getElementById("slots");
+  box.innerHTML = "";
+  let any = false;
+  slots.forEach((s, n) => {
+    if (!s) return;
+    any = true;
+    const nm = nameStr(s.name);
+    const packed = RLE.pack(s.block);
+    const div = document.createElement("div");
+    div.className = "slot";
+    div.innerHTML = `<div class="num">${n}</div>
+      <div class="info">${nm ? `<b>${esc(nm)}</b> ` : "song "}
+        <span class="dim">(${L4.LEN} B → ${packed.bytes.length}${packed.raw ? " raw" : ""})</span></div>
+      <button data-k="view">view</button>
+      <button data-k="dl">download .smdj4</button>
+      <button data-k="clear">clear</button>`;
+    div.addEventListener("click", e => {
+      const k = e.target.dataset.k;
+      if (k === "view") openViewer(n);
+      if (k === "dl") download(SMDJ4.wrapSmdj4(s.block, s.echo),
+        (nm.trim() || `slot${n}`).toLowerCase().replace(/\s+/g, "-") + ".smdj4");
+      if (k === "clear") { slots[n] = null; render(); }
+    });
+    box.appendChild(div);
+  });
+  if (!any) {
+    const div = document.createElement("div");
+    div.className = "slot empty";
+    div.innerHTML = `<div class="num">-</div><div class="info">no songs — drop a save or songs above</div>`;
+    box.appendChild(div);
+  }
+  document.getElementById("dlsav").disabled = !any;
+  document.getElementById("dlall").disabled = !any;
+}
+
+// ---- wiring ----
 const zone = document.getElementById("zone"),
       inp = document.getElementById("file");
 zone.onclick = () => inp.click();
@@ -332,129 +289,31 @@ zone.ondragover = e => { e.preventDefault(); zone.classList.add("armed"); };
 zone.ondragleave = () => zone.classList.remove("armed");
 zone.ondrop = e => { e.preventDefault(); zone.classList.remove("armed");
                      addFiles([...e.dataTransfer.files]); };
-document.getElementById("size").onchange = e =>
-  setSize(parseInt(e.target.value, 10), true);
-document.getElementById("dlsav").onclick = () =>
-  download(buildSav(), savName);
+document.getElementById("dlsav").onclick = () => {
+  const kb = parseInt(document.getElementById("size").value, 10);
+  try {
+    const img = SMDJ4.buildSav(slots, kb, cfg7() || undefined);
+    download(img, savName);
+    note(`${savName}: ${kb} KB image written`);
+  } catch (e) { note(e.message, true); }          // e.g. SRAM FULL at this size
+};
 document.getElementById("dlall").onclick = () =>
-  slots.forEach((b, n) => { if (b) download(b,
-    savName.replace(/\.sav$/i, "") + `-slot${n + 1}.smdj`); });
+  slots.forEach((s, n) => { if (s) download(SMDJ4.wrapSmdj4(s.block, s.echo),
+    (nameStr(s.name).trim() || `slot${n}`).toLowerCase().replace(/\s+/g, "-") + ".smdj4"); });
 
-// ---- SMDJ song viewer (decodes the 5,376-byte block, SAVEFORMAT.md) ----
-const VOFF = { wave:0x0000, phrase:0x0100, chain:0x0900, song:0x0D00,
-               instr:0x0F00, table:0x1000, groove:0x1400 };
-const VCMD = "-KHACEFGNPTVWMDLROISBXY";
+// ---- song viewer (decodes the 6,912-byte SMDJ4 block) ----
+const VCMD = "-KHACEFGNPTVWMDLROISBXYZJQ";
 const VCHROMA = ["C-","C#","D-","D#","E-","F-","F#","G-","G#","A-","A#","B-"];
 const VITYPE = ["TONE","NOISE","KIT","WAV","FM","FMDRM"];
-const VRATE = ["norm","2x","half","4x"];
+const VRATE = ["1x","2x","4x",".5x"];
 const hx2 = v => v.toString(16).toUpperCase().padStart(2, "0");
 const hx1 = v => (v & 0xf).toString(16).toUpperCase();
 const vnote = b => b ? VCHROMA[(45 + b - 1) % 12] + (Math.floor((45 + b - 1) / 12) - 1) : "---";
 const vcmd = (c, p) => !c ? "..." : (c < VCMD.length ? VCMD[c] : "?") + hx2(p);
 const vsig = b => b < 128 ? "+" + b : "-" + (256 - b);
 const REST = '<span class="rest">--</span>';
-// SMDJ4 block layout (6,912 B, SAVEFORMAT.md): 52 phrases / 40 chains
-const VOFF4 = { phrase:0x0100, chain:0x0E00, song:0x1300,
-                instr:0x1500, groove:0x1A00 };
-const nameStr = nm => { let s = ""; for (const c of (nm || [])) { if (!c) break; s += String.fromCharCode(c); } return s; };
-const esc = s => s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 
-function decodeView(blob, slot) {
-  const d = blob.slice(HDR), P = [];
-  P.push('<button class="closev" data-k="closeview">close</button>');
-  P.push(`<h3 class="first">Slot ${slot}</h3>`);
-
-  const e = blob, em = ["OFF", "T2", "T2+T3"][e[7]] || "OFF";
-  let echo = "Echo " + em;
-  if (e[7]) echo += ` · taps ${e[8]}/${e[9]} rows · reduce ${hx1(e[10])}/${hx1(e[11])}`
-                  + ` · stereo ${e[12] ? "on" : "off"} · tsp ${vsig(e[13])}/${vsig(e[14])}`;
-  P.push(`<div class="dim">${echo}</div>`);
-
-  // song
-  let rows = "";
-  for (let r = 0; r < 128; r++) {
-    const o = VOFF.song + r * 4, c = [0, 1, 2, 3].map(t => d[o + t]);
-    if (c.every(v => v === 0xff)) continue;
-    rows += `<tr><td>${hx2(r)}</td>` +
-      c.map(v => `<td>${v === 0xff ? REST : hx2(v)}</td>`).join("") + "</tr>";
-  }
-  P.push("<h3>Song</h3>" + (rows
-    ? `<table><tr><th>row</th><th>T1</th><th>T2</th><th>T3</th><th>NO</th></tr>${rows}</table>`
-    : '<div class="dim">(empty)</div>'));
-
-  // chains
-  let chains = "";
-  for (let ch = 0; ch < 32; ch++) {
-    const o = VOFF.chain + ch * 32, ent = []; let used = false;
-    for (let i = 0; i < 16; i++) {
-      const p = d[o + i * 2], t = d[o + i * 2 + 1];
-      if (p === 0xff) ent.push(REST);
-      else { used = true; ent.push(hx2(p) + (t ? `<span class="dim">${vsig(t)}</span>` : "")); }
-    }
-    if (used) chains += `<tr><td>${hx2(ch)}</td><td>${ent.join(" ")}</td></tr>`;
-  }
-  if (chains) P.push(`<h3>Chains</h3><table>${chains}</table>`);
-
-  // phrases (non-empty)
-  let phr = "";
-  for (let ph = 0; ph < 32; ph++) {
-    const o = VOFF.phrase + ph * 64; let body = "", any = false;
-    for (let s = 0; s < 16; s++) {
-      const b = o + s * 4, n = d[b], ins = d[b + 1], c = d[b + 2], pm = d[b + 3];
-      const blank = n === 0 && c === 0;
-      if (!blank) any = true;
-      const ni = ins >= 0x10 ? '<span class="rest">-</span>' : hx1(ins);
-      body += `<tr><td>${s.toString(16).toUpperCase()}</td>`
-            + `<td>${n ? vnote(n) : '<span class="rest">---</span>'}</td>`
-            + `<td>${ni}</td><td>${vcmd(c, pm)}</td></tr>`;
-    }
-    if (any) phr += `<div class="ph"><table>`
-      + `<tr><th>${hx2(ph)}</th><th>note</th><th>i</th><th>cmd</th></tr>${body}</table></div>`;
-  }
-  if (phr) P.push(`<h3>Phrases</h3>${phr}`);
-
-  // instruments (all 16)
-  let ins = "";
-  for (let i = 0; i < 16; i++) {
-    const b = d.slice(VOFF.instr + i * 16, VOFF.instr + i * 16 + 16);
-    const ty = VITYPE[b[0]] || "?";
-    const atk = b[2] >> 4, dcy = b[2] & 0xf, hldn = b[3] & 0xf;
-    const hld = hldn === 0xf ? "inf" : hldn * 2;   // F = forever, else x2 ticks
-    let extra = "";
-    if (b[0] === 3) extra = "wave " + (b[4] & 7);
-    else if (b[0] === 2) extra = "rate " + (VRATE[b[4] & 3] || b[4]);
-    else if (b[0] === 1) extra = "noise " + hx2(b[4]);
-    else if (b[0] === 4) extra = "prog " + ((b[4] & 0xf) || 1);   // FM ROM patch 1-15
-    else if (b[0] === 5) extra = "drum kit (note picks)";          // FMDRUM rhythm voices
-    ins += `<tr><td>${hx2(i)}</td><td>${ty}</td><td>vol ${hx1(b[1])}</td>`
-         + `<td>atk ${hx1(atk)} dcy ${hx1(dcy)}</td><td>hld ${hld}</td>`
-         + `<td>tsp ${vsig(b[8])}</td><td>swp ${hx2(b[5])}</td><td>vib ${hx2(b[6])}</td>`
-         + `<td>trm ${hx2(b[7])}</td><td>tbl ${b[9] === 0xff ? "--" : hx2(b[9])}</td>`
-         + `<td class="dim">${extra}</td></tr>`;
-  }
-  P.push(`<h3>Instruments</h3><table>${ins}</table>`);
-
-  // grooves (non-empty)
-  let grv = "";
-  for (let g = 0; g < 16; g++) {
-    const o = VOFF.groove + g * 16; if (!d[o]) continue;
-    const vals = []; for (let i = 0; i < 16 && d[o + i]; i++) vals.push(d[o + i]);
-    grv += `<tr><td>${g.toString(16).toUpperCase()}</td><td>${vals.join(" ")}</td></tr>`;
-  }
-  if (grv) P.push(`<h3>Grooves</h3><table>${grv}</table>`);
-
-  return P.join("");
-}
-
-function openViewer(n) {
-  const v = document.getElementById("viewer");
-  v.innerHTML = decodeView(slots[n], n + 1);
-  v.classList.add("open");
-  v.scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-// ---- SMDJ4 viewer: decodes the 6,912-byte block (52 phrases / 40 chains) ----
-function decodeView4(song, slot) {
+function decodeView(song, slot) {
   const d = song.block, ec = song.echo || [], P = [];
   P.push('<button class="closev" data-k="closeview">close</button>');
   const nm = nameStr(song.name);
@@ -466,7 +325,7 @@ function decodeView4(song, slot) {
                    + ` · stereo ${ec[5] ? "on" : "off"} · tsp ${vsig(ec[6])}/${vsig(ec[7])}`;
   P.push(`<div class="dim">${echo}</div>`);
 
-  // song (128 rows × 4 tracks)
+  // song (128 rows x 4 tracks)
   let rows = "";
   for (let r = 0; r < 128; r++) {
     const o = VOFF4.song + r * 4, c = [0, 1, 2, 3].map(t => d[o + t]);
@@ -478,10 +337,10 @@ function decodeView4(song, slot) {
     ? `<table><tr><th>row</th><th>T1</th><th>T2</th><th>T3</th><th>NO</th></tr>${rows}</table>`
     : '<div class="dim">(empty)</div>'));
 
-  // chains (40)
+  // chains
   let chains = "";
-  for (let ch = 0; ch < 40; ch++) {
-    const o = VOFF4.chain + ch * 32, ent = []; let used = false;
+  for (let ch = 0; ch < L4.NUM_CHAINS; ch++) {
+    const o = VOFF4.chain + ch * L4.CHAIN_BYTES, ent = []; let used = false;
     for (let i = 0; i < 16; i++) {
       const p = d[o + i * 2], t = d[o + i * 2 + 1];
       if (p === 0xff) ent.push(REST);
@@ -491,10 +350,10 @@ function decodeView4(song, slot) {
   }
   if (chains) P.push(`<h3>Chains</h3><table>${chains}</table>`);
 
-  // phrases (52, non-empty)
+  // phrases (non-empty)
   let phr = "";
-  for (let ph = 0; ph < 52; ph++) {
-    const o = VOFF4.phrase + ph * 64; let body = "", any = false;
+  for (let ph = 0; ph < L4.NUM_PHRASES; ph++) {
+    const o = VOFF4.phrase + ph * L4.PHRASE_BYTES; let body = "", any = false;
     for (let s = 0; s < 16; s++) {
       const b = o + s * 4, n = d[b], ins = d[b + 1], c = d[b + 2], pm = d[b + 3];
       if (!(n === 0 && c === 0)) any = true;
@@ -517,7 +376,7 @@ function decodeView4(song, slot) {
     const hld = hldn === 0xf ? "inf" : hldn * 2;
     let extra = "";
     if (b[0] === 3) extra = "wave " + (b[4] & 7);
-    else if (b[0] === 2) extra = "rate " + (VRATE[b[4] & 3] || b[4]);
+    else if (b[0] === 2) extra = "kit " + (b[2] & 7) + " rate " + (VRATE[b[4] & 3] || b[4]);
     else if (b[0] === 1) extra = "noise " + hx2(b[4]);
     else if (b[0] === 4) extra = "prog " + ((b[4] & 0xf) || 1);
     else if (b[0] === 5) extra = "drum kit (note picks)";
@@ -539,9 +398,9 @@ function decodeView4(song, slot) {
   return P.join("");
 }
 
-function openViewer4(n) {
+function openViewer(n) {
   const v = document.getElementById("viewer");
-  v.innerHTML = decodeView4(smdj4Songs[n], n);
+  v.innerHTML = decodeView(slots[n], n);
   v.classList.add("open");
   v.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -550,7 +409,6 @@ document.getElementById("viewer").addEventListener("click", e => {
     document.getElementById("viewer").classList.remove("open");
 });
 
-syncCfgUI();
 render();
 </script>
 </body>

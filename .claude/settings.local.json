@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:www.smspower.org)"
+      "WebFetch(domain:www.smspower.org)",
+      "Bash(xxd -s 0x7FF0 -l 16 build/smsggdj.gg)",
+      "Bash(xxd -s 0x7FFF -l 1 build/smsggdj.gg)",
+      "Bash(awk '/^### 10\\\\.3|^## 10\\\\.3|^10\\\\.3/{f=1} f{print} /^### 10\\\\.4|^## 10\\\\.4/{if\\(f\\)exit}' DESIGN.md)"
     ]
   }
 }

@@ -125,6 +125,21 @@ dist: all $(RELROM) $(RELGGROM)
 	@echo "  $(RELROM)"
 	@echo "  $(RELGGROM)"
 
+# format/tooling regression tests (no emulator): the SMDJ4 library self-test,
+# the Z80-RLE mirror (asm pack logic vs the Python reference, SMDJ3 + SMDJ4
+# block sizes), and syntax checks of the browser tools' scripts.
+test:
+	node tools/smdj4.js
+	python3 tools/rle_z80mirror.py
+	@for f in tools/*.js; do node --check $$f || exit 1; echo "syntax OK  $$f"; done
+	@for f in tools/*.html; do \
+	  awk '/<script>$$/{s=1;next} /<\/script>/{s=0} s' $$f > $(BUILD)/htmljs.tmp.js; \
+	  if [ -s $(BUILD)/htmljs.tmp.js ]; then \
+	    node --check $(BUILD)/htmljs.tmp.js || { echo "syntax FAIL $$f"; exit 1; }; \
+	    echo "syntax OK  $$f (inline)"; \
+	  fi; \
+	done; rm -f $(BUILD)/htmljs.tmp.js
+
 clean:
 	rm -rf $(BUILD)
 

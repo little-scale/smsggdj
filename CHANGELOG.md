@@ -34,6 +34,12 @@ The git history has the full detail; this is the curated summary.
 - **The CONT setting is persisted** with the rest of the machine config (the
   `CF` block grows to 8 bytes, v2 — legacy 7-byte configs still load, with
   CONT defaulting to OFF).
+- **`tools/savetool.html` is now SMDJ4-native** — it builds and edits current
+  cart images directly (slots, config, per-slot view/download as `.smdj4`)
+  instead of the old SMDJ3 editor + read-only SMDJ4 view; legacy SMDJ3 saves
+  and `.smdj` songs are migrated to SMDJ4 when dropped. All the browser tools
+  now share the block/save geometry from `tools/smdj4.js`, and a `make test`
+  target runs the format self-tests.
 - **`DCY 0` is now a fast decay, not an instant cut** (ported from genmddj).
   It steps the volume down 4 levels per tick — 15→11→7→3→0, a ~5-frame
   (~66 ms NTSC / 80 ms PAL) percussion tail — instead of hard-cutting to

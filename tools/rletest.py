@@ -35,7 +35,9 @@ SMDJ_HDR   = 16            # .smdj header bytes before the data block
 # every 2 bytes. Every pool length is a multiple of 4, so units divide cleanly.
 UNIT = 4
 
-# Current (SMDJ3, 32 phrases / 32 chains) -- 5376 B. From SAVEFORMAT.md.
+# Block geometry mirrors SAVEFORMAT.md / tools/smdj4.js (the canonical source;
+# Python can't import the JS, so keep these in sync by hand if the layout moves).
+# Legacy (SMDJ3, 32 phrases / 32 chains) -- 5376 B.
 DATA_LEN = 5376
 POOLS = [
     ("wave_ram",       0,  256),
@@ -47,7 +49,7 @@ POOLS = [
     ("grooves",     5120,  256),   # 16 x 16
 ]
 
-# Target (SMDJ4, 52 phrases / 40 chains) -- 6912 B. From COMPRESSION.md sec 3.
+# Live (SMDJ4, 52 phrases / 40 chains) -- 6912 B.
 DATA_LEN_GROWN = 6912
 POOLS_GROWN = [
     ("wave_ram",       0,  256),
