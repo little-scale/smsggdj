@@ -23,6 +23,16 @@
 .DEFINE SEL_HOLD     16        ; frames: 1H+2 held = block select
 .DEFINE PRELISTEN_LEN 32       ; ticks: cap sustained prelisten
 
+; selectable instrument types in the TYPE cycler. GG stops at WAV (3): the
+; YM2413 is SMS-only, so FM (4) / FMDRUM (5) would only ever play silence.
+; FM instruments carried in from an SMS-made song still display and can be
+; cycled *away* from - they just can't be newly selected on GG.
+.IFDEF TARGET_GG
+.DEFINE INS_TYPE_N   4
+.ELSE
+.DEFINE INS_TYPE_N   6
+.ENDIF
+
 .DEFINE SCR_SONG    0          ; values match MODE_* on purpose
 .DEFINE SCR_CHAIN   1
 .DEFINE SCR_PHRASE  2
@@ -2067,54 +2077,24 @@ ine_type:                    ; TONE/NOISE/SMP/WAV/FM/FMDRUM (L/R both ways)
   ld a, (hl)
   jr z, ine_typd             ; left/down -> previous type
   inc a                      ; right/up -> next type
-  cp 6
+  cp INS_TYPE_N
   jr c, ine_tst
-  xor a                      ; wrap 5 -> 0
+  xor a                      ; wrap top -> 0
   jr ine_tst
 ine_typd:
   dec a                      ; previous type
   jp p, ine_tst
-  ld a, 5                    ; wrap 0 -> 5 (FMDRUM)
+  ld a, INS_TYPE_N-1         ; wrap 0 -> top type (SMS FMDRUM / GG WAV)
 ine_tst:
   ld (hl), a
-  cp 3                       ; switching to WAV: default HLD = 6
-  jr z, ine_seedwav
-  cp 4                       ; switching to FM: seed ring HLD + a program
-  jr z, ine_seedfm
-  cp 5                       ; switching to FMDRUM: seed ring HLD
-  jr z, ine_seeddrum
-  jr ine_tsr
-ine_seedwav:
-  push hl
-  inc hl
-  inc hl
-  inc hl
-  ld (hl), 6                 ; +3 HLD = 6 (WAV note-length default)
-  pop hl
-  jr ine_tsr
-ine_seedfm:
-  push hl
-  inc hl
-  inc hl
-  inc hl
-  ld (hl), $0F               ; +3 HLD = F (ring per FM patch)
-  inc hl
-  ld a, (hl)                 ; +4 PROG: default 1 if unset
-  and $0F
-  jr nz, ine_tsfp
-  ld (hl), 1
-ine_tsfp:
-  pop hl
-  jr ine_tsr
-ine_seeddrum:
-  push hl
-  inc hl
-  inc hl
-  inc hl
-  ld (hl), $0F               ; +3 HLD = F (ring per the chip drum envelope)
-  inc hl
-  ld (hl), 0                 ; +4 DRUM = 0 (ALL: note picks the drum, fixed pitch)
-  pop hl
+  cp 2                       ; on a type switch, seed that type's sensible
+  jp z, ine_seedsmp          ;   defaults (the seed routines live in bank 1,
+  cp 3                       ;   jp-reached, to spare the full bank-0 slot).
+  jp z, ine_seedwav          ;   TONE/NOISE (0/1) need no seed -> fall through.
+  cp 4
+  jp z, ine_seedfm
+  cp 5
+  jp z, ine_seeddrum
 ine_tsr:
   call ins_max_row
   ld b, a
@@ -2891,10 +2871,16 @@ cm_set:
   bit 1, c                   ; down
   jr z, cs_up
   ld a, (stg_row)
-  cp 5
+  cp 7
   jr nc, cs_up
   call stg_mark_field
   inc a
+.IFDEF TARGET_GG
+  cp 5                       ; FM (field 5) absent on GG: hop over it
+  jr nz, cs_dn_st
+  inc a
+cs_dn_st:
+.ENDIF
   ld (stg_row), a
   call stg_mark_field
 cs_up:
@@ -2905,6 +2891,12 @@ cs_up:
   ret z
   call stg_mark_field
   dec a
+.IFDEF TARGET_GG
+  cp 5
+  jr nz, cs_up_st
+  dec a
+cs_up_st:
+.ENDIF
   ld (stg_row), a
   jp stg_mark_field
 
@@ -2937,6 +2929,10 @@ stp_edit:
   jp z, stp_clone
   cp 5
   jp z, stp_fm
+  cp 6
+  jp z, stp_rdly             ; key-repeat delay (bank 1)
+  cp 7
+  jp z, stp_rspd             ; key-repeat interval (bank 1)
   ret
 stp_fm:                      ; 1 + L/R toggles the FM unit OFF/ON
   ld a, (ed_rep)
@@ -3009,7 +3005,7 @@ st_draw_row:
   cp $FF
   ret z
   cp $FE
-  jr z, std_version          ; row 0: version + build hash (static)
+  jp z, std_version          ; row 0: version + build hash (static)
   ld (ed_field), a
   ; label (col 4)
   xor a
@@ -3063,6 +3059,10 @@ std_addr:
   jp z, prd_colr
   cp 4
   jr z, prd_clone
+  cp 6
+  jp z, prd_rdly             ; key-repeat delay (bank 1)
+  cp 7
+  jp z, prd_rspd             ; key-repeat interval (bank 1)
   ld a, (fm_on)              ; field 5 = FM toggle
   or a
   ld hl, str_fmoff
@@ -3095,11 +3095,21 @@ std_version:                 ; static build stamp on the version row (E = vis ro
   ld hl, str_buildid
   jp print_at
 
-; visible row 0 = version/hash ($FE), row 1 blank, then the fields from row 2
+; visible row 0 = version/hash ($FE), row 1 blank, then the fields from row 2.
+; RDLY (field 6) and RSPD (field 7) sit on adjacent rows (no gap). On GG the FM
+; field (5) is dropped - the unit is SMS-only - so RDLY/RSPD move up into its
+; place and cm_set skips field 5.
+.IFDEF TARGET_GG
+stg_f2r:                     ; field -> row (index 5 = FM, unused on GG)
+  .db 2, 3, 5, 7, 9, 11, 11, 12
+stg_r2f:                     ; row -> field (no FM row)
+  .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 6, 7, $FF, $FF, $FF
+.ELSE
 stg_f2r:
-  .db 2, 3, 5, 7, 9, 11
+  .db 2, 3, 5, 7, 9, 11, 13, 14
 stg_r2f:
-  .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, $FF, $FF, $FF
+  .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, 6, 7, $FF
+.ENDIF
 
 prj_f2r:                     ; TMPO/TSP/MODE/CONT sit below the NAME readout (rows 3-6)
   .db 3, 4, 5, 6
@@ -4237,7 +4247,7 @@ ee_tap1:
   jr ee_tap
 ee_tap2:
   ld hl, echo_tap2
-ee_tap:                      ; tap is in rows (1-15); L/R +-1, U/D jump to min/max
+ee_tap:                      ; tap is in rows (1-15); L/R +-1, U/D +-4 (coarse)
   ld a, (ed_rep)
   ld c, a
   ld a, (hl)
@@ -4249,13 +4259,13 @@ et_l:
   jr z, et_u
   dec a
 et_u:
-  bit 0, c                   ; up: +16 (clamps to 15)
+  bit 0, c                   ; up: +4 (clamps to 15)
   jr z, et_d
-  add a, 16
+  add a, 4
 et_d:
-  bit 1, c                   ; down: -16 (clamps to 1)
+  bit 1, c                   ; down: -4 (clamps to 1)
   jr z, et_clamp
-  sub 16
+  sub 4
 et_clamp:
   bit 7, a                   ; clamp 1..15 (handle underflow from -16)
   jr nz, et_min
@@ -4289,13 +4299,13 @@ er_l:
   jr z, er_u
   dec a
 er_u:
-  bit 0, c                   ; up: +16 (clamps to 15)
+  bit 0, c                   ; up: +4 (clamps to 15)
   jr z, er_d
-  add a, 16
+  add a, 4
 er_d:
-  bit 1, c                   ; down: -16 (clamps to 0)
+  bit 1, c                   ; down: -4 (clamps to 0)
   jr z, er_clamp
-  sub 16
+  sub 4
 er_clamp:
   bit 7, a                   ; clamp 0..15
   jr nz, er_min
@@ -6512,6 +6522,63 @@ prd_sram:
   ld hl, str_s32k            ; 6 slots = 32K (two banks)
   jr prd_p4
 
+; OPTIONS key-repeat readouts/editors (bank 1, jp-reached from the bank-0
+; st_draw_row / stp_edit dispatch). Values are frames; drawn as decimal.
+prd_rdly:
+  ld a, (key_delay)
+  jr prd_rframes
+prd_rspd:
+  ld a, (key_speed)
+prd_rframes:
+  call print_dec3            ; "014" etc (2-digit range, zero-padded)
+  ld a, ' '                  ; clear the 4th column of the value field
+  jp print_char
+
+stp_rdly:                    ; L/R nudge the repeat delay, clamp 1..60
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (key_delay)
+  bit 3, c                   ; right = +1 (up to 60)
+  jr z, srd_l
+  cp 60
+  jr nc, srd_l
+  inc a
+srd_l:
+  bit 2, c                   ; left = -1 (down to 1)
+  jr z, srd_st
+  cp 2
+  jr c, srd_st
+  dec a
+srd_st:
+  ld (key_delay), a
+  ld a, 6
+  jp stg_mark_field
+stp_rspd:                    ; L/R nudge the repeat interval, clamp 1..30
+  ld a, (ed_rep)
+  and PAD_LEFT|PAD_RIGHT
+  ret z
+  ld a, (ed_rep)
+  ld c, a
+  ld a, (key_speed)
+  bit 3, c
+  jr z, srs_l
+  cp 30
+  jr nc, srs_l
+  inc a
+srs_l:
+  bit 2, c
+  jr z, srs_st
+  cp 2
+  jr c, srs_st
+  dec a
+srs_st:
+  ld (key_speed), a
+  ld a, 7
+  jp stg_mark_field
+
 dl_proj:
   ld b, NAME_ROW
   ld c, NAME_COL
@@ -6548,6 +6615,8 @@ stg_lbls:
   .db "COLR", 0
   .db "CLON", 0
   .db "FM  ", 0
+  .db "RDLY", 0              ; field 6: key-repeat delay (frames)
+  .db "RSPD", 0              ; field 7: key-repeat interval (frames)
 str_slim:   .db "SLIM"
 str_deep:   .db "DEEP"
 str_fmoff:  .db "OFF "
@@ -7286,13 +7355,55 @@ ins_lbls:
 str_drumlbl: .db "DRUM", 0   ; FMDRUM field 5 label
 str_drums:  .db "ALL BD  SD  TOM TCY HH  "   ; 6 x 4-char DRUM selector values
 
+; instrument-type seed defaults, parked in bank 1 (jp-reached from ine_type in
+; the full bank-0 slot). HL = instrument record on entry; ine_tsr (bank 0) needs
+; no HL, so these don't preserve it. Each jumps back to ine_tsr when done.
+ine_seedsmp:                 ; KIT/SMP: kit 0 (+2 doubles as DCY, default 3)
+  inc hl
+  inc hl
+  ld (hl), 0
+  jp ine_tsr
+ine_seedwav:                 ; WAV: +3 HLD = 6 (note-length default)
+  inc hl
+  inc hl
+  inc hl
+  ld (hl), 6
+  jp ine_tsr
+ine_seedfm:                  ; FM: +3 HLD = F (ring per patch), +4 PROG default 1
+  inc hl
+  inc hl
+  inc hl
+  ld (hl), $0F
+  inc hl
+  ld a, (hl)
+  and $0F
+  jr nz, ine_tsfp
+  ld (hl), 1
+ine_tsfp:
+  jp ine_tsr
+ine_seeddrum:                ; FMDRUM: +3 HLD = F, +4 DRUM = 0 (ALL)
+  inc hl
+  inc hl
+  inc hl
+  ld (hl), $0F
+  inc hl
+  ld (hl), 0
+  jp ine_tsr
+
 ; cold value draw/edit for FINE (field 15), parked in bank 1 (jp-reached).
 idr_fine:                    ; instrument finetune (record +13, signed) -> hex
   ld de, 13
   add hl, de
   ld a, (hl)
   jp print_hex_a
-ine_fine:                    ; L/R +-1, U/D +-16 (coarse)
+ine_fine:                    ; L/R +-1; U/D coarse step (B)
+  ld a, (hl)                 ; type at +0. FM tunes the F-number (~6 cents/unit),
+  cp 4                       ;   so a 16-step would leap ~90 cents (nearly a
+  ld a, 16                   ;   semitone) and audibly shift the FM brightness --
+  jr nz, inf_step            ;   keep FM's coarse step gentle (~24 cents); TONE
+  ld a, 4                    ;   period units stay at 16.
+inf_step:
+  ld b, a                    ; B = U/D step
   ld de, 13
   add hl, de
   ld d, (hl)
@@ -7309,13 +7420,13 @@ inf_u:
   bit 0, c
   jr z, inf_d
   ld a, d
-  add a, 16
+  add a, b
   ld d, a
 inf_d:
   bit 1, c
   jr z, inf_st
   ld a, d
-  sub 16
+  sub b
   ld d, a
 inf_st:
   ld (hl), d

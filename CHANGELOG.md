@@ -19,7 +19,11 @@ The git history has the full detail; this is the curated summary.
 - **Per-instrument FINE tune** on TONE and FM instruments (INSTR screen). A
   signed offset (`00` = no change, `01` = a touch sharper, `FF` = a touch
   flatter) — applied to the PSG period on TONE and to the YM2413 F-number on FM.
-  On TONE it's the base pitch trim the `F` command then tweaks per-row.
+  On TONE it's the base pitch trim the `F` command then tweaks per-row. Left/right
+  nudge by 1; up/down step by a coarser amount — 16 on TONE, but only 4 on FM (an
+  FM F-number unit is ~6 cents, so a 16-step would leap nearly a semitone and
+  audibly shift the patch's brightness). FINE never alters the FM patch itself; it
+  only detunes the pitch.
 - **Tunable FM drums.** The FMDRUM instrument gains a `DRUM` field: `ALL` (the
   default — the note picks the drum at a fixed pitch, as before) or a single drum
   (`BD`/`SD`/`TOM`/`TCY`/`HH`). Pick a single drum and the **note's pitch drives
@@ -50,11 +54,22 @@ The git history has the full detail; this is the curated summary.
   they referenced the old song's grid.
 - **FILES header restyled** — a genmddj-style dash rule around the `nn SONGS`
   count (the SONG-screen title rule from the last dev build is gone).
+- **Adjustable cursor key-repeat** on the OPTIONS screen: **RDLY** (repeat
+  delay, 1–60 frames — how long a held d-pad direction waits before auto-repeat)
+  and **RSPD** (repeat interval, 1–30 frames — how fast it then fires). 1+L/R
+  nudges each. Defaults are the old fixed values (14 / 3). Persisted with the
+  rest of the machine config. On the **Game Gear** the **FM** field is omitted
+  from OPTIONS (the YM2413 is SMS-only), so RDLY/RSPD take its place.
 
 ### Changed
-- **The CONT setting is persisted** with the rest of the machine config (the
-  `CF` block grows to 8 bytes, v2 — legacy 7-byte configs still load, with
-  CONT defaulting to OFF).
+- **Game Gear hides the FM-only features.** The OPTIONS **FM** toggle is gone
+  (above) and the instrument **TYPE** cycler stops at **WAV** — `FM` and `FMDRM`
+  aren't selectable on GG, since the YM2413 is SMS-only and would only play
+  silence. An FM instrument carried in from an SMS-made song still displays and
+  can be cycled *away* from; it just can't be newly selected.
+- **The CONT and key-repeat settings are persisted** with the rest of the
+  machine config (the `CF` block grows to 10 bytes, v3 — legacy 8-byte v2 and
+  7-byte v1 configs still load, with the missing fields defaulting).
 - **`tools/savetool.html` is now SMDJ4-native** — it builds and edits current
   cart images directly (slots, config, per-slot view/download as `.smdj4`)
   instead of the old SMDJ3 editor + read-only SMDJ4 view; legacy SMDJ3 saves
@@ -71,13 +86,18 @@ The git history has the full detail; this is the curated summary.
   short tail (no save-format change).
 
 ### Fixed
+- **Switching an instrument to KIT now defaults to kit 0, not 3.** The KIT
+  number shares its record byte with DCY (whose default is 3), and the type
+  switch wasn't re-seeding it — so a fresh KIT instrument read back kit 3. It
+  now seeds kit 0 (like the other types seed their own defaults).
 - **The `J` command's nibbles now match genmddj: `Jxy` = repeat mask (x) +
   signed transpose (y).** They were swapped (transpose in x, mask in y), and the
   repeat index is now `(play−1) mod 4` like genmddj, so songs/muscle-memory carry
   over. Transpose still `0`–`7` = +0…+7, `8`–`F` = −8…−1.
-- **The ECHO screen fields respond to up/down for a big jump.** Up/down did
-  nothing before; now TAP/REDUCE jump to their min/max and TSP jumps by an octave
-  (matching the ±16/±octave feel of the other screens).
+- **The ECHO screen fields respond to up/down for a coarse step.** Up/down did
+  nothing before; now TAP/REDUCE step by 4 and TSP by an octave (left/right stay
+  ±1). *(Earlier in this cycle TAP/REDUCE up/down slammed to min/max; a step of 4
+  is easier to dial in.)*
 - **An FM instrument driven by a table no longer rings after the song stops.**
   Stop keyed the FM voices off, but a table can hold a voice keyed-on (defeating
   the HLD auto-key-off), so keying off just started the patch's release, which

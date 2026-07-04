@@ -133,16 +133,19 @@ save — negligible on 32 KB, but it leaves an 8 KB cart room for only ~one song
 
 ## OPTIONS config block
 
-The machine config (colour scheme, sync mode, video, FM toggle, CONT) lives
-**outside** the SMDJ4 structure, at CPU `$BF60` (`CFG_ADDR`) in bank 0 — file
-offset `$3F60` on a 16/32 KB image; on an 8 KB cart the window mirrors, so it
-lands at `$1F60`. 8 bytes (v2, since v0.37):
-`'C' 'F' pal_sel sync_mode vid_sel fm_on cont checksum` (checksum = sum of the
-five value bytes & `$FF`). `vid_sel`: `0` AUTO, `1` PAL, `2` NTSC; `fm_on`: `0`
-off / `1` on; `cont`: `0` OFF / `1`–`4` = T1/T2/T3/NO (the continuous-play
-carry channel). Written whenever you save a song, read at boot. **Legacy
-7-byte blocks** (no `cont`; checksum of four at `+6`) are still accepted —
-the loader tries the legacy formula first, then v2.
+The machine config (colour scheme, sync mode, video, FM toggle, CONT, key
+repeat) lives **outside** the SMDJ4 structure, at CPU `$BF60` (`CFG_ADDR`) in
+bank 0 — file offset `$3F60` on a 16/32 KB image; on an 8 KB cart the window
+mirrors, so it lands at `$1F60`. 10 bytes (v3, since v0.37):
+`'C' 'F' pal_sel sync_mode vid_sel fm_on cont key_delay key_speed checksum`
+(checksum = sum of the seven value bytes & `$FF`). `vid_sel`: `0` AUTO, `1`
+PAL, `2` NTSC; `fm_on`: `0` off / `1` on; `cont`: `0` OFF / `1`–`4` =
+T1/T2/T3/NO (the continuous-play carry channel); `key_delay` (1–60) and
+`key_speed` (1–30) are the DAS cursor-repeat delay/interval in frames (OPTIONS
+→ RDLY/RSPD). Written whenever you save a song, read at boot. **Legacy blocks**
+are still accepted — the loader tries the checksum at each length in turn:
+7-byte v1 (no `cont`/key-repeat, checksum of four at `+6`), then 8-byte v2 (no
+key-repeat, checksum at `+7`), then v3.
 
 > The config offset (`$3F60` = 16224) sits inside bank 0's heap range, so
 > **bank-0 blob placement is capped below it**: a blob that would cross `$3F60`

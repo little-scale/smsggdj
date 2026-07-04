@@ -3320,12 +3320,13 @@ rng_nt:
   ret
 
 ; -------------------------------------------------------------
-; OPTIONS config block (colour, sync, video, FM, CONT) at CFG_ADDR ($BF60),
-; separate from the song slots. On a 16K/32K cart that's the free tail
+; OPTIONS config block (colour, sync, video, FM, CONT, key-repeat) at CFG_ADDR
+; ($BF60), separate from the song slots. On a 16K/32K cart that's the free tail
 ; past slot 2; on an 8K cart the window mirrors, so $BF60 lands at real
-; $1F60 - also free (past slot 0). 8 bytes (v2):
-;   'C' 'F' pal_sel sync_mode vid_sel fm_on cont checksum(=sum of the 5)
-; Legacy 7-byte blocks (no cont) are still accepted by config_load.
+; $1F60 - also free (past slot 0). 10 bytes (v3):
+;   'C' 'F' pal sync vid fm cont key_delay key_speed checksum(=sum of the 7)
+; Legacy 8-byte (v2, no key-repeat) and 7-byte (v1, no cont) blocks are still
+; accepted by config_load - it tries the checksum at each length.
 config_save:                 ; called by song_save (SRAM already on)
   ld a, $08                  ; select bank 0
   ld ($FFFC), a
@@ -3356,8 +3357,18 @@ config_save:                 ; called by song_save (SRAM already on)
   ld a, (cont_play)
   ld (hl), a
   add a, b
+  ld b, a
   inc hl
-  ld (hl), a                 ; checksum = pal+sync+vid+fm+cont
+  ld a, (key_delay)
+  ld (hl), a
+  add a, b
+  ld b, a
+  inc hl
+  ld a, (key_speed)
+  ld (hl), a
+  add a, b
+  inc hl
+  ld (hl), a                 ; checksum = pal+sync+vid+fm+cont+kdly+kspd
   ret
 
 config_load:                 ; boot: restore OPTIONS if a valid block exists
@@ -3389,11 +3400,38 @@ config_load:                 ; boot: restore OPTIONS if a valid block exists
   add a, d                   ; A = legacy sum (pal+sync+vid+fm)
   cp (hl)                    ; +6: legacy checksum? (a v2 block has cont here;
   jr z, cfgl_v1              ;   ambiguity only when sum==cont, both tiny/benign)
-  add a, (hl)                ; v2: sum += cont
-  inc hl
-  cp (hl)                    ; +7: v2 checksum?
-  jr nz, cfgl_done
-  dec hl
+  add a, (hl)                ; sum += cont (+6)
+  inc hl                     ; hl -> +7
+  cp (hl)                    ; +7: v2 checksum? (cont, no key-repeat)
+  jr z, cfgl_v2
+  ; v3: key-repeat appended -- +7 key_delay, +8 key_speed, +9 checksum
+  add a, (hl)                ; sum += key_delay (+7)
+  inc hl                     ; hl -> +8
+  add a, (hl)                ; sum += key_speed (+8)
+  inc hl                     ; hl -> +9
+  cp (hl)                    ; +9: v3 checksum?
+  jr nz, cfgl_done           ; no valid block -> keep boot defaults
+  dec hl                     ; hl -> +8 key_speed
+  ld a, (hl)                 ; 1-30 (else keep the boot default)
+  or a
+  jr z, cfgl_v3d
+  cp 31
+  jr nc, cfgl_v3d
+  ld (key_speed), a
+cfgl_v3d:
+  dec hl                     ; hl -> +7 key_delay
+  ld a, (hl)                 ; 1-60 (else keep the boot default)
+  or a
+  jr z, cfgl_v3c
+  cp 61
+  jr nc, cfgl_v3c
+  ld (key_delay), a
+cfgl_v3c:
+  dec hl                     ; hl -> +6 cont
+  jr cfgl_cont
+cfgl_v2:
+  dec hl                     ; hl -> +6 cont
+cfgl_cont:
   ld a, (hl)                 ; cont 0-4 (OFF/T1/T2/T3/NO)
   cp 5
   jr nc, cfgl_done

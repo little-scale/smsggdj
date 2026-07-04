@@ -32,7 +32,7 @@ ri_dirs_held:
   ld a, c
   and $0F                      ; direction newly pressed?
   jr z, ri_das_tick
-  ld a, DAS_DELAY              ; yes: restart delay
+  ld a, (key_delay)            ; yes: restart delay (OPTIONS-set)
   ld (das_timer), a
   ld a, c
   ld (pad_rep), a
@@ -48,7 +48,7 @@ ri_das_tick:
   ret
 
 ri_das_fire:
-  ld a, DAS_SPEED
+  ld a, (key_speed)            ; OPTIONS-set repeat interval
   ld (das_timer), a
   ld a, b
   and $0F                      ; re-fire held directions

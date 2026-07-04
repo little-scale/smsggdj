@@ -85,6 +85,8 @@ BANKS 8
   pad_edge       db
   pad_rep        db
   das_timer      db
+  key_delay      db           ; DAS repeat delay (frames), OPTIONS-set + persisted
+  key_speed      db           ; DAS repeat interval (frames), OPTIONS-set + persisted
   pal_sel        db           ; colour scheme (pal_presets index)
   vid_sel        db           ; VIDEO choice: 0 AUTO, 1 PAL, 2 NTSC
   region_detected db          ; region from boot detection (1 = PAL)
@@ -193,6 +195,10 @@ init:
   call load_palette
   ld a, SYNC_OFF             ; defaults config_load may override; set
   ld (sync_mode), a          ;   before it now that it runs pre-splash
+  ld a, DAS_DELAY            ; key-repeat delay/speed defaults (OPTIONS may
+  ld (key_delay), a          ;   override via a saved v3 config block)
+  ld a, DAS_SPEED
+  ld (key_speed), a
   ld a, $FF
   ld (fm_ovr), a             ; one-shot FM program override starts clear
   call load_font

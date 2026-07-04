@@ -41,7 +41,7 @@ Think of it as:
 |---|---|
 | **D-pad** | Move the cursor (hold to repeat) |
 | **1** tap | Insert a note/value into the empty cell (repeats the last one you entered) |
-| **1** hold + D-pad | **Edit** the value under the cursor. Left/Right = small step (±1). Up/Down = big step (±octave, or ±16) |
+| **1** hold + D-pad | **Edit** the value under the cursor. Left/Right = small step (±1). Up/Down = a coarser step (varies by field: ±octave for transposes, ±4/±16 elsewhere) |
 | **1** double-tap | **Paste** the clipboard here. With nothing copied: on an *empty* cell it grabs the next **free** (blank) chain/phrase/instrument; on a *populated* SONG or CHAIN cell it **clones** that chain/phrase into a fresh slot (see *Cloning*) |
 | **2** tap | **Back** — step out: PHRASE → CHAIN → SONG |
 | **2** hold + D-pad | **Move between screens** (the screen map, below) |
@@ -478,7 +478,12 @@ Settings that belong to the *machine*, not the song:
 - **CLONE** — SLIM or DEEP, how chain cloning works (see *Cloning*).
 - **FM** — `OFF`/`ON`: enable the YM2413 FM Sound Unit (for FM instruments).
   On hardware with the FM unit (or SMSPlus) FM plays alongside the PSG; some
-  emulators route the single output to FM instead. Default OFF. SMS only.
+  emulators route the single output to FM instead. Default OFF. SMS only — the
+  field is **not shown on the Game Gear** (no FM hardware there).
+- **RDLY** / **RSPD** — cursor **key-repeat** tuning, in frames. `RDLY` (1–60,
+  default 14) is how long you hold a d-pad direction before it starts
+  auto-repeating; `RSPD` (1–30, default 3) is how fast it repeats after that
+  (smaller = faster). 1+Left/Right nudges each. Persists in SRAM.
 
 ---
 
