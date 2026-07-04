@@ -17,11 +17,20 @@ The git history has the full detail; this is the curated summary.
   or **1–16 bars**. Sits below CONT; default 4 bars. (Not yet persisted across a
   reboot — resets to 4.)
 - **CONT handover track marker.** On the SONG header, the track CONT is set to
-  carry shows a **`*`** beside its name whenever CONT is on, so you can see at a
-  glance which track will bridge the next load (it becomes `>` while it's actually
-  bridging).
+  carry shows a **`*`** to the **right** of its name whenever CONT is on, so you
+  can see at a glance which track will bridge the next load. While it's actually
+  bridging, a **`>` handover-playhead** shows to the **left** of the name (aligned
+  with the grid play markers) alongside the `*`.
 
 ### Changed
+- **Faster song load (smaller glitch under CONT).** The RLE decompressor was
+  rewritten to hold its stream/block pointers in registers and copy runs with
+  `LDIR` (repeats replicate via an overlapping `LDIR`) instead of a per-unit
+  loop of subroutine calls and RAM reloads — roughly **3–4× faster**. A CONT
+  load stalls the sequencer for about **1 frame instead of ~4**, so the pause in
+  playback when the new song loads is much shorter. A write bound (`rle_end`)
+  keeps a corrupt stream from ever running past the block. Format unchanged;
+  round-trip verified against the reference packer.
 - **Switching MODE (SONG ↔ LIVE) no longer stops the transport.** Toggling the
   PROJECT **MODE** field while playing now flips live: from the next bar each
   track just changes how it advances — in LIVE it loops its current chain, in

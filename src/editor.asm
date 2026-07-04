@@ -7407,61 +7407,64 @@ bcs_same:
   ld (label_dirty), a        ; repaint the header (song_bridge_cues) next frame
   ret
 
-; song_bridge_cues: draw a marker beside each track name on the SONG header row:
-; '>' while a track holds the CONT bridge chain, '*' on the CONT handover track
-; (when CONT is on and it's not currently bridging), else a space (so a stale
-; marker clears). Called from dl_so_hdr. Marker column = so_track_col-1.
+; song_bridge_cues: draw the CONT markers beside each track name on the SONG
+; header row -- a '*' to the RIGHT of the name on the handover track (whenever
+; CONT is on), and a '>' handover-playhead to the LEFT while that track is
+; actually bridging (aligned with the grid play markers). The header wipe clears
+; both columns each redraw, so only the active markers are drawn here.
 song_bridge_cues:
   ld ix, chst
   ld c, 0                    ; C = track index
 sbc_l:
-  ld a, (play_state)         ; bridging now? (playing + active + on the bridge chain)
+  ld a, (cont_play)          ; RIGHT: '*' on the CONT handover track
   or a
-  jr z, sbc_star
+  jr z, sbc_chkbr            ; CONT off -> no star
+  dec a
+  cp c
+  jr nz, sbc_chkbr
+  ld a, '*'
+  ld b, 2                    ; offset +2 = right of the 2-char name
+  call sbc_put
+sbc_chkbr:
+  ld a, (play_state)         ; LEFT: '>' playhead while this track holds the bridge
+  or a
+  jr z, sbc_next
   ld a, (ix+6)
   or a
-  jr z, sbc_star
+  jr z, sbc_next
   ld a, (ix+11)
   cp NUM_CHAINS-1
-  jr z, sbc_glyph
-sbc_star:
-  ld a, (cont_play)          ; not bridging: mark the CONT handover track with '*'
-  or a
-  jr z, sbc_clr              ; CONT off -> blank
-  dec a                      ; cont_play-1 = the handover track index
-  cp c
-  jr nz, sbc_clr
-  ld a, '*'
-  jr sbc_draw
-sbc_clr:
-  ld a, ' '
-  jr sbc_draw
-sbc_glyph:
+  jr nz, sbc_next
   ld a, '>'
-sbc_draw:
-  push ix
-  push bc                    ; save track index (C)
-  ld b, a                    ; B = glyph
-  ld a, c
-  call so_track_col          ; A = cell column (preserves BC)
-  add a, 2                   ; right of the 2-char name (grid play markers own the
-  ld c, a                    ;   left column, so keep the CONT cue clear of them)
-  push bc                    ; save glyph (B) + column (C)
-  ld b, GRID_ROW-1           ; row above the grid
-  call set_text_at
-  pop bc
-  xor a
-  ld (text_attr), a
-  ld a, b                    ; glyph
-  call print_char
-  pop bc                     ; track index
-  pop ix
+  ld b, $FF                  ; offset -1 = left of the name (the play-marker column)
+  call sbc_put
+sbc_next:
   ld de, 32
   add ix, de
   inc c
   ld a, c
   cp 4
   jr c, sbc_l
+  ret
+
+; sbc_put: draw glyph A at column so_track_col(C)+B (signed), header row.
+; Preserves IX and BC; clobbers A/DE/HL.
+sbc_put:
+  push ix
+  push bc                    ; offset (B) + track (C)
+  push af                    ; glyph
+  ld a, c
+  call so_track_col          ; A = cell column (preserves BC)
+  add a, b                   ; + offset
+  ld c, a                    ; C = target column
+  ld b, GRID_ROW-1           ; row above the grid
+  call set_text_at
+  xor a
+  ld (text_attr), a
+  pop af                     ; glyph
+  call print_char
+  pop bc
+  pop ix
   ret
 .ENDS
 

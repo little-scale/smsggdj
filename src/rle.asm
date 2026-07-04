@@ -22,6 +22,7 @@
   rle_rem  dw           ; units remaining
   rle_cnt  dw           ; current run / literal length (low byte used)
   rle_unit dsb 4        ; scratch unit, for expanding a repeat run
+  rle_end  dw           ; unpack dst end pointer (bound: never write past it)
   rss_slot    db        ; M2 save: slot index
   rss_cksum   dw        ; M2 save: block checksum
   rss_dst     dw        ; M2 save: blob physical dst
@@ -55,45 +56,87 @@
 ; rle_unpack: HL = stream src, DE = block dst, BC = unit count.
 ; Writes BC units (BC*4 bytes) to DE.
 ; ------------------------------------------------------------
+; Register-resident: HL = stream ptr, DE = block ptr held across the whole pass
+; (no per-unit RAM reloads or CALLs -- ~3-4x faster than the old version, so a
+; CONT load stalls the sequencer for ~1 frame instead of ~4). Runs are copied
+; with LDIR (a repeat replicates via an overlapping LDIR). rle_end bounds the
+; writes so a corrupt stream can never run past the block.
 rle_unpack:
-  ld (rle_sp), hl
-  ld (rle_bp), de
-  ld (rle_rem), bc
+  push hl                     ; rle_end = dst + count*4 (byte end of the block)
+  ld h, b
+  ld l, c
+  add hl, hl
+  add hl, hl                  ; count * 4
+  add hl, de
+  ld (rle_end), hl
+  pop hl                      ; HL = stream src ; DE = block dst
 ruk_loop:
-  ld hl, (rle_rem)
-  ld a, h
-  or l
-  ret z                       ; all units produced
-  ld hl, (rle_sp)             ; read control byte
-  ld a, (hl)
+  ld a, (rle_end)             ; done? (DE reached the block end)
+  cp e
+  jr nz, ruk_go
+  ld a, (rle_end+1)
+  cp d
+  ret z
+ruk_go:
+  ld a, (hl)                  ; control byte
   inc hl
-  ld (rle_sp), hl
   bit 7, a
   jr nz, ruk_rep
-  ; literal: n = a+1 units (bit7 clear -> a in 0..127)
-  inc a
-  ld (rle_cnt), a
-ruk_lit:
-  call rle_copy_unit          ; (rle_sp) -> (rle_bp), advance both
-  call rle_dec_rem
-  ld a, (rle_cnt)
-  dec a
-  ld (rle_cnt), a
-  jr nz, ruk_lit
+  ; ---- literal: (a+1) units straight from the stream ----
+  inc a                       ; count 1..128
+  call ruk_bytes              ; BC = count*4, clamped to the remaining block
+  ldir
   jr ruk_loop
 ruk_rep:
+  ; ---- repeat: ((a & 7F) + 2) units of one stream unit ----
   and $7F
-  add a, 2                    ; count (2..129)
-  ld (rle_cnt), a
-  call rle_read_unit          ; (rle_sp) -> rle_unit, advance rle_sp
-ruk_rw:
-  call rle_write_unit         ; rle_unit -> (rle_bp), advance rle_bp
-  call rle_dec_rem
-  ld a, (rle_cnt)
-  dec a
-  ld (rle_cnt), a
-  jr nz, ruk_rw
+  add a, 2                    ; count 2..129
+  call ruk_bytes              ; BC = count*4, clamped
+  push bc                     ; copy the first unit (stream -> block)...
+  push de
+  ld bc, 4
+  ldir                        ; HL += 4 (past the unit), DE += 4
+  ld (rle_sp), hl             ; stash the advanced stream ptr
+  pop hl                      ; HL = dst-start = the just-written unit
+  pop bc                      ; BC = total bytes
+  dec bc
+  dec bc
+  dec bc
+  dec bc                      ; BC = total - 4
+  ld a, b
+  or c
+  jr z, ruk_rdone
+  ldir                        ; ...then replicate it by overlapping LDIR
+ruk_rdone:
+  ld hl, (rle_sp)             ; restore the stream ptr
   jr ruk_loop
+
+; ruk_bytes: A = unit count -> BC = count*4, clamped to (rle_end - DE) so a run
+; can never write past the block. Clobbers A; preserves HL/DE.
+ruk_bytes:
+  ld c, a
+  ld b, 0
+  sla c
+  rl b
+  sla c
+  rl b                        ; BC = count * 4
+  push hl
+  ld hl, (rle_end)
+  or a
+  sbc hl, de                  ; HL = bytes remaining in the block
+  ld a, h
+  cp b
+  jr c, rub_clamp             ; remaining < requested (high) -> clamp
+  jr nz, rub_ok               ; remaining > requested -> keep
+  ld a, l
+  cp c
+  jr nc, rub_ok               ; remaining >= requested (low) -> keep
+rub_clamp:
+  ld b, h
+  ld c, l                     ; BC = remaining
+rub_ok:
+  pop hl
+  ret
 
 ; ------------------------------------------------------------
 ; rle_pack: HL = block src, DE = stream dst, BC = unit count.
@@ -260,32 +303,7 @@ clit_store:
   ld (rle_cnt), bc
   ret
 
-; ---- small shared helpers ----
-rle_copy_unit:                ; (rle_sp) -> (rle_bp), advance both by 4
-  ld hl, (rle_sp)
-  ld de, (rle_bp)
-  ld bc, 4
-  ldir
-  ld (rle_sp), hl
-  ld (rle_bp), de
-  ret
-
-rle_read_unit:                ; (rle_sp) -> rle_unit, advance rle_sp by 4
-  ld hl, (rle_sp)
-  ld de, rle_unit
-  ld bc, 4
-  ldir
-  ld (rle_sp), hl
-  ret
-
-rle_write_unit:               ; rle_unit -> (rle_bp), advance rle_bp by 4
-  ld hl, rle_unit
-  ld de, (rle_bp)
-  ld bc, 4
-  ldir
-  ld (rle_bp), de
-  ret
-
+; ---- small shared helpers (rle_pack only; rle_unpack is now register-resident) ----
 rle_dec_rem:                  ; rem -= 1
   ld hl, (rle_rem)
   dec hl

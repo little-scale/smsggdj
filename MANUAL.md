@@ -122,8 +122,9 @@ GROOVE and `2+Left` from GROOVE comes back.
   write with **51 phrases, 39 chains and 15 instruments** — you don't have to keep
   anything free yourself. Pick the
   channel holding your groove (NO for drums, T1–T3 for a bass or pad); on the SONG
-  header a **`*`** marks that chosen track (whenever CONT is on) so you can see
-  which one will bridge — it turns into `>` while it's actually bridging. Samples
+  header a **`*`** to the right of that chosen track's name (whenever CONT is on)
+  shows which one will bridge; a **`>`** to the left of the name lights while it's
+  actually bridging. Samples
   are silent while FILES is open (they return when you leave). The bridge keeps
   the carried part's instrument; if that instrument uses a table, the table reads
   the new song's slots.
