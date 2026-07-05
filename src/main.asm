@@ -207,6 +207,9 @@ init:
   call sram_detect           ; restore persisted OPTIONS (colour, sync,
   call config_load           ;   video) before the splash, so it renders
                              ;   in the saved palette (config reapplies it)
+  ld a, (sync_mode)          ; booted into SYNC=MIDI: configure the port + panic
+  cp SYNC_MIDI
+  call z, midi_mode_change
   call splash                ; logo + version; SMS region detect inside
 .IFDEF RLE_SELFTEST
   call rle_selftest_show     ; freezes on the splash showing RLE OK / RLE ERR
@@ -310,9 +313,7 @@ main_loop:
   call editor_input
   call smp_housekeep
   call engine_frame
-  ld a, (play_state)
-  or a
-  call z, channels_fx          ; prelisten envelopes while stopped
+  call frame_render            ; MIDI takeover: poll+render; else stopped-prelisten
   call psg_flush
 
   ; --- VRAM updates after: still inside vblank when idle, and
@@ -1094,6 +1095,7 @@ str_rest:        .db "---"
 .INCLUDE "src/sample.asm"
 .INCLUDE "src/editor.asm"
 .INCLUDE "src/rle.asm"
+.INCLUDE "src/midi.asm"
 .INCLUDE "notes.inc"
 .INCLUDE "buildid.inc"
 

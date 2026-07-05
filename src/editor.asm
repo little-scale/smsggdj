@@ -2810,30 +2810,21 @@ pc_st:
   call load_palette          ; applies immediately
   ld a, 3
   jp stg_mark_field
-stp_sync:                    ; 1 + L/R cycles the sync mode (skips reserved MIDI)
+stp_sync:                    ; 1 + L/R cycles the sync mode (OFF..IN24, incl MIDI)
   ld a, (ed_rep)
   ld c, a
   ld a, (sync_mode)
-  bit 3, c                   ; Right: forward (skip MIDI=4, wrap IN24->OFF)
+  bit 3, c                   ; Right: forward (wrap IN24 -> OFF)
   jr z, psy_nr
   inc a
-  cp SYNC_MIDI
-  jr nz, psy_rw
-  inc a
-psy_rw:
   cp SYNC_IN24+1
   jr c, psy_nr
   xor a
 psy_nr:
-  bit 2, c                   ; Left: back (skip MIDI, wrap OFF->IN24)
+  bit 2, c                   ; Left: back (wrap OFF -> IN24)
   jr z, psy_set
   dec a
-  jp m, psy_lw
-  cp SYNC_MIDI
-  jr nz, psy_set
-  dec a
-  jr psy_set
-psy_lw:
+  jp p, psy_set
   ld a, SYNC_IN24
 psy_set:
   ld b, a
@@ -2845,6 +2836,7 @@ psy_set:
   pop bc
   ld a, b
   ld (sync_mode), a
+  call midi_mode_change      ; MIDI: reconfigure pins + panic; else release the port
   ld a, 1
   ld (state_dirty), a
   ld a, 2

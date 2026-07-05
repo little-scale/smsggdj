@@ -201,6 +201,11 @@
 ; from song_cur, for chain/phrase modes cur_chain/cur_phrase and
 ; ed_track select the material (editor variables).
 engine_play:
+  ld b, a                    ; MIDI takeover locks out the sequencer (no playback)
+  ld a, (sync_mode)
+  cp SYNC_MIDI
+  ret z
+  ld a, b
   ld (eng_mode), a
   push af
   ld hl, (frame)             ; re-seed the Z-command RNG from the frame counter
@@ -4217,11 +4222,16 @@ ahd_enter_hold:
   ld (ix+4), a
   ret
 ahd_hold_inf:
-  ld a, (play_state)         ; while stopped (prelisten), a forever-
-  or a                       ; hold note would drone, so cap it
-  ld a, $FF                  ; playing: sentinel = hold forever
-  jr nz, ahd_hold_set
-  ld a, PRELISTEN_CAP
+  ld a, (play_state)         ; playing: sentinel = hold forever
+  or a
+  jr nz, ahd_hold_fwd
+  ld a, (sync_mode)          ; MIDI takeover: a held note sustains until its note-off,
+  cp SYNC_MIDI               ;   so skip the stopped-prelisten drone cap
+  jr z, ahd_hold_fwd
+  ld a, PRELISTEN_CAP        ; stopped prelisten: cap the drone
+  jr ahd_hold_set
+ahd_hold_fwd:
+  ld a, $FF                  ; hold forever
 ahd_hold_set:
   ld (ix+3), a
   ld a, STG_HLD
