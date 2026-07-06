@@ -8,6 +8,8 @@ The git history has the full detail; this is the curated summary.
 ### Added
 
 ### Changed
+- **Expanded the HELP screen** (now 5 pages) with more reference content. Text-only
+  edit (`help.txt`); no code change.
 
 ### Fixed
 
