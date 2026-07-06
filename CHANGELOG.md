@@ -3,6 +3,14 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.40 — unreleased (dev)
+
+### Added
+
+### Changed
+
+### Fixed
+
 ## v0.39 — 2026-07-06
 
 ### Added
