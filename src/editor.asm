@@ -210,8 +210,7 @@ editor_init:
   ld a, $FF
   ld (clip_scr), a
   ld (blk_scr), a
-  xor a
-  ld hl, drawn_a
+  ld hl, drawn_a             ; no playhead markers yet ($FF = none)
   ld a, $FF
   ld (hl), a
   inc hl
@@ -220,6 +219,8 @@ editor_init:
   ld (hl), a
   inc hl
   ld (hl), a
+  call live_q_clear          ; no queued rows yet: RAM clears to 0, a valid row (0),
+                             ;   which would draw a hollow marker on the top row
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
@@ -5573,24 +5574,8 @@ draw_labels:
   call print_char
 dl_novc:
   ld a, (help_clr)           ; leaving HELP: clear its col-0 text on the 16 grid rows
-  or a
-  jr z, dl_nohc              ;   (rows redraw via mark_all_dirty and restore any marker)
-  xor a
-  ld (help_clr), a
-  ld d, 16
-  ld e, GRID_ROW
-dl_hc:
-  ld b, e
-  ld c, 0
-  push de
-  call set_text_at
-  ld a, ' '
-  call print_char
-  pop de
-  inc e
-  dec d
-  jr nz, dl_hc
-dl_nohc:
+  or a                       ;   (help_col0_clear lives in bank 1; rows redraw via
+  call nz, help_col0_clear   ;    mark_all_dirty and restore any real marker)
 .IFDEF TARGET_GG
   ; the name-row wipe takes the transport text with it
   ld a, 1
@@ -9314,6 +9299,22 @@ hdr_draw:
   ld a, (hl)
   cp $01
   jr z, hdr_version          ; $01 line -> live version + build stamp
+  push hl                    ; title-row highlight: invert the line if it has a ':'
+  xor a
+  ld (text_attr), a
+hdr_scan:
+  ld a, (hl)
+  or a
+  jr z, hdr_drawtxt
+  cp ':'
+  jr z, hdr_title
+  inc hl
+  jr hdr_scan
+hdr_title:
+  ld a, $08
+  ld (text_attr), a
+hdr_drawtxt:
+  pop hl
   push hl
   call set_text_at
   pop hl
@@ -9370,6 +9371,26 @@ dhb_cancel:
 dhb_expire:
   ld a, 1
   ld (label_dirty), a        ; wipe the hint + repaint the SONG title row
+  ret
+
+; wipe HELP's col-0 text off the 16 grid rows (bank 1; called from draw_labels
+; when leaving HELP). Clears the help_clr flag it acts on.
+help_col0_clear:
+  xor a
+  ld (help_clr), a
+  ld d, 16
+  ld e, GRID_ROW
+hcc_l:
+  ld b, e
+  ld c, 0
+  push de
+  call set_text_at
+  ld a, ' '
+  call print_char
+  pop de
+  inc e
+  dec d
+  jr nz, hcc_l
   ret
 
 str_help_hint: .db "HOLD 2 TO VIEW HELP", 0

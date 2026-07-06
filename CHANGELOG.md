@@ -13,7 +13,8 @@ The git history has the full detail; this is the curated summary.
   `tools/makehelp.py` → `build/help.inc`), so the wording can change without any
   assembly edits, and a too-wide/too-tall edit fails the build instead of clipping
   on hardware. On the Game Gear the map is hidden on HELP so the full 20-column
-  width is available.
+  width is available. HELP rows that contain a `:` render **inverted**, so section
+  titles (e.g. `NAVIGATE:`) stand out.
 - **Boot hint.** On a fresh boot the SONG title row shows **`HOLD 2 TO VIEW HELP`**
   for ~3 s, then repaints the normal row.
 - **Block-SELECT flash.** Entering block select (`1`-held + `2`) briefly **blinks
@@ -31,6 +32,9 @@ The git history has the full detail; this is the curated summary.
 ### Fixed
 - Leaving the HELP screen no longer leaves stray characters in the first column of
   the screen you return to.
+- No stray "queued" triangle markers on the SONG top row at power-on. The live
+  queue is now seeded empty at boot (RAM clears to 0, which is a valid row, so the
+  top row falsely matched a queued entry).
 
 ## v0.38 — 2026-07-05
 
