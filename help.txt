@@ -1,0 +1,54 @@
+# SMSGGDJ HELP screen text -> build/help.inc via tools/makehelp.py (run by make).
+# One line per screen row. Rules:
+#   - blank line          = a blank row
+#   - '---' on its own     = page break (new HELP page)
+#   - '@VERSION'           = the live version + build stamp, drawn by the ROM
+#   - leading spaces are kept (indent); trailing spaces are trimmed
+#   - the 'HELP n/N' title row is drawn by the ROM, not here
+#   - UPPERCASE only (the font has no lowercase)
+#   - <= 20 chars/line (the Game Gear window width); makehelp errors if longer
+# Edit this file and rebuild -- no assembly changes needed to change the text.
+
+NAVIGATION:
+DPAD=
+NAVIGATE IN SCREEN
+HOLD2+DPAD=
+GO TO OTHER SCREENS
+HOLD2+TAP1=PLAY/STP
+HOLD2=ENT/EXIT HELP
+
+CELL EDITING:
+TAP1=INSERT VALUE
+HOLD1+L/R=EDIT SML
+HOLD1+U/D=EDIT BIG
+HOLD1+TAP2=CUT VAL
+>TAP1,1=PASTE VALUE
+---
+BLOCK EDITING:
+HOLD1+HOLD2=SEL BLK
+>DPAD=EXTEND BLOCK
+>TAP1=COPY BLOCK
+>HOLD1+TAP2=CUT BLK
+>TAP2=CANCEL BLOCK
+>TAP1,1=PASTE BLOCK
+
+MINT AND CLONE:
+TAP1,1 ON EMPTY=
+MINT NEW PHRASE/CHN
+TAP1,1 ON EXISTING=
+CLONE PHRASE/CHAIN
+---
+SMSGGDJ
+@VERSION
+
+MAX:
+    4 TRACKS
+   16 INSTRUMENTS
+   52 PHRASES
+   40 CHAINS
+  128 SONG ROWS
+32768 NOTE ROWS
+ 6912 SONG SIZE
+
+SUPPORT SN76489 AND
+YM2413 IF AVAILABLE

@@ -21,6 +21,7 @@
 
 .DEFINE DT_WINDOW    15        ; frames: double-tap window
 .DEFINE SEL_HOLD     16        ; frames: 1H+2 held = block select
+.DEFINE SEL_FLASH    18        ; frames: cursor-cell blink on entering block select
 .DEFINE PRELISTEN_LEN 32       ; ticks: cap sustained prelisten
 
 ; selectable instrument types in the TYPE cycler. GG stops at WAV (3): the
@@ -44,6 +45,9 @@
 .DEFINE SCR_SET     8         ; OPTIONS, above SONG
 .DEFINE SCR_ECHO    9         ; ECHO, below INSTR
 .DEFINE SCR_FILES   10        ; FILES, below SONG (slot manager)
+.DEFINE SCR_HELP    11        ; HELP, above TABLE (read-only, paged)
+.DEFINE HELP_COL    0         ; help text column (help lines are laid out for the full width)
+.DEFINE HELP_HOLD   150       ; frames of button-2-alone hold to toggle HELP (~2.5s)
 .DEFINE FILES_SLOTS    12     ; visible slot rows (scrolls; directory holds 32)
 .DEFINE FILES_LIST_TOP 2      ; the list starts this many rows below the header
 
@@ -91,6 +95,9 @@
   fmsel        db            ; FILES menu selection (0..5 = SAVE/LOAD/CLEA/PRGP/PRGC/CANC)
   file_count   db            ; FILES: number of saved songs (directory kept packed)
   file_room    db            ; FILES: 1 = room for one more (trailing empty shown)
+  help_page    db            ; HELP screen: which page (0/1) is showing
+  help_hold    db            ; global HELP hotkey: frames button 2 held alone
+  help_prev    db            ; screen to return to when the HELP hotkey closes
   prj_stat     db            ; 0 - / 1 saved / 2 loaded / 3 no sram / 4 no data
   proj_bpm     db
   prj_slot     db            ; save slot 0..sram_slots-1
@@ -133,6 +140,7 @@
   blk_data     dsb 64        ;   up to 4 cols x 16 rows
   label_dirty  db
   vstamp_clr   db            ; 1 = strip the OPTIONS version stamp's col-0 tile
+  help_clr     db            ; 1 = wipe HELP's col-0 text off the grid rows
   song_edited  db            ; 1 = song data changed since last save/load (PROJECT UNSAVED)
   cont_play    db            ; CONT handover mask: bit0=T1 b1=T2 b2=T3 b3=N (0=OFF).
                              ;   any set bit keeps the transport running on FILES/LOAD
@@ -234,6 +242,7 @@ editor_input:
   call fmc_check             ; FILES action menu: a button-2 press = CANC (bank 1)
   or a
   jp nz, ei_dtick
+  call help_hotkey           ; hold button 2 alone ~3s -> toggle the HELP screen (bank 1)
   ; ---- button 1 pressed ----
   ld a, (pad_edge)
   and PAD_B1
@@ -352,7 +361,7 @@ screen_nav:
   cp SCR_PROJ
   jr z, sn_proj
   cp SCR_CHAIN
-  jr z, sn_chain
+  jp z, sn_chain
   cp SCR_GROOVE
   jp z, sn_groove
   cp SCR_WAVE
@@ -365,6 +374,8 @@ screen_nav:
   jp z, sn_selt
   cp SCR_FILES
   jp z, sn_files
+  cp SCR_HELP
+  jp z, sn_help
   jp sn_lr
 sn_song:                     ; OPTIONS above SONG, FILES below
   ld a, (pad_edge)
@@ -479,23 +490,6 @@ snw_st:
   ld a, 1
   ld (label_dirty), a
   jp mark_all_dirty
-sn_selt:
-  ld a, (pad_edge)
-  and PAD_UP|PAD_DOWN
-  jp z, sn_lr
-  and PAD_UP
-  ld a, (cur_table)
-  jr z, snt_dn
-  inc a
-  jr snt_st
-snt_dn:
-  dec a
-snt_st:
-  and $0F
-  ld (cur_table), a
-  ld a, 1
-  ld (label_dirty), a
-  jp mark_all_dirty
 sn_lr:
   ld a, (pad_edge)
   and PAD_LEFT|PAD_RIGHT
@@ -578,6 +572,12 @@ sn_switch:
   ld a, (scr_mode)           ; leaving FILES -> restore the pool mapping
   cp SCR_FILES
   call z, files_leave
+  ld a, (scr_mode)           ; leaving HELP -> wipe its col-0 text (HELP owns col 0,
+  cp SCR_HELP                ;   which the per-row wipe on other screens leaves)
+  jr nz, sw_nohelp
+  ld a, 1
+  ld (help_clr), a
+sw_nohelp:
   ld a, d
   ld (scr_mode), a
   cp SCR_FILES               ; entering FILES -> stop + map SRAM over the pool
@@ -625,6 +625,8 @@ cursor_move:
   jp z, cm_wave
   cp SCR_FILES
   jp z, cm_files
+  cp SCR_HELP
+  jp z, cm_help
 
   ; ---- SONG ----
   ld a, (hdr_cur)
@@ -1172,6 +1174,8 @@ mark_vis_a:                  ; A = absolute song row
 ; =============================================================
 do_press:
   ld a, (scr_mode)
+  cp SCR_HELP                ; HELP is read-only: nothing to press
+  ret z
   cp SCR_SET                 ; mark song edited for data-screen inserts only
   jr z, dp_disp
   cp SCR_ECHO
@@ -4120,12 +4124,25 @@ cra_off:
   xor a
   ret
 
-; mark the cursor row dirty (SONG / CHAIN - the clone screens)
+; mark the cursor row dirty (SONG / CHAIN / PHRASE / TABLE) so a cursor-cell
+; flash (clone-fail blink or SELECT-entry blink) repaints each frame
 mark_cursor_dirty:
   ld a, (scr_mode)
   or a
   jp z, so_mark_cur
+  cp SCR_CHAIN
+  jr nz, mcd_ph
   ld a, (chn_row)
+  jp mark_dirty_a
+mcd_ph:
+  cp SCR_PHRASE
+  jr nz, mcd_tb
+  ld a, (phr_row)
+  jp mark_dirty_a
+mcd_tb:
+  cp SCR_TABLE
+  ret nz
+  ld a, (tbl_row)
   jp mark_dirty_a
 
 ; ===========================================================
@@ -4728,6 +4745,8 @@ sel_enter:
   ld (sel_acol), a
   ld a, 1
   ld (sel_active), a
+  ld a, SEL_FLASH            ; blink the anchor cell to confirm SELECT
+  ld (cur_flash), a
   call sel_norm
   jp mark_all_dirty
 
@@ -5282,7 +5301,7 @@ mad_l:
 ; drawing
 ; =============================================================
 editor_draw:
-  ld a, (cur_flash)          ; clone-fail cursor blink
+  ld a, (cur_flash)          ; clone-fail cursor blink / SELECT-entry flash
   or a
   jr z, edf_nofl
   dec a
@@ -5376,6 +5395,8 @@ draw_row:
   jp z, wv_draw_row
   cp SCR_FILES
   jp z, fl_draw_row
+  cp SCR_HELP
+  jp z, help_draw_row
   jp so_draw_row
 
 ; -------------------------------------------------------------
@@ -5383,6 +5404,8 @@ draw_row:
 ; highlighted, mark changed rows dirty
 playhead_update:
   ld a, (scr_mode)
+  cp SCR_HELP
+  ret z                      ; read-only screens have no playhead
   cp SCR_INSTR
   ret z                      ; no playhead on form screens
   cp SCR_PROJ
@@ -5549,6 +5572,25 @@ draw_labels:
   ld a, ' '
   call print_char
 dl_novc:
+  ld a, (help_clr)           ; leaving HELP: clear its col-0 text on the 16 grid rows
+  or a
+  jr z, dl_nohc              ;   (rows redraw via mark_all_dirty and restore any marker)
+  xor a
+  ld (help_clr), a
+  ld d, 16
+  ld e, GRID_ROW
+dl_hc:
+  ld b, e
+  ld c, 0
+  push de
+  call set_text_at
+  ld a, ' '
+  call print_char
+  pop de
+  inc e
+  dec d
+  jr nz, dl_hc
+dl_nohc:
 .IFDEF TARGET_GG
   ; the name-row wipe takes the transport text with it
   ld a, 1
@@ -5577,6 +5619,8 @@ dl_novc:
   jp z, dl_wave
   cp SCR_FILES
   jp z, dl_files
+  cp SCR_HELP
+  jp z, dl_help
 
   ; ---- SONG ----
   ld b, NAME_ROW
@@ -5763,9 +5807,11 @@ draw_scrmap:
   ld a, (scr_mode)
   or a
   ret z                      ; GG: SONG fills the window width
+  cp SCR_HELP
+  ret z                      ; GG: HELP fills the window width too (no map corner)
 .ENDIF
-  ld a, (scr_mode)           ; the wave editor uses the full
-  cp SCR_WAVE                ; width: no map there
+  ld a, (scr_mode)           ; the wave editor uses the full width: no map there
+  cp SCR_WAVE
   ret z
   ld d, 0                    ; screen index
 dsm_l:
@@ -5860,6 +5906,7 @@ dsm_wattr:
   call set_text_at
   ld a, 'W'
   call print_char
+  call draw_help_ind         ; 'H' above the T (bank 1, to spare GG bank 0)
   ; ECHO indicator below the I
   ld a, (scr_mode)
   cp SCR_ECHO
@@ -6730,7 +6777,7 @@ tb_field_attr:
   ld a, (tbl_col)
   cp d
   jr nz, tfa_norm
-  ld a, $08
+  call cursor_attr
   jr tfa_set
 tfa_norm:
   call sel_cell_attr
@@ -7728,7 +7775,7 @@ ph_field_attr:
   ld a, (phr_col)
   cp d
   jr nz, pfa_norm
-  ld a, $08
+  call cursor_attr
   jr pfa_set
 pfa_norm:
   call sel_cell_attr
@@ -9102,5 +9149,280 @@ pgp_bnext:
 pgp_ret:
   ld a, (purge_freed)
   ret
+
+.ENDS
+
+; =============================================================
+; HELP screen (SCR_HELP, above TABLE): a read-only, paged reference for the main
+; button presses. UP/DOWN flips the page; 2+DOWN returns to TABLE. Text is one
+; null-terminated line per grid row ($FF ends a page) -- edit the strings freely,
+; bank 1 has room. Bank 1 (jp/call-reached from the bank-0 dispatches).
+; =============================================================
+.BANK 1 SLOT 1
+.SECTION "Help" FREE
+
+; draw_labels -> the title row: "HELP  n/2"
+dl_help:
+  ld b, NAME_ROW
+  ld c, NAME_COL
+  ld hl, str_help
+  call print_at
+  ld b, NAME_ROW
+  ld c, NAME_COL+6
+  call set_text_at
+  ld a, (help_page)
+  add a, '1'                 ; page index 0.. -> '1'..
+  call print_char
+  ld a, '/'
+  call print_char
+  ld a, HELP_PAGES + '0'     ; total page count (from help.inc)
+  jp print_char
+
+; cursor_move on HELP: any d-pad direction flips the page (C = pad_rep dpad bits).
+cm_help:
+  ld a, c
+  and PAD_DOWN|PAD_RIGHT      ; forward
+  jr nz, cmh_next
+  ld a, c
+  and PAD_UP|PAD_LEFT         ; backward
+  ret z
+  ld a, (help_page)           ; prev page (wrap 0 -> last)
+  or a
+  jr nz, cmh_dec
+  ld a, HELP_PAGES
+cmh_dec:
+  dec a
+  jr cmh_set
+cmh_next:
+  ld a, (help_page)           ; next page (wrap last -> 0)
+  inc a
+  cp HELP_PAGES
+  jr c, cmh_set
+  xor a
+cmh_set:
+  ld (help_page), a
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
+
+; screen_nav on HELP: 2+DOWN -> back to TABLE (the screen below on the map).
+sn_help:
+  ld a, (pad_edge)
+  and PAD_DOWN
+  ret z
+  ld a, SCR_TABLE
+  jp sn_switch
+
+; help_hotkey: hold button 2 ALONE (no d-pad, no button 1) for HELP_HOLD frames to
+; toggle the HELP screen from anywhere. 2-alone is otherwise a no-op, so nothing else
+; fires on the way in; adding any other key resets the count. Called each frame.
+help_hotkey:
+  ld a, (pad_raw)
+  and $3F                    ; the six face buttons
+  cp PAD_B2                  ; exactly button 2 held?
+  jr nz, hhk_reset
+  ld a, (help_hold)
+  cp HELP_HOLD
+  ret nc                     ; already fired this hold -> wait for release
+  inc a
+  ld (help_hold), a
+  cp HELP_HOLD
+  ret nz                     ; not held long enough yet
+  ; fall through: threshold reached -> toggle
+help_toggle:
+  ld a, (scr_mode)
+  cp SCR_HELP
+  jr z, ht_close
+  ld (help_prev), a          ; opening: remember where we were
+  ld a, SCR_HELP
+  jp sn_switch
+ht_close:
+  ld a, (help_prev)          ; closing: return there
+  jp sn_switch
+hhk_reset:
+  xor a
+  ld (help_hold), a
+  ret
+
+; screen_nav on TABLE (moved to bank 1 to spare GG bank 0): UP -> HELP (above),
+; DOWN cycles the table number (wraps), L/R = horizontal screen nav.
+sn_selt:
+  ld a, (pad_edge)
+  and PAD_UP
+  jr nz, snt_help
+  ld a, (pad_edge)
+  and PAD_DOWN
+  jp z, sn_lr
+  ld a, (cur_table)
+  dec a
+  and $0F
+  ld (cur_table), a
+  ld a, 1
+  ld (label_dirty), a
+  jp mark_all_dirty
+snt_help:
+  ld a, SCR_TABLE
+  ld (help_prev), a          ; entered from TABLE -> a hotkey-close returns here
+  ld a, SCR_HELP
+  jp sn_switch
+
+; draw_row on HELP: E = visible row -> the (help_page, E) line. The row is pre-wiped
+; by draw_row, so an absent/blank line just leaves it clear.
+help_draw_row:
+  push de                    ; draw_row wipes from col 1 -> clear col 0 too
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 0
+  call set_text_at
+  ld a, ' '
+  call print_char
+  pop de
+  ld a, (help_page)          ; HL = help_pages[help_page] (word table, help.inc)
+  add a, a
+  ld c, a
+  ld b, 0
+  ld hl, help_pages
+  add hl, bc
+  ld a, (hl)
+  inc hl
+  ld h, (hl)
+  ld l, a
+  ld b, e                    ; skip E lines (each null-terminated), stop at $FF
+hdr_skip:
+  ld a, b
+  or a
+  jr z, hdr_draw
+  ld a, (hl)
+  cp $FF
+  ret z                      ; past the last line -> blank row
+hdr_skip1:
+  ld a, (hl)
+  inc hl
+  or a
+  jr nz, hdr_skip1           ; walk past this line's terminator
+  dec b
+  jr hdr_skip
+hdr_draw:
+  ld a, (hl)
+  cp $FF
+  ret z
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, HELP_COL
+  ld a, (hl)
+  cp $01
+  jr z, hdr_version          ; $01 line -> live version + build stamp
+  push hl
+  call set_text_at
+  pop hl
+  jp fsp_str                 ; print the null-terminated line
+hdr_version:
+  call set_text_at
+  ld hl, str_version
+  call fsp_str
+  ld a, ' '
+  call print_char
+  ld hl, str_buildid
+  jp fsp_str
+
+; mini-map: draw 'H' above the T (highlighted when on HELP). Called from
+; draw_scrmap so the HELP screen is discoverable from TABLE (2+UP).
+draw_help_ind:
+  ld a, (scr_mode)
+  cp SCR_HELP
+  ld a, $00
+  jr nz, dhi_attr
+  ld a, $08
+dhi_attr:
+  ld (text_attr), a
+  ld b, MAP_ROW
+  ld c, MAP_COL+4
+  call set_text_at
+  ld a, 'H'
+  jp print_char
+
+; boot hint (bank 1, called each frame from the main loop): while help_banner
+; counts down (~3 s) and we are on the SONG screen, the title row shows
+; "HOLD 2 TO VIEW HELP"; on expiry (or on leaving SONG) it flags a label repaint
+; so the real SONG row comes back. Drawn last in the frame, over the label paint.
+draw_help_banner:
+  ld a, (help_banner)
+  or a
+  ret z
+  ld a, (scr_mode)           ; only on SONG (SCR_SONG = 0); leaving cancels it
+  or a
+  jr nz, dhb_cancel
+  ld a, (help_banner)
+  dec a
+  ld (help_banner), a
+  jr z, dhb_expire
+  xor a
+  ld (text_attr), a
+  ld b, NAME_ROW
+  ld c, NAME_COL
+  ld hl, str_help_hint
+  jp print_at
+dhb_cancel:
+  xor a
+  ld (help_banner), a
+dhb_expire:
+  ld a, 1
+  ld (label_dirty), a        ; wipe the hint + repaint the SONG title row
+  ret
+
+str_help_hint: .db "HOLD 2 TO VIEW HELP", 0
+
+; transport indicator (moved here from bank 0 for space). Called each frame from
+; the main loop. Nothing shows until the transport is first used (xport_seen), so
+; a fresh boot has no STOP/PLAY glyph.
+draw_state:
+  ld a, (xport_seen)
+  or a
+  ret z
+  ld a, (state_dirty)
+  or a
+  ret z
+  xor a
+  ld (state_dirty), a
+  ld a, (play_state)
+  or a
+  jr nz, ds_play
+  xor a
+  ld (text_attr), a
+  ld hl, str_stop
+  jr ds_print
+ds_play:
+  ld a, $08
+  ld (text_attr), a
+  ld hl, str_play
+  ld a, (sync_wait)          ; slave armed, no clock yet
+  or a
+  jr z, ds_print
+  ld hl, str_wait
+ds_print:
+  ld b, STATE_ROW
+  ld c, STATE_COL
+  call print_at
+  ; sync mode symbol, one tile after the state: right triangle = OUT,
+  ; pulse = PULSE, left triangle = IN, blank = OFF
+  xor a
+  ld (text_attr), a
+  ld a, (sync_mode)
+  ld e, a
+  ld d, 0
+  ld hl, str_syncsym
+  add hl, de
+  ld a, (hl)
+  push af
+  ld b, STATE_ROW
+  ld c, SYNC_COL
+  call set_text_at
+  pop af
+  jp print_char
+
+; str_help and the page tables (help_pages / help_pN) live in build/help.inc,
+; generated from help.txt by tools/makehelp.py (its own bank-1 HelpData section).
 
 .ENDS

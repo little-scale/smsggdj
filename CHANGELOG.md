@@ -3,6 +3,35 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.39 — unreleased (dev)
+
+### Added
+- **On-console HELP screen.** A read-only, paged reference lives above TABLE
+  (reach it with 2+UP from TABLE, or hold **button 2** for ~2.5 s from anywhere to
+  toggle it). Left/Right (or Up/Down) page through it; the mini-map shows an
+  **`H`** marker for it. Its text is a build-time data file (`help.txt` →
+  `tools/makehelp.py` → `build/help.inc`), so the wording can change without any
+  assembly edits, and a too-wide/too-tall edit fails the build instead of clipping
+  on hardware. On the Game Gear the map is hidden on HELP so the full 20-column
+  width is available.
+- **Boot hint.** On a fresh boot the SONG title row shows **`HOLD 2 TO VIEW HELP`**
+  for ~3 s, then repaints the normal row.
+- **Block-SELECT flash.** Entering block select (`1`-held + `2`) briefly **blinks
+  the anchor cell** to confirm the mode — on SONG, CHAIN, PHRASE and TABLE.
+- **SYNC = MIDI takeover.** A new `SYNC: MIDI` mode turns SMSGGDJ into a 4-part
+  multitimbral MIDI sound module: a USB-MIDI adapter (the ESP32-S3 bridge) streams
+  note events over the 2-wire sync link, the sequencer steps aside, and MIDI drives
+  T1/T2/T3/NO live (NoteOn/Off, program-change → instrument, panic). *Built,
+  hardware bring-up pending.*
+
+### Changed
+- **No STOP/PLAY glyph on a fresh boot.** The transport indicator now stays blank
+  until the transport is actually used, rather than showing `STOP` at power-on.
+
+### Fixed
+- Leaving the HELP screen no longer leaves stray characters in the first column of
+  the screen you return to.
+
 ## v0.38 — 2026-07-05
 
 ### Added

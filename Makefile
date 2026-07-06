@@ -34,6 +34,9 @@ $(BUILD)/font.bin: tools/makefont.py | $(BUILD)
 $(BUILD)/notes.inc: tools/maketables.py | $(BUILD)
 	python3 tools/maketables.py $@
 
+$(BUILD)/help.inc: tools/makehelp.py help.txt | $(BUILD)
+	python3 tools/makehelp.py help.txt $@
+
 $(BUILD)/logo.inc: tools/makelogo.py art/smsggdj-logo.png | $(BUILD)
 	python3 tools/makelogo.py art/smsggdj-logo.png $(BUILD)/logo.bin $@
 
@@ -69,7 +72,7 @@ $(BUILD)/buildid.inc: FORCE | $(BUILD)
 	@rm -f $@.tmp
 
 SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm src/rle.asm src/midi.asm
-GEN  := $(BUILD)/font.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc
+GEN  := $(BUILD)/font.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc $(BUILD)/help.inc
 
 $(BUILD)/main.o: $(SRCS) $(GEN) | $(BUILD)
 	$(ASM) -I $(BUILD) -o $@ src/main.asm
