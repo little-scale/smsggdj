@@ -6,12 +6,29 @@ The git history has the full detail; this is the curated summary.
 ## v0.40 — unreleased (dev)
 
 ### Added
+- **SYNC = MIDI takeover now works on hardware** (first silicon bring-up, on a
+  Mega Drive 2 in Master System mode via the ESP32-S3 bridge). Play a USB-MIDI
+  keyboard/DAW on channels 1–4 and the tracker's four voices (T1/T2/T3/NO) sound
+  live. Velocity sets the level; Program Change picks the instrument; CC 120/123 =
+  panic.
+- **Per-channel default instruments in MIDI mode:** channel 1→instr 0, 2→1, 3→2,
+  4→3 on entry (Program Change overrides live).
 
 ### Changed
-- **Expanded the HELP screen** (now 5 pages) with more reference content. Text-only
+- **MIDI takeover is a trigger model, not a keyboard model.** A note-on triggers
+  the instrument's attack-hold-decay envelope and it plays out on its own; **note-off
+  (and key-hold length) is ignored** — the instrument's HLD/DCY defines the note's
+  length, consistent with how the sequencer triggers notes. Raise an instrument's
+  HLD for longer notes (HLD = F = drone; stop with panic).
+- **Expanded the HELP screen** (now 6 pages) with more reference content. Text-only
   edit (`help.txt`); no code change.
 
 ### Fixed
+- **MIDI takeover: isolated notes were dropped** (you needed to play overlapping
+  notes to hear anything). Root cause was in the ESP32-S3 bridge (separate repo):
+  the idle-gap resync discarded an event that had been popped from the queue but not
+  yet clocked out by the console, silently losing single note-ons/offs. Bursts
+  masked it. Fixed on the bridge; the console side is unchanged for this.
 
 ## v0.39 — 2026-07-06
 

@@ -21,7 +21,6 @@
   midi_d1     db               ;   data 1
   midi_d2     db               ;   data 2
   midi_instr  dsb 4            ; per-track current instrument (from Program Change)
-  midi_held   dsb 4            ; per-track held MIDI note ($FF = none) -- note-off match
 .ENDS
 
 ; bank 1 (always mapped): bank 0 is full, and this is only reached by call/jp.
@@ -108,9 +107,10 @@ mp_done:
 
 ; ---------------------------------------------------------------------------
 ; dispatch (genmddj/MIDI.md §3.4). status = type<<4 | channel. channel 0-3 ->
-; track (IX); 4-15 ignored. type 2=NoteOn 1=NoteOff 4=PgmChange 7=Panic. The S3
-; normalises MIDI (running status expanded, vel-0 -> NoteOff, CC120/123 -> Panic),
-; so this is a bounded type switch; CC/bend/pressure are ignored in v1.
+; track (IX); 4-15 ignored. Handled: type 2=NoteOn 4=PgmChange 7=Panic. NoteOff
+; (type 1) / vel-0 / CC / bend are IGNORED BY DESIGN: the instrument is an
+; attack-hold-decay model, so a note-on triggers the envelope and it plays out on
+; its own -- key-hold length is irrelevant. Panic (CC120/123) still kills voices.
 ; ---------------------------------------------------------------------------
 midi_dispatch:
   ld a, (midi_st)
@@ -131,19 +131,18 @@ midi_dispatch:
   and $F0
   cp $20
   jr z, midi_note_on           ; type 2
-  cp $10
-  jr z, midi_note_off          ; type 1
   cp $40
   jr z, midi_pgm               ; type 4
   cp $70
   jr z, midi_panic             ; type 7
-  ret                          ; CC/bend/pressure: ignored (v1)
+  ret                          ; NoteOff / CC / bend: ignored -- the note plays
+                               ;   out the instrument's AHD envelope (no key-release)
 
 ; NoteOn: IX = channel, cur_trig_ch set. d1 = note, d2 = velocity.
 midi_note_on:
   ld a, (midi_d2)
   or a
-  jr z, midi_note_off          ; vel 0 = note off (S3 normalises, but be safe)
+  ret z                        ; vel 0 = note off in disguise -> ignore (no key-release)
   ld a, (midi_d1)              ; MIDI note -> tracker note index (clamped)
   sub MIDI_NOTE_OFF
   jr nc, mno_hi
@@ -173,22 +172,6 @@ mno_set:
   and $0F                      ; keep the envelope stage (STG_ATK)
   or c
   ld (ix+4), a
-  call midi_track_held         ; HL = midi_held + track
-  ld a, (midi_d1)
-  ld (hl), a                   ; record the held note for note-off matching
-  ret
-
-; NoteOff: IX = channel. Release = enter the decay stage (envelope release).
-midi_note_off:
-  call midi_track_held         ; HL = midi_held + track
-  ld a, (midi_d1)
-  cp (hl)
-  ret nz                       ; stale note-off (a different note holds): ignore
-  ld (hl), $FF
-  ld a, (ix+4)                 ; keep the peak, ramp it down at the DCY rate
-  and $F0
-  or STG_DCY
-  ld (ix+4), a
   ret
 
 ; PgmChange: IX = channel, d1 = PC. SMS has 16 instruments -> clamp to 0-15.
@@ -217,11 +200,6 @@ mpn_l:
   ld a, c
   cp 4
   jr c, mpn_l
-  ld a, $FF                    ; clear held-note state
-  ld (midi_held+0), a
-  ld (midi_held+1), a
-  ld (midi_held+2), a
-  ld (midi_held+3), a
   ld hl, psg_vols              ; silence all four channels now
   ld (hl), $0F
   inc hl
@@ -244,11 +222,14 @@ midi_mode_change:
   jr nz, mmc_off
   ld a, $BB                    ; CLK(TR) low idle, TH input (sync_pulse_out idiom)
   out ($3F), a
-  xor a                        ; reset the per-track instrument selection
-  ld (midi_instr+0), a
-  ld (midi_instr+1), a
-  ld (midi_instr+2), a
-  ld (midi_instr+3), a
+  xor a                        ; default per-track instrument = channel index:
+  ld (midi_instr+0), a         ;   ch1 -> instr 0
+  inc a
+  ld (midi_instr+1), a         ;   ch2 -> instr 1
+  inc a
+  ld (midi_instr+2), a         ;   ch3 -> instr 2
+  inc a
+  ld (midi_instr+3), a         ;   ch4 -> instr 3  (Program Change overrides live)
   ret
 mmc_off:
   ld a, $FF                    ; release the port-2 lines
@@ -261,15 +242,6 @@ midi_track_ptr:
   ld e, a
   ld d, 0
   ld hl, midi_instr
-  add hl, de
-  ret
-
-; HL = midi_held + cur_trig_ch. Clobbers A/DE.
-midi_track_held:
-  ld a, (cur_trig_ch)
-  ld e, a
-  ld d, 0
-  ld hl, midi_held
   add hl, de
   ret
 
