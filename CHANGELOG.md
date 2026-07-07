@@ -3,14 +3,16 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
-## v0.40 — unreleased (dev)
+## v0.40 — 2026-07-07
 
 ### Added
 - **SYNC = MIDI takeover now works on hardware** (first silicon bring-up, on a
   Mega Drive 2 in Master System mode via the ESP32-S3 bridge). Play a USB-MIDI
   keyboard/DAW on channels 1–4 and the tracker's four voices (T1/T2/T3/NO) sound
   live. Velocity sets the level; Program Change picks the instrument; CC 120/123 =
-  panic.
+  panic. **Tested and working on hardware; minor wire-timing polish is still to
+  come** (bit-settle tuning, and auto-engaging takeover so the bridge needs no
+  `k on`).
 - **Per-channel default instruments in MIDI mode:** channel 1→instr 0, 2→1, 3→2,
   4→3 on entry (Program Change overrides live).
 
