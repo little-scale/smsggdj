@@ -86,6 +86,11 @@ and press play.
 
 ### Companion projects
 
+- **[smsvj](https://github.com/little-scale/smsvj)** — the **VJ visual** sibling: runs on
+  a second SMS, projects its video as the visuals, and syncs to SMSGGDJ (or Ableton Link
+  via the ESP32 bridge). Shares the clock vocabulary (tick / beat / bar), the SYNC contract
+  on controller port 2, and the LIVE-mode launch-quantize input core. Run one SMS as the
+  tracker and a second as the VJ.
 - **[smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32)** —
   an ESP32 (Seeed XIAO ESP32-C3) **Ableton Link** bridge: joins a Link session
   over WiFi and drives SMSGGDJ's `SYNC: IN` so the tracker follows Ableton
