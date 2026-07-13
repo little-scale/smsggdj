@@ -60,6 +60,7 @@
 .DEFINE INS_VAL     8        ; shifted left on GG to clear the map at MAP_COL 15
 .DEFINE PH_INS_COL  9        ; PHRASE columns shifted +1 to gap NOTE/I
 .DEFINE PH_CMD_COL  11
+.DEFINE CH_TSP_COL  9        ; CHAIN transpose col/title, +1 on GG to gap PHR/TSP
 .ELSE
 .DEFINE MAP_COL     25
 .DEFINE MAP_ROW     4
@@ -67,6 +68,7 @@
 .DEFINE INS_VAL     10
 .DEFINE PH_INS_COL  9        ; PHRASE columns shifted +1 to gap NOTE/I
 .DEFINE PH_CMD_COL  11
+.DEFINE CH_TSP_COL  8
 .ENDIF
 
 .RAMSECTION "edvars" SLOT 3
@@ -170,7 +172,7 @@
 .SECTION "Editor" FREE
 
 editor_init:
-  ld a, 25                   ; A-4
+  ld a, 16                   ; C-4 (note index 15 + 1; first fresh note default)
   ld (last_note), a
   xor a
   ld (last_instr), a
@@ -5682,7 +5684,7 @@ dl_chain:
   ld hl, str_hphr
   call print_at
   ld b, GRID_ROW-1
-  ld c, 8
+  ld c, CH_TSP_COL
   ld hl, str_htsp
   call print_at
   ret
@@ -5779,7 +5781,11 @@ dl_track_tag:
   add hl, de
   push hl
   ld b, NAME_ROW
+.IFDEF TARGET_GG
+  ld c, 11                   ; GG: one tile left so there's a gap before PLAY (STATE_COL 14)
+.ELSE
   ld c, 12
+.ENDIF
   call set_text_at
   pop hl
   ld b, 2
@@ -6085,15 +6091,9 @@ sdr_nmk:
 ; -------------------------------------------------------------
 ; CHAIN screen row (E = row)
 ch_draw_row:
-  ; label, inverted at the playing chain step
+  ; row index (col 1); a '>' playhead at col 3 marks the playing chain step
   xor a
   ld (text_attr), a
-  ld a, (drawn_a)
-  cp e
-  jr nz, cdr_lbl
-  ld a, $08
-  ld (text_attr), a
-cdr_lbl:
   ld a, e
   add a, GRID_ROW
   ld b, a
@@ -6105,6 +6105,7 @@ cdr_lbl:
   push de
   call print_hex_nib
   pop de
+  call draw_ph_mark
   ; entry
   push de
   call ch_entry_ptr
@@ -6139,13 +6140,13 @@ cdr_phex:
   call print_hex_a
   pop de
 cdr_tsp:
-  ; transpose cell (col 8)
+  ; transpose cell (CH_TSP_COL; +1 on GG)
   ld a, 1
   call ch_field_attr
   ld a, e
   add a, GRID_ROW
   ld b, a
-  ld c, 8
+  ld c, CH_TSP_COL
   push de
   call set_text_at
   pop de
@@ -6792,12 +6793,6 @@ cfa_set:
 ph_draw_row:
   xor a
   ld (text_attr), a
-  ld a, (drawn_a)
-  cp e
-  jr nz, pdr_lbl
-  ld a, $08
-  ld (text_attr), a
-pdr_lbl:
   ld a, e
   add a, GRID_ROW
   ld b, a
@@ -6809,6 +6804,7 @@ pdr_lbl:
   push de
   call print_hex_nib
   pop de
+  call draw_ph_mark          ; '>' playhead at col 3 marks the playing row
 
   push de
   call ed_step_ptr
@@ -9342,6 +9338,23 @@ dhi_attr:
   ld c, MAP_COL+4
   call set_text_at
   ld a, 'H'
+  jp print_char
+
+; playhead marker for CHAIN/PHRASE (bank 1): a '>' at col 3 (just left of the data
+; column) on the playing row. E = visible row; draws only when drawn_a == E, else
+; nothing (draw_row already wiped col 3). Preserves DE. text_attr must be 0 on call.
+draw_ph_mark:
+  ld a, (drawn_a)
+  cp e
+  ret nz
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, 3
+  push de
+  call set_text_at
+  pop de
+  ld a, '>'
   jp print_char
 
 ; boot hint (bank 1, called each frame from the main loop): while help_banner

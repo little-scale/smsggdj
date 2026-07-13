@@ -3181,14 +3181,14 @@ calc_period:
   or a
   ld a, d
   jr z, cpd_noarp            ; phase 0: root
-  ld e, a
-  ld a, (ix+25)
-  dec e
-  jr nz, cpd_arpy
+  ld a, (ix+26)              ; re-read phase (the phase-0 test clobbered A with d)
+  dec a                      ; phase 1 -> Z, phase 2 -> NZ
+  ld a, (ix+25)              ; arp param (LD keeps the flags)
+  jr nz, cpd_arpy            ; phase 2: +y (low nibble)
   rrca
   rrca
   rrca
-  rrca                       ; phase 1: +x
+  rrca                       ; phase 1: +x (high nibble)
 cpd_arpy:
   and $0F
   add a, d
@@ -3603,6 +3603,11 @@ cf_env:
   xor a
 cf_arpst:
   ld (ix+26), a
+  ; PSG re-pitches the arp step in calc_period; the FM voice has no per-tick pitch
+  ; write, so drive the step onto it here (fm_arp_pitch no-ops for non-FM/idle).
+  push bc
+  call fm_arp_pitch
+  pop bc
 cf_env2:
   ; --- AHD volume envelope (attack / hold / decay) ---
   ; full state machine lives in bank 1 (ahd_process); it walks
@@ -3723,6 +3728,46 @@ cf_adv:
 .DEFINE SAVE_SIZE 6912       ; wave_ram..grooves, contiguous (52 phrases / 40 chains)
 .DEFINE CFG_ADDR  $BF60      ; OPTIONS config: tail of bank 0 (8K cart mirrors -> $1F60)
 
+.ENDS
+
+; FM arp: re-pitch the FM voice to the current arp step (phase ix+26, param ix+25),
+; mirroring calc_period's PSG arp. Reached (call) from channels_fx while arp is active
+; on an FM channel. IX = channel; tail-calls fm_set_pitch (A = note, E = channel).
+; Bank 1 (spares GG bank 0); reached by call.
+.BANK 1 SLOT 1
+.SECTION "FmArp" FREE
+fm_arp_pitch:
+  call chan_is_fm            ; PSG re-pitches itself in calc_period
+  ret nz
+  ld a, (ix+4)               ; finished note (idle): re-keying would retrigger the voice
+  and $0F
+  cp STG_IDLE
+  ret z
+  ld a, (ix+26)              ; phase 0/1/2
+  or a
+  jr z, fap_root             ; phase 0: root
+  dec a                      ; phase 1 -> Z, phase 2 -> NZ
+  ld a, (ix+25)              ; arp param (LD keeps the flags)
+  jr nz, fap_y               ; phase 2: +y (low nibble)
+  rrca
+  rrca
+  rrca
+  rrca                       ; phase 1: +x (high nibble)
+fap_y:
+  and $0F
+  add a, (ix+0)              ; base note + offset
+  jr fap_clamp
+fap_root:
+  ld a, (ix+0)
+fap_clamp:
+  jp p, fap_pos              ; guard negative (fm_set_pitch clamps the top)
+  xor a
+fap_pos:
+  ld d, a                    ; note
+  ld a, (cur_trig_ch)
+  ld e, a                    ; channel
+  ld a, d
+  jp fm_set_pitch
 .ENDS
 
 ; the SRAM probe is boot-only (cold): park it in bank 1.

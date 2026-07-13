@@ -3,6 +3,28 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.41 — 2026-07-13
+
+### Added
+- **FM arp.** The `C` (arp) command now arpeggiates the **pitch of FM voices** too,
+  not just PSG — each tick re-pitches the FM voice through the root/+x/+y steps
+  (without restarting the FM envelope). A finished (idle) FM note isn't re-keyed.
+
+### Changed
+- **CHAIN & PHRASE playhead.** The playing row is now marked with a `>` **playhead**
+  just left of the data column (like the SONG screen), instead of inverting the row
+  index.
+- **Fresh notes default to C-4** (was A-4) — the first note dropped into an empty cell
+  before you've entered any note.
+- **Game Gear layout tweaks:** the channel tag (`T1`/`T2`/…) moved one tile left so
+  there's a gap before the transport status; the CHAIN **TSP** column + header moved
+  one tile right to gap PHR/TSP. (SMS layout unchanged.)
+
+### Fixed
+- **`C` (arp) command: the +x step was silent.** It branched on the base note instead
+  of the arp phase, so it always played the +y step. `C37` now correctly cycles
+  root → +3 → +7 (on both PSG and, newly, FM).
+
 ## v0.40 — 2026-07-07
 
 ### Added
