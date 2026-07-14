@@ -40,11 +40,12 @@ Think of it as:
 | You do this | It does this |
 |---|---|
 | **D-pad** | Move the cursor (hold to repeat) |
-| **1** tap | Insert a note/value into the empty cell (repeats the last one you entered) |
+| **1** tap | Insert a note/value into the empty cell (repeats the last one you entered; the first fresh note defaults to **C-4**) |
 | **1** hold + D-pad | **Edit** the value under the cursor. Left/Right = small step (±1). Up/Down = a coarser step (varies by field: ±octave for transposes, ±4/±16 elsewhere) |
 | **1** double-tap | **Paste** the clipboard here. With nothing copied: on an *empty* cell it grabs the next **free** (blank) chain/phrase/instrument; on a *populated* SONG or CHAIN cell it **clones** that chain/phrase into a fresh slot (see *Cloning*) |
 | **2** tap | **Back** — step out: PHRASE → CHAIN → SONG |
 | **2** hold + D-pad | **Move between screens** (the screen map, below) |
+| **2** held alone (~2½ s) | Open / close the **HELP** screen (on-console reference) from anywhere |
 | **2** hold + **1** tap | **Play / Stop** |
 | **1** hold + **2** tap | **Cut** the value under the cursor (into the clipboard) |
 | **1** hold + **2** held (~⅓ s) | **Block select** (see below) |
@@ -86,18 +87,24 @@ column lands back on its own column type so nothing gets scrambled.
 Hold **2** and press the D-pad to move around this map:
 
 ```
-   [OPTIONS][PROJECT]           [WAVE]
+   [OPTIONS][PROJECT]           [WAVE][ HELP ]
    [ SONG ][ CHAIN ][PHRASE][ INSTR ][ TABLE ]
    [ FILES][GROOVE ]          [ ECHO ]
 ```
 
 Navigation stops at the edges of the map — it doesn't wrap around. **FILES** and
 **GROOVE** sit side by side on the bottom row, so `2+Right` from FILES goes to
-GROOVE and `2+Left` from GROOVE comes back.
+GROOVE and `2+Left` from GROOVE comes back. **HELP** sits above TABLE (`2+Up`
+from TABLE) — or hold **2** alone for ~2½ s to pop it open from any screen.
 
 - **SONG** — the arrangement: which chains play on each of the 4 tracks.
-- **CHAIN** — a list of phrases (with transpose), played in order.
-- **PHRASE** — 16 steps of notes, instruments and commands. The heart of it.
+- **CHAIN** — a list of phrases (with transpose), played in order. While playing, a
+  **▶ playhead** just left of the PHR column marks the step being played.
+- **PHRASE** — 16 steps of notes, instruments and commands. The heart of it. A
+  **▶ playhead** just left of the NOTE column marks the playing step.
+- **HELP** — a read-only, paged on-console reference for the button gestures and
+  the command set (above TABLE; `2+Up`, or hold **2** for ~2½ s from anywhere).
+  Left/Right (or Up/Down) turn the pages.
 - **INSTR** — design the sound of one instrument.
 - **TABLE** — a little automation sequencer an instrument can run.
 - **GROOVE** — swing and timing.
@@ -185,11 +192,13 @@ populated cell:**
 The cell repoints to the new copy, so editing it leaves the original alone.
 
 **OPTIONS → CLONE** sets how chains clone:
-- **SLIM** (default) — the new chain reuses the *same phrases* (sharing them).
-  Cheap; good for the same melody re-arranged or transposed. Editing a shared
-  phrase changes every chain that uses it.
-- **DEEP** — also makes fresh copies of every phrase the chain uses, so the
+- **DEEP** (default) — makes fresh copies of every phrase the chain uses, so the
   clone is completely independent. Uses more phrase slots.
+- **SLIM** — the new chain reuses the *same phrases* (sharing them). Cheap; good
+  for the same melody re-arranged or transposed. Editing a shared phrase changes
+  every chain that uses it.
+
+(The default is a per-session setting, not saved — it resets to DEEP on power-on.)
 
 Phrase cloning is always an independent copy. If there's no free slot (or DEEP
 won't fit), the cursor flashes and nothing is cloned.
@@ -210,7 +219,11 @@ Each instrument has a **type**, set on the INSTR screen:
   The pool is **up to 8 kits of 8 samples**; the **KIT** field (0–7) picks which kit
   and the note maps chromatically to the 8 slots (wrapping every octave). A **RATE**
   field plays it at **1× / 2× / 4× / .5×** speed (the `S` command overrides per
-  note). **TSP** transposes. *(This type was called **SMP** before v0.35.)*
+  note). **KIT samples ignore chain/phrase transpose** — since the note *is* the
+  sample selector, transposing a chain (the CHAIN **TSP** column) won't swap which
+  drum plays, so you can transpose a phrase's melody without scrambling its drums.
+  The per-note **J** command's transpose and the instrument's own **TSP** field
+  still apply. *(This type was called **SMP** before v0.35.)*
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
 - **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit**; enable it in
   **OPTIONS → FM**). **PROG** picks one of the chip's 15 ROM patches, **VOL**
@@ -504,12 +517,12 @@ Settings that belong to the *machine*, not the song:
   force PAL/NTSC to override a misreporting setup. Your choice persists in SRAM
   and applies instantly. Game Gear is NTSC-only.
 - **SRAM** — save-RAM readout (read-only).
-- **SYNC** — clock sync mode (see below).
+- **SYNC** — clock sync mode, including **MIDI** takeover (see below).
 - **COLR** — UI colour palette **0–7** (8 background/foreground pairs). Recolour
   any of them in `tools/palette.html` and reflash. Your choice persists in SRAM
   (saved when you save a song).
   Changes apply instantly.
-- **CLONE** — SLIM or DEEP, how chain cloning works (see *Cloning*).
+- **CLONE** — DEEP (default) or SLIM, how chain cloning works (see *Cloning*).
 - **FM** — `OFF`/`ON`: enable the YM2413 FM Sound Unit (for FM instruments).
   On hardware with the FM unit (or SMSPlus) FM plays alongside the PSG; some
   emulators route the single output to FM instead. Default OFF. SMS only — the
@@ -539,6 +552,17 @@ Drive), a Game Gear, or analog-clock gear. Set it on **OPTIONS → SYNC**:
 - **IN24** — follows a **24-PPQN** source (six clocks per 16th-note row): the
   **ESP32 Ableton Link bridge**, ares-link-sync, or any 24-PPQN sender. Same
   WAIT-then-lock behaviour as IN. *(Before v0.33 this was just "IN".)*
+- **MIDI** — **MIDI takeover.** The sequencer steps aside and SMSGGDJ becomes a live
+  **4-part MIDI sound module**: notes streamed from a USB-MIDI keyboard/DAW (via the
+  **ESP32-S3 bridge**) play the four voices directly. MIDI **channels 1–4 → T1 / T2 /
+  T3 / NO**; velocity sets the level, **Program Change** picks the instrument (per
+  channel; they start on instruments 0–3), and CC 120/123 = all-notes-off. It's a
+  **trigger** model, matching the tracker's envelopes: a note-on fires the
+  instrument's attack-hold-decay and plays out on its own — note-off and how long you
+  hold the key are ignored, so the instrument's **HLD/DCY** set the note length (raise
+  HLD for sustain; `F` = drone). Hardware-verified on a Master System / Mega Drive in
+  MS mode; SMS only. Setup and wiring are in the bridge repo
+  (github.com/little-scale/smsggdj-link-esp32).
 
 Cross-sync with **genmddj** uses the identical wire protocol: SMSGGDJ `OUT` ↔
 genmddj `IN`, and either unit's `IN24` follows the Link bridge.
@@ -587,13 +611,14 @@ CUT         1 hold + 2 tap
 SELECT      1 hold + 2 held (~1/3s)
 BACK        2 tap
 SCREENS     2 hold + D-pad
+HELP        2 held alone ~2.5s   (or 2+Up from TABLE)
 PLAY/STOP   2 hold + 1   (or PAUSE / Game Gear START)
 PLAY SONG   2 hold + 1 double-tap   (full song from the contextual row)
 ```
 
 ```
 SCREEN MAP
-   OPTIONS  PROJECT                  WAVE
+   OPTIONS  PROJECT                  WAVE    HELP
    SONG     CHAIN    PHRASE   INSTR   TABLE
    FILES    GROOVE                    ECHO
 ```
