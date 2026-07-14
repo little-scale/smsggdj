@@ -1475,7 +1475,13 @@ pr_note:
   or a
   jp z, pr_cmd
   dec a
-  ; apply chain transpose, clamp to table
+  ; chain (phrase) transpose -- kit (SMP) is IMMUNE: the note picks the sample
+  ; slot, so a chain transpose must not swap kit samples. The J command's own
+  ; transpose (prn_jump) still applies on top of B below, for kits too.
+  ld b, a
+  call chan_is_smp           ; Z if SMP (preserves BC)
+  ld a, b
+  jr z, pr_nok               ; SMP: skip chain transpose (A already a valid index)
   add a, (ix+9)
   jp p, pr_nclamp
   xor a
@@ -3736,6 +3742,27 @@ cf_adv:
 ; Bank 1 (spares GG bank 0); reached by call.
 .BANK 1 SLOT 1
 .SECTION "FmArp" FREE
+
+; Z if the IX channel's current instrument is SMP (type 2 = kit/sample). Preserves
+; BC/DE/HL (clobbers A). Bank 1; reached by call.
+chan_is_smp:
+  push hl
+  push de
+  ld a, (ix+1)
+  ld l, a
+  ld h, 0
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  add hl, hl
+  ld de, instruments
+  add hl, de
+  ld a, (hl)
+  pop de
+  pop hl
+  cp 2
+  ret
+
 fm_arp_pitch:
   call chan_is_fm            ; PSG re-pitches itself in calc_period
   ret nz

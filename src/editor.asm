@@ -174,6 +174,8 @@
 editor_init:
   ld a, 16                   ; C-4 (note index 15 + 1; first fresh note default)
   ld (last_note), a
+  ld a, 1                    ; default clone mode = DEEP (not SLIM)
+  ld (clone_deep), a
   xor a
   ld (last_instr), a
   ld a, CMD_KILL             ; first command insert defaults to K

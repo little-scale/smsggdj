@@ -3,6 +3,16 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.42 — 2026-07-15
+
+### Changed
+- **Kit (sample) instruments now ignore phrase/chain transpose.** Transposing a
+  phrase within a chain (the CHAIN **TSP** column) no longer changes which sample a
+  kit note plays — kits are immune, so tone/wave voices shift pitch while the
+  drums/samples stay put. Per-note **J**-command transpose still applies to kits, as
+  before.
+- **Default clone mode is now DEEP** (was SLIM) — OPTIONS → CLON still toggles it.
+
 ## v0.41 — 2026-07-13
 
 ### Added
