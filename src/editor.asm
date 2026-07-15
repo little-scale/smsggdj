@@ -5754,7 +5754,7 @@ dl_table:
   call print_at
   ld b, 3
   ld c, 7
-  ld hl, str_hpit
+  ld hl, str_htsp            ; "TSP" (was "PIT"; consistent with CHAIN/INSTR)
   call print_at
   ld b, 3
   ld c, 11
@@ -7853,7 +7853,6 @@ str_instr:       .db "INSTR", 0
 str_tabl:        .db "TABLE", 0
 str_grv:         .db "GROOVE", 0
 str_hv:          .db "V", 0
-str_hpit:        .db "PIT", 0
 str_hphr:        .db "PHR", 0
 str_htsp:        .db "TSP", 0
 str_hnote:       .db "NOTE", 0

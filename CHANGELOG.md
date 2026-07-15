@@ -3,6 +3,18 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.43 — 2026-07-15
+
+### Fixed
+- **Table VOL column now works at TBS 0** (note mode). It sets the note's AHD **peak**,
+  not just the momentary level, so the value is no longer stomped by the note's attack.
+- **A VOL-automation table no longer hangs the note.** The table VOL now applies only
+  while the note is **held** (attack/hold); once the note releases into decay, the
+  envelope finishes it — a running VOL table can't keep re-reviving a decaying note.
+
+### Changed
+- **TABLE column header `PIT` → `TSP`**, consistent with the CHAIN/INSTR screens.
+
 ## v0.42 — 2026-07-15
 
 ### Changed

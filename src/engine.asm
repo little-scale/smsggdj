@@ -3515,7 +3515,8 @@ ct_apply:
   ld a, (hl)                 ; vol column ($FF = no change)
   cp $10
   jr nc, cf_tpitch
-  ld (ix+2), a
+  call tbl_set_vol           ; set current vol AND the AHD peak, so a note-mode
+                             ;   (TBS 0) V value survives the note's attack
 cf_tpitch:
   inc hl
   ld a, (hl)                 ; pitch column (signed semitones)
@@ -3742,6 +3743,37 @@ cf_adv:
 ; Bank 1 (spares GG bank 0); reached by call.
 .BANK 1 SLOT 1
 .SECTION "FmArp" FREE
+
+; A table VOL cell (A = 0..F): set the channel's current volume AND the AHD peak
+; (high nibble of ix+4, stage preserved). Setting the peak lets a note-mode (TBS 0)
+; V value survive the note's attack. BUT only while the note is still HELD (stage
+; ATK/HLD): once it reaches DECAY/IDLE, leave the volume to the envelope's release,
+; or a running VOL table would re-write ix+2 every tick and the note would hang
+; forever (the table runs before ahd_process, so it keeps fighting the decay).
+; Preserves BC/DE/HL. Bank 1; reached by call.
+tbl_set_vol:
+  push af
+  ld a, (ix+4)
+  and $0F                    ; envelope stage
+  cp STG_DCY
+  jr nc, tsv_done            ; DECAY/KILL/IDLE: let the note release/finish
+  pop af
+  ld (ix+2), a               ; current vol
+  push bc
+  rlca
+  rlca
+  rlca
+  rlca                       ; vol << 4
+  ld b, a
+  ld a, (ix+4)
+  and $0F                    ; keep the envelope stage
+  or b
+  ld (ix+4), a
+  pop bc
+  ret
+tsv_done:
+  pop af
+  ret
 
 ; Z if the IX channel's current instrument is SMP (type 2 = kit/sample). Preserves
 ; BC/DE/HL (clobbers A). Bank 1; reached by call.
