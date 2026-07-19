@@ -47,10 +47,10 @@
 <body>
 <h1><span>SMSGGDJ</span> songs &amp; saves</h1>
 <p class="dim">Drop an <b>SMDJ4 .sav / .srm</b> (Emulicious / Everdrive cart
-image) to unpack its songs, or drop <b>.smdj4</b> songs to fill slots. Legacy
-<b>SMDJ3</b> saves and <b>.smdj</b> songs are migrated on drop. Then view or
-download songs per slot, or download the assembled cart image at your cart's
-SRAM size. Nothing leaves this page.</p>
+image, raw <i>or</i> SMS&nbsp;Plus gzip) to unpack its songs, or drop <b>.smdj4</b>
+songs to fill slots. Legacy <b>SMDJ3</b> saves and <b>.smdj</b> songs are migrated
+on drop. Then view or download songs per slot, or download the assembled cart image
+at your cart's SRAM size. Nothing leaves this page.</p>
 
 <div class="zone" id="zone">drop .sav / .srm / .smdj4 / legacy .smdj here (or click)</div>
 <input type="file" id="file" multiple hidden>
@@ -216,9 +216,26 @@ function loadSav3(d, name) {                      // legacy image: migrate on dr
   note(`${name}: SMDJ3 image — migrated ${added} song(s) to SMDJ4`);
 }
 
+// SMS Plus writes battery RAM gzip-compressed (.sav). Native browser streams
+// unpack it, so a gzipped .sav can be dropped here directly (no sramconvert step).
+async function gunzip(bytes) {
+  const ds = new DecompressionStream("gzip");
+  const blob = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(blob).arrayBuffer());
+}
+const isGzip = b => b.length > 2 && b[0] === 0x1f && b[1] === 0x8b;
+
 async function addFiles(files) {
   for (const f of files) {
-    const d = new Uint8Array(await f.arrayBuffer());
+    let d = new Uint8Array(await f.arrayBuffer());
+    if (isGzip(d)) {                              // SMS Plus gzip .sav -> raw SRAM
+      if (!("DecompressionStream" in window)) {
+        note(`${f.name}: gzipped save, but this browser lacks gzip support (try recent Chrome/Safari 16.4+/Firefox)`, true);
+        continue;
+      }
+      try { d = await gunzip(d); }
+      catch (e) { note(`${f.name}: looks gzipped but couldn't decompress it: ${e.message}`, true); continue; }
+    }
     if (magicOf(d) === "SMDJ4") {
       if (d.length === WRAP4) {                   // single .smdj4 song
         const block = d.slice(16, 16 + L4.LEN);
