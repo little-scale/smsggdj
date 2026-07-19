@@ -174,8 +174,6 @@
 editor_init:
   ld a, 16                   ; C-4 (note index 15 + 1; first fresh note default)
   ld (last_note), a
-  ld a, 1                    ; default clone mode = DEEP (not SLIM)
-  ld (clone_deep), a
   xor a
   ld (last_instr), a
   ld a, CMD_KILL             ; first command insert defaults to K
@@ -4008,7 +4006,9 @@ ccl_alloc:
   ld (last_chain), a
   jp so_mark_cur
 
-; non-empty steps (phrase != $FF) in chain tmp_note -> A
+; unique non-empty phrases (phrase != $FF) in chain tmp_note -> A. DEEP dedupes, so
+; a chain reusing a phrase clones it once -- but this precheck counts steps (a safe
+; over-estimate of the slots needed); if the pool is too tight it flashes.
 chain_phrase_count:
   ld a, (tmp_note)
   call chain_base
@@ -4072,9 +4072,10 @@ pif_used:
   or 1
   ret
 
-; DEEP: clone every phrase the new chain (tmp_instr) references to
-; a fresh slot and repoint the step. The precheck guarantees a
-; free phrase is always available.
+; DEEP: clone every phrase the new chain (tmp_instr) references to a fresh slot and
+; repoint the step. The precheck guarantees a free phrase is always available. (A
+; per-step copy: a chain reusing a phrase makes a copy per step. A dedupe version
+; was prototyped but didn't fit the banks; SLIM is the default, so DEEP is opt-in.)
 deep_clone_chain:
   ld a, (tmp_instr)
   call chain_base
