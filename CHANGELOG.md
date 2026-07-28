@@ -3,6 +3,34 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.44 — 2026-07-28
+
+### Added
+- **GGFM support in the normal Game Gear ROM.** `smsggdj.gg` now shows
+  **OPTIONS → FM** and lets INSTR select **FM/FMDRM**, allowing the same ROM to
+  drive a GGFM-modded handheld. On an unmodified Game Gear, `$F0–$F2` are
+  unassigned and writes are ignored, so enabling FM is harmless (FM notes are
+  silent). The FM preset patcher now accepts `.gg` as well as `.sms` ROMs.
+- **Experimental native Game Gear EXT support.** GGDJ now has Game Gear-specific
+  EXT-port paths for **SYNC OUT/IN/IN24** and **MIDI takeover**. These paths are
+  implemented but still need verification on real Game Gear hardware. A
+  standalone `make gg-link-test` diagnostic ROM is included for bring-up.
+- **SMS Plus gzip saves can be opened directly.** `tools/savetool.html`
+  auto-detects and decompresses gzip `.sav` files, removing the conversion step.
+
+### Changed
+- **Chain cloning defaults to SLIM again.** A new session shares phrases when
+  cloning a chain by default, avoiding failed clones when few phrase slots are
+  free. **DEEP** remains available in OPTIONS when a fully independent copy is
+  wanted.
+
+### Documentation
+- Corrected the TONE instrument VIB description to match the engine: one packed
+  speed/depth byte drives a fixed 32-step triangle with nonlinear raw-period
+  depth and per-note phase reset; there are no shape or delay parameters.
+- Added Game Gear EXT-port implementation notes, wiring cautions, and a
+  diagnostic-ROM test procedure.
+
 ## v0.43 — 2026-07-15
 
 ### Fixed

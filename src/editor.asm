@@ -24,15 +24,10 @@
 .DEFINE SEL_FLASH    18        ; frames: cursor-cell blink on entering block select
 .DEFINE PRELISTEN_LEN 32       ; ticks: cap sustained prelisten
 
-; selectable instrument types in the TYPE cycler. GG stops at WAV (3): the
-; YM2413 is SMS-only, so FM (4) / FMDRUM (5) would only ever play silence.
-; FM instruments carried in from an SMS-made song still display and can be
-; cycled *away* from - they just can't be newly selected on GG.
-.IFDEF TARGET_GG
-.DEFINE INS_TYPE_N   4
-.ELSE
+; selectable instrument types in the TYPE cycler. FM (4) / FMDRUM (5) sound
+; when YM2413 hardware is present (SMS FM unit or a GGFM-modded Game Gear);
+; their port writes are ignored and the voices are silent without the hardware.
 .DEFINE INS_TYPE_N   6
-.ENDIF
 
 .DEFINE SCR_SONG    0          ; values match MODE_* on purpose
 .DEFINE SCR_CHAIN   1
@@ -2891,7 +2886,7 @@ pco_set:
 ; -------------------------------------------------------------
 ; OPTIONS screen: the machine/rig page (persisted config block).
 ; Fields: 0 VID (AUTO/PAL/NTSC, SMS only), 1 SRAM (read-only),
-; 2 SYNC, 3 COLR, 4 CLON.
+; 2 SYNC, 3 COLR, 4 CLON, 5 FM, 6 RDLY, 7 RSPD.
 cm_set:
   bit 1, c                   ; down
   jr z, cs_up
@@ -2900,12 +2895,6 @@ cm_set:
   jr nc, cs_up
   call stg_mark_field
   inc a
-.IFDEF TARGET_GG
-  cp 5                       ; FM (field 5) absent on GG: hop over it
-  jr nz, cs_dn_st
-  inc a
-cs_dn_st:
-.ENDIF
   ld (stg_row), a
   call stg_mark_field
 cs_up:
@@ -2916,12 +2905,6 @@ cs_up:
   ret z
   call stg_mark_field
   dec a
-.IFDEF TARGET_GG
-  cp 5
-  jr nz, cs_up_st
-  dec a
-cs_up_st:
-.ENDIF
   ld (stg_row), a
   jp stg_mark_field
 
@@ -3121,20 +3104,11 @@ std_version:                 ; static build stamp on the version row (E = vis ro
   jp print_at
 
 ; visible row 0 = version/hash ($FE), row 1 blank, then the fields from row 2.
-; RDLY (field 6) and RSPD (field 7) sit on adjacent rows (no gap). On GG the FM
-; field (5) is dropped - the unit is SMS-only - so RDLY/RSPD move up into its
-; place and cm_set skips field 5.
-.IFDEF TARGET_GG
-stg_f2r:                     ; field -> row (index 5 = FM, unused on GG)
-  .db 2, 3, 5, 7, 9, 11, 11, 12
-stg_r2f:                     ; row -> field (no FM row)
-  .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 6, 7, $FF, $FF, $FF
-.ELSE
+; RDLY (field 6) and RSPD (field 7) sit on adjacent rows (no gap).
 stg_f2r:
   .db 2, 3, 5, 7, 9, 11, 13, 14
 stg_r2f:
   .db $FE, $FF, 0, 1, $FF, 2, $FF, 3, $FF, 4, $FF, 5, $FF, 6, 7, $FF
-.ENDIF
 
 prj_f2r:                     ; TMPO/TSP / MODE / CONT/SLID -- blank rows after TSP and
   .db 3, 4, 6, 8, 9          ;   after MODE group the readout, transport and transition
@@ -6679,7 +6653,7 @@ str_syncm:                   ; indexed by sync_mode*6 (genmddj order)
   .db "OUT   "                ; 1
   .db "PULSE "                ; 2
   .db "IN    "                ; 3
-  .db "MIDI  "                ; 4 (reserved; not reachable via the menu)
+  .db "MIDI  "                ; 4 (four-part live takeover)
   .db "IN24  "                ; 5
 str_psong:  .db "SONG"
 str_plive:  .db "LIVE"

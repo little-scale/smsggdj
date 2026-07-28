@@ -192,13 +192,13 @@ populated cell:**
 The cell repoints to the new copy, so editing it leaves the original alone.
 
 **OPTIONS → CLONE** sets how chains clone:
-- **DEEP** (default) — makes fresh copies of every phrase the chain uses, so the
-  clone is completely independent. Uses more phrase slots.
-- **SLIM** — the new chain reuses the *same phrases* (sharing them). Cheap; good
+- **SLIM** (default) — the new chain reuses the *same phrases* (sharing them). Cheap; good
   for the same melody re-arranged or transposed. Editing a shared phrase changes
   every chain that uses it.
+- **DEEP** — makes fresh copies of every phrase the chain uses, so the clone is
+  completely independent. Uses more phrase slots.
 
-(The default is a per-session setting, not saved — it resets to DEEP on power-on.)
+(The default is a per-session setting, not saved — it resets to SLIM on power-on.)
 
 Phrase cloning is always an independent copy. If there's no free slot (or DEEP
 won't fit), the cursor flashes and nothing is cloned.
@@ -225,8 +225,9 @@ Each instrument has a **type**, set on the INSTR screen:
   The per-note **J** command's transpose and the instrument's own **TSP** field
   still apply. *(This type was called **SMP** before v0.35.)*
 - **WAV** — plays one of the **8 wavetables** you draw on the WAVE screen.
-- **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit**; enable it in
-  **OPTIONS → FM**). **PROG** picks one of the chip's 15 ROM patches, **VOL**
+- **FM** — a YM2413 FM voice (needs the SMS **FM Sound Unit** or a Game Gear
+  fitted with the **GGFM modification**; enable it in **OPTIONS → FM**).
+  **PROG** picks one of the chip's 15 ROM patches, **VOL**
   sets the level, **HLD** the length (`F` = ring). **TSP** transposes and a
   **TBL**/**TBS** table drives it like any other voice — the table's volume
   column rewrites the FM level live and its pitch column arps the note
@@ -236,14 +237,15 @@ Each instrument has a **type**, set on the INSTR screen:
   8 ROM-baked presets (LEAD, EPNO, SBASS, BELL, BRASS, PAD, PLUCK, SINE) loaded
   into the chip's user patch. Only one custom timbre sounds at a time (the chip
   has a single user patch), so the most recent triggered preset wins. Edit and
-  audition those 8 presets in `tools/fmpatch.html` (a browser tool) and reflash.
-  SMS only.
+  audition those 8 presets in `tools/fmpatch.html` (it accepts the SMS and Game
+  Gear ROMs) and reflash.
+  Available in both ROM builds, but it only sounds when YM2413 hardware exists.
 - **FMDRM** — the YM2413's drum kit (rhythm mode). One instrument is the whole
   kit; the **note picks the drum** — C = bass drum, C♯ = snare, D = tom, D♯ =
   cymbal, E = hi-hat (and it repeats every 5 semitones, so any octave works).
   **VOL** sets the level and **HLD** the length (`F` = ring). It uses spare FM
-  voices, so it costs none of the 4 tracks. Needs the FM Sound Unit
-  (**OPTIONS → FM**); SMS only.
+  voices, so it costs none of the 4 tracks. Needs the SMS FM Sound Unit or
+  GGFM modification (**OPTIONS → FM**).
 
 Put an instrument's number next to a note in a PHRASE to play that note with
 that sound. Unedited instruments default to full volume with an instant attack
@@ -279,9 +281,14 @@ NTSC and 1/50 s on PAL. Volume is the 0–F musical scale (16 levels).
 - **SWP** — pitch sweep: a single **signed** byte added to the pitch every
   tick (a continuous glide; same engine as the `P` command). Positive (`01`–
   `7F`) slides **down**, negative (`80`–`FF`) slides **up**; bigger = steeper.
-- **VIB** — vibrato (pitch wobble). Two nibbles, **speed**·**depth**. Speed
-  (high) sets the rate ≈ speed × 0.9 Hz on NTSC (so `1` ≈ 1 Hz up to `F` ≈
-  14 Hz); depth (low) sets how wide (`0` = none). E.g. `48` = ~3.8 Hz, depth 8.
+- **VIB** — vibrato (pitch wobble). Two nibbles, **speed**·**depth**, driving
+  a fixed 32-step triangle LFO. Speed (high) sets the rate ≈ speed × 0.94 Hz
+  on NTSC (×0.78 Hz on PAL; `0` is stopped), so `F` is about 14 Hz on NTSC.
+  Depth (low) uses the nonlinear raw-period amplitudes
+  `0,1,2,3,4,5,6,8,10,13,17,22,28,36,46,60`; because these are PSG-period
+  units, the interval is wider on higher notes and is not perfectly symmetric
+  in cents. The phase resets to the centre on every new note. There are no
+  selectable shapes or onset-delay controls. E.g. `48` is ~3.8 Hz at depth 8.
 - **TRM** — tremolo (volume wobble): same **speed**·**depth** as VIB, but it
   dips the volume (only downward from the set level).
 - **TBL** / **TBS** — table to run, and its speed. `1`–`F` step the table one
@@ -522,11 +529,12 @@ Settings that belong to the *machine*, not the song:
   any of them in `tools/palette.html` and reflash. Your choice persists in SRAM
   (saved when you save a song).
   Changes apply instantly.
-- **CLONE** — DEEP (default) or SLIM, how chain cloning works (see *Cloning*).
-- **FM** — `OFF`/`ON`: enable the YM2413 FM Sound Unit (for FM instruments).
+- **CLONE** — SLIM (default) or DEEP, how chain cloning works (see *Cloning*).
+- **FM** — `OFF`/`ON`: enable the YM2413 hardware (for FM instruments).
   On hardware with the FM unit (or SMSPlus) FM plays alongside the PSG; some
-  emulators route the single output to FM instead. Default OFF. SMS only — the
-  field is **not shown on the Game Gear** (no FM hardware there).
+  emulators route the single output to FM instead. Default OFF. On an
+  unmodified Game Gear, the FM ports are unassigned and writes are ignored, so
+  turning this on is harmless; FM instruments are simply silent.
 - **RDLY** / **RSPD** — cursor **key-repeat** tuning, in frames. `RDLY` (1–60,
   default 14) is how long you hold a d-pad direction before it starts
   auto-repeating; `RSPD` (1–30, default 3) is how fast it repeats after that
@@ -537,8 +545,9 @@ Settings that belong to the *machine*, not the song:
 ## 12. Syncing to other gear
 
 SMSGGDJ can lock its tempo to another machine over **controller port 2**
-(Master System) — useful for jamming with another SMSGGDJ, a **genmddj** (Mega
-Drive), a Game Gear, or analog-clock gear. Set it on **OPTIONS → SYNC**:
+(Master System) or the **EXT port** (Game Gear) — useful for jamming with
+another SMSGGDJ, a **genmddj** (Mega Drive), a Game Gear, or analog-clock gear.
+Set it on **OPTIONS → SYNC**:
 
 - **OFF** — no sync (default).
 - **OUT** — this unit is the **master**; it sends one clock per row while
@@ -561,7 +570,8 @@ Drive), a Game Gear, or analog-clock gear. Set it on **OPTIONS → SYNC**:
   instrument's attack-hold-decay and plays out on its own — note-off and how long you
   hold the key are ignored, so the instrument's **HLD/DCY** set the note length (raise
   HLD for sustain; `F` = drone). Hardware-verified on a Master System / Mega Drive in
-  MS mode; SMS only. Setup and wiring are in the bridge repo
+  MS mode. The Game Gear EXT implementation is experimental and not yet
+  hardware-verified. Setup and wiring are in the bridge repo
   (github.com/little-scale/smsggdj-link-esp32).
 
 Cross-sync with **genmddj** uses the identical wire protocol: SMSGGDJ `OUT` ↔
@@ -597,6 +607,12 @@ The Game Gear build shows the same tracker on the smaller screen — the same
   simply ignored.)
 - The WAVE screen shows its 32 steps in two halves; **1** + Left/Right flips
   pages.
+- The normal `smsggdj.gg` ROM supports the **GGFM YM2413 modification**:
+  enable **OPTIONS → FM**, then select **FM** or **FMDRM** instruments. The same
+  ROM is safe on an unmodified Game Gear; FM notes just produce no sound.
+- **SYNC OUT/IN/IN24 and MIDI takeover use the EXT port.** This native Game
+  Gear path is experimental and still needs real-hardware verification; see
+  `GGSYNC.md` and `GG_LINK_TEST.md` before wiring or testing it.
 
 ---
 

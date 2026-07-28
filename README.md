@@ -7,10 +7,11 @@ Gear**, written in pure Z80 assembly. Make music on real hardware (via
 flashcart) or in an emulator, using just the D-pad and two buttons. Sound is
 the SN76489 PSG — three square channels and noise — plus 4-bit PCM samples and
 drawn wavetables via the volume-register DAC trick, a built-in tempo-synced
-echo, and Game Gear stereo. On a Master System with the **FM Sound Unit** you
-also get YM2413 FM: melodic voices (15 ROM patches + 8 ROM-baked custom presets,
-with tables and per-note commands) and a rhythm-mode drum kit, sounding
-alongside the PSG (SMS only, off by default).
+echo, and Game Gear stereo. On a Master System with the **FM Sound Unit** — or a
+Game Gear fitted with the **GGFM hardware modification** — you also get YM2413
+FM: melodic voices (15 ROM patches + 8 ROM-baked custom presets, with tables and
+per-note commands) and a rhythm-mode drum kit, sounding alongside the PSG (off
+by default).
 
 > 📺 **[Video tutorials](https://www.youtube.com/playlist?list=PLf0JfRVkMERq5UKv2p6lkpVskXwkyfFCt)** — a growing playlist walking through how to use SMSGGDJ.
 
@@ -54,15 +55,16 @@ and press play.
   console sound, and download a ROM with your sample bank. No toolchain.
 - **[tools/savetool.html](tools/savetool.html)** — unpack songs from a `.sav`,
   assemble a cart image (pick 8/16/32 KB), or click a slot to view a song's
-  notes, commands and instruments — in the browser.
+  notes, commands and instruments — in the browser. Raw and SMS Plus gzip
+  `.sav` files are both accepted directly.
 - **[tools/migrate.html](tools/migrate.html)** — carry an older (SMDJ3) `.sav`
   forward to the current compressed format: it RLE-packs every song into an
   SMDJ4 directory + heap image. Drop the old save, download the new one.
 - **[tools/palette.html](tools/palette.html)** — drop a built ROM and recolour
   its 8 UI palettes (0–7): pick a background + foreground for each (the pickers
   snap to the 64 hardware colours), then download the patched ROM. No toolchain.
-- **[tools/fmpatch.html](tools/fmpatch.html)** — drop a built `.sms` ROM and
-  edit its 8 custom FM presets (the YM2413 user patches an FM instrument's
+- **[tools/fmpatch.html](tools/fmpatch.html)** — drop a built `.sms` or `.gg`
+  ROM and edit its 8 custom FM presets (the YM2413 user patches an FM instrument's
   **PRST** field selects): per-operator MUL/AR/DR/SL/RR/KSL/TL, feedback,
   waveforms and names, **audition** each through a JS port of the emu2413
   YM2413 core, then download the patched ROM. No toolchain.
@@ -83,6 +85,8 @@ and press play.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed, per version.
 - **[HARDWARE.md](HARDWARE.md)** — controller-port and Game Gear EXT pinouts,
   sync cabling, and the EXT paddle-PCB notes.
+- **[GG_LINK_TEST.md](GG_LINK_TEST.md)** — build and safely use the standalone
+  Game Gear EXT-port diagnostic ROM during hardware bring-up.
 
 ### Companion projects
 

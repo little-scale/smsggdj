@@ -84,13 +84,13 @@
 ; sync over controller port 2 (TR = pin 9, TH = pin 7, GND = 8)
 ; Sync modes mirror genmddj for cross-machine parity. OUT/IN are 1-clock-per-row
 ; (lock two units at any tempo); IN24 is the old 2-bit 24-PPQN method (the ESP32
-; Ableton-Link bridge still sends 24 PPQN). MIDI is a reserved genmddj slot, not
-; selectable on SMSGGDJ (it behaves as OFF if ever loaded).
+; Ableton-Link bridge still sends 24 PPQN). MIDI retains genmddj's slot number
+; and selects the four-part live takeover implemented in src/midi.asm.
 .DEFINE SYNC_OFF    0          ; port untouched
 .DEFINE SYNC_OUT    1          ; 2-bit counter out on TR+TH, one clock per row
 .DEFINE SYNC_PULSE  2          ; Volca/PO pulse out on TR (2 PPQN)
 .DEFINE SYNC_IN     3          ; follow an OUT master, one row per clock (/1)
-.DEFINE SYNC_MIDI   4          ; reserved (genmddj parity); unused on SMSGGDJ
+.DEFINE SYNC_MIDI   4          ; four-part MIDI takeover (genmddj-compatible slot)
 .DEFINE SYNC_IN24   5          ; follow a 24-PPQN sender, /6 (ESP32 Link bridge)
 .DEFINE PULSE_DIV   12         ; ticks per pulse (2 PPQN, groove 6)
 
@@ -415,6 +415,10 @@ engine_stop:
   ld (sync_wait), a
   ld a, $FF                  ; release the port-2 sync lines
   out ($3F), a
+.IFDEF TARGET_GG
+  ld a, $7F                  ; GG: release the EXT pins too (PC0-6 back to inputs),
+  out ($02), a               ;   so a GG that was OUT stops driving and can read
+.ENDIF
   call live_q_clear          ; drop pending live queues (and their markers)
   ; quiesce the channels so the stopped prelisten fx pass can't keep firing
   ; notes: zero the volume, idle the envelope, and drop any pending retrigger
@@ -518,6 +522,24 @@ cnp_none:
 .BANK 1 SLOT 1
 .SECTION "Sync" FREE
 
+.IFDEF RLE_SELFTEST
+; The self-test freezes on the splash before transport can run. Keep link-time
+; symbols for the otherwise-unreachable engine calls, but leave the production
+; sync implementation out so the extra RLE test routines still fit in bank 1.
+sync_read:
+  ld b, 0
+  ret
+sync_out:
+sync_pulse_out:
+  ret
+sync_in_delta:
+  xor a
+  ret
+sync_is_slave:
+  or 1                        ; NZ: use the ordinary non-slave engine path
+  ret
+.ELSE
+
 ; -------------------------------------------------------------
 ; sync I/O on controller port 2. Port $3F: low nibble = pin
 ; directions (0 = output), high nibble = levels; $FF = released.
@@ -530,6 +552,27 @@ cnp_none:
 ; passes whichever line carries the signal, so every cable type
 ; works with no setting. Clobbers C.
 sync_read:
+.IFDEF TARGET_GG
+  ; Game Gear: the EXT/link pins are read from the GG PARALLEL DATA port ($01), NOT
+  ; the SMS controller register ($DD) -- $DD does not sample the EXT pins on a GG.
+  ; PC0-6 = bits 0-6; TL=PC4(bit4), TR=PC5(bit5), TH=PC6(bit6). Counter bit 0 = TR
+  ; AND TL (so a straight or crossed Gear-to-Gear cable both work), bit 1 = TH.
+  ; The EXT pins default to input at reset and SMSGGDJ never drives them, so SYNC IN
+  ; needs no direction ($02) init. If a read misbehaves on hardware, a $02 direction
+  ; init (PC4-6 as inputs) is the next thing to try -- see GGSYNC.md.
+  in a, ($01)                ; PC0-6 parallel data
+  ld c, a
+  ld b, 0
+  and $30                    ; TR AND TL (PC5 & PC4, bits 5/4)
+  cp $30
+  jr nz, sr_th
+  ld b, 1
+sr_th:
+  bit 6, c                   ; TH (PC6)
+  ret z
+  set 1, b
+  ret
+.ELSE
   in a, ($DD)                ; bit 3 = TR, bit 2 = TL, bit 7 = TH
   ld c, a
   ld b, 0
@@ -542,6 +585,7 @@ sr_th:
   ret z
   set 1, b
   ret
+.ENDIF
 
 ; OUT: bump the 2-bit counter onto TR+TH. Called once per ROW advance (not per
 ; frame), so the clock follows the master's tempo and a /1 slave stays locked.
@@ -550,11 +594,33 @@ sync_out:
   inc a
   and $03
   ld (sync_cnt), a
+.IFDEF TARGET_GG
+  ; GG master: drive the counter onto the EXT parallel port ($01). Bit 0 goes to
+  ; BOTH TL(PC4) and TR(PC5) so a straight OR crossed Gear-to-Gear cable both work
+  ; (the slave reads bit 0 = TR AND TL); bit 1 -> TH(PC6). $02 sets PC4-6 as outputs
+  ; (0 = output per GGSYNC.md; PC0-3 kept as inputs, NMI off). Direction convention
+  ; is hardware-unverified: if the master drives nothing, try $70 for $02 instead.
+  ld c, a                    ; c = counter 0-3
+  ld a, $0F
+  out ($02), a               ; PC4-6 output
+  xor a
+  bit 0, c
+  jr z, so_gg_b1
+  or $30                     ; counter bit 0 -> TL(PC4) + TR(PC5)
+so_gg_b1:
+  bit 1, c
+  jr z, so_gg_wr
+  or $40                     ; counter bit 1 -> TH(PC6)
+so_gg_wr:
+  out ($01), a
+  ret
+.ELSE
   rrca
   rrca                       ; counter bits 0-1 -> levels 6-7
   or $33                     ; P2 TR+TH outputs, P1 untouched
   out ($3F), a
   ret
+.ENDIF
 
 ; PULSE: raise TR for one tick every PULSE_DIV ticks (2 PPQN). Called per frame.
 sync_pulse_out:
@@ -612,6 +678,7 @@ sync_is_slave:
   cp SYNC_IN24
   ret
 
+.ENDIF
 .ENDS
 
 .BANK 0 SLOT 0
@@ -685,8 +752,15 @@ et_fx:
 
 .ENDS
 
-; echo lives in bank 1 (slot 1, always mapped): bank 0 is full.
+; Echo normally lives in bank 1 (slot 1, always mapped): bank 0 is full. The
+; standalone RLE self-test never starts the engine, so its build parks this
+; otherwise-unreachable section in the unused sample-pool slot to make room for
+; the additional test routines.
+.IFDEF RLE_SELFTEST
+.BANK 2 SLOT 2
+.ELSE
 .BANK 1 SLOT 1
+.ENDIF
 .SECTION "Echo" FREE
 
 ; ===========================================================

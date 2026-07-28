@@ -3,6 +3,7 @@ LINK  := wlalink
 BUILD := build
 ROM   := $(BUILD)/smsggdj.sms
 GGROM := $(BUILD)/smsggdj.gg
+GGTESTROM := $(BUILD)/gg-link-test.gg
 
 # Versioned copies for distribution: str_version ("V0.27") -> a filename-safe
 # tag with no spaces or dots, e.g. build/smsggdj_v0_27.sms. The canonical names
@@ -98,6 +99,23 @@ $(GGROM): $(BUILD)/main-gg.o $(BUILD)/linkfile-gg
 	@test "$$(xxd -s 32767 -l 1 -p $@)" = "6c" || \
 	  { echo "!! GG region stamp failed ($@ would run in SMS mode)"; rm -f $@; exit 1; }
 
+# Standalone Game Gear EXT/link-port diagnostic.  It polls pins 6, 7 and 9 as
+# parallel GPIO, counts sampled edges, and can deliberately arm the PC6 NMI.
+$(BUILD)/gg-link-test.o: src/gg_link_test.asm $(BUILD)/font.bin | $(BUILD)
+	$(ASM) -I $(BUILD) -o $@ src/gg_link_test.asm
+
+$(BUILD)/linkfile-gg-link-test: Makefile | $(BUILD)
+	printf '[objects]\n$(BUILD)/gg-link-test.o\n' > $@
+
+$(GGTESTROM): $(BUILD)/gg-link-test.o $(BUILD)/linkfile-gg-link-test
+	$(LINK) -v $(BUILD)/linkfile-gg-link-test $@
+	printf '\x6c' | dd of=$@ bs=1 seek=32767 conv=notrunc 2>/dev/null
+	@test "$$(xxd -s 32767 -l 1 -p $@)" = "6c" || \
+	  { echo "!! GG region stamp failed ($@ would run in SMS mode)"; rm -f $@; exit 1; }
+
+gg-link-test: $(GGTESTROM)
+	@echo built Game Gear link diagnostic: $(GGTESTROM)
+
 # version-stamped copies (re-made whenever the canonical ROM changes; a release
 # version bump in str_version yields a new filename automatically)
 $(VROM): $(ROM)
@@ -148,7 +166,7 @@ clean:
 
 FORCE:
 
-.PHONY: all clean run run-gg dist FORCE
+.PHONY: all clean run run-gg dist gg-link-test FORCE
 
 # codec self-test ROM: boots, round-trips rle_pack/rle_unpack on an embedded
 # vector, shows RLE OK / RLE ERR on the splash. Zero cost in the normal build.

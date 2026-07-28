@@ -2,7 +2,10 @@
 **The living design contract** (started as v0.2, 2026-06-11; maintained alongside the code — see CHANGELOG.md for the release history). Settled decisions live here; don't re-litigate them.
 
 Target: a single ROM that runs on real SMS hardware (via flashcart) and in emulators.
-Sound: SN76489 PSG (including 4-bit PCM on it — see §10), plus the optional SMS YM2413 FM Sound Unit (SMS-only — see the FM addendum). CPU: Z80 @ 3.546893 MHz (PAL, default) / 3.579545 MHz (NTSC).
+Sound: SN76489 PSG (including 4-bit PCM on it — see §10), plus an optional
+YM2413 (the SMS FM Sound Unit, or the GGFM hardware modification on Game Gear —
+see the FM addendum). CPU: Z80 @ 3.546893 MHz (PAL, default) / 3.579545 MHz
+(NTSC).
 
 Changes in v0.2:
 - PAL **and** NTSC support; PAL is the default assumption, auto-detected at boot with user override (§5.1).
@@ -45,7 +48,10 @@ Post-v0.2 addenda (implemented):
 | Video timing | 50/60 Hz is fixed by the console's hardware (crystal + VDP); software cannot switch it. | "PAL/NTSC support" = the *timing engine* adapts (tick rate, BPM math, sample cadence), not the video output. Auto-detect + override, §5.1. |
 | ROM | Standard Sega mapper, header at 0x7FF0 ("TMR SEGA") required by export BIOS. The `.gg` build's region byte (0x7FFF) is post-link-stamped to **GG Export (`$6x`)** — `.SMSTAG` only emits an SMS code, which makes flashcarts run the ROM in SMS mode (letterbox + wrong palette). | 128 KB ROM: 3 fixed/banked code+table pages, rest = sample pool banks. |
 
-Explicitly **out of scope**: MIDI *output* (parked for v2) and expansion audio beyond the FM unit. *(Game Gear stereo + a native GG build, and **YM2413 FM via the SMS FM Sound Unit**, joined the scope post-v0.2 — §15 and the FM addendum below.)*
+Explicitly **out of scope**: MIDI *output* (parked for v2) and expansion audio
+beyond the FM unit. *(Game Gear stereo + a native GG build, and **YM2413 FM via
+the SMS FM Sound Unit or GGFM modification**, joined the scope post-v0.2 — §15
+and the FM addendum below.)*
 
 ---
 
@@ -200,7 +206,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 ### Common to all types
 | Param | Range | Meaning |
 |---|---|---|
-| TYPE | TONE / NOISE / KIT / WAV / FM / FMDRM | (FM/FMDRM are SMS-only, see the FM addendum) |
+| TYPE | TONE / NOISE / KIT / WAV / FM / FMDRM | FM/FMDRM require YM2413 hardware to sound: SMS FM hardware or a GGFM-modded Game Gear |
 | NAME | 5 chars | shown in PHRASE column hint |
 | VOL | 0–F | peak / hold volume (F = loudest) |
 | ATK | 0–F | attack: ticks per volume step on the way up (0 = instant). Full ramp = VOL × ATK ticks |
@@ -214,7 +220,7 @@ Play song from row / loop chain / loop phrase (transport context, §3); **prelis
 | Param | Range | Meaning |
 |---|---|---|
 | FINE | ±F | finetune in raw period units |
-| VIB TYPE / SPD / DEP / DLY | OFF/TRI/SAW/SQR, 0–F each | LFO shape, speed, depth, onset delay |
+| VIB SPD / DEP | 0–F each, packed as `xy` | Fixed 32-step triangle LFO. Speed is ~x×0.94 Hz NTSC (~x×0.78 Hz PAL; 0 = stopped); depth uses the nonlinear raw-period curve `0,1,2,3,4,5,6,8,10,13,17,22,28,36,46,60`. Phase resets on every note. There are no shape or delay controls. |
 | PORTA | 0–F | default tone-portamento speed (`L` command overrides) |
 
 ### NOISE
@@ -244,7 +250,7 @@ Form field order is **KIT, RATE, TSP**. Pitched sample playback via phase accumu
 
 Common params apply; the host channel's volume/envelope *gate* the wave (volume 0 stops it) rather than scaling the DAC, so a WAV instrument only uses **HLD** as its length (ATK/DCY are inaudible through the gate). The note column is pitched normally — wavetables are melodic instruments.
 
-### FM (YM2413) — post-v0.2 addendum (SMS only)
+### FM (YM2413) — post-v0.2 addendum
 | Param | Range | Meaning |
 |---|---|---|
 | PROG | 1–15 | which YM2413 ROM patch (voice) |
@@ -253,7 +259,28 @@ Common params apply; the host channel's volume/envelope *gate* the wave (volume 
 | TSP | ±  | transpose (instrument + global), applied before the F-number lookup |
 | TBL/TBS | — | table # / speed — FM honours tables (below) |
 
-Needs the SMS **FM Sound Unit** (ports `$F0`/`$F1`/`$F2`), enabled by **OPTIONS → FM** (persisted; default OFF). Pitch comes from a region F-number/block table (`maketables.py`, like the PSG note table). The FM table is voiced **`FM_OCT_SHIFT` = 2 octaves below** the PSG note of the same index (so note index 0, shown `A-2`, sounds **A0 ≈ 27.5 Hz**), letting the shared note field reach FM's whole range — and *below* the PSG floor — without extending the note table. With a patch **MUL = 0** (×0.5 operator multiplier) the carrier drops another octave, so the **lowest FM carrier is ≈ 13.75 Hz** (sub-audio — useful as an LFO-ish rumble). A track hosting an FM instrument plays on the FM channel of the same index and **silences its PSG voice**; the FM note uses the chip's own envelope (no per-tick engine work beyond the HLD key-off). `$F2` is a PSG/FM mux on the external unit (and Emulicious) but sums on the built-in FM hardware (and SMSPlus). **Hardware-verified on a PAL SMS1 + FM Sound Unit** — melodic FM, FMDRM drums, custom presets, and the `X`/`Y`/table commands all confirmed on real silicon.
+Needs a YM2413 exposed at ports `$F0`/`$F1`/`$F2`: the SMS **FM Sound Unit**
+or a Game Gear fitted with the **GGFM hardware modification**. It is enabled by
+**OPTIONS → FM** (persisted; default OFF). The normal GGDJ build exposes the
+toggle and FM instrument types. On an unmodified Game Gear, ports `$F0–$F2` are
+unassigned: writes are ignored and FM voices are simply silent. A GGFM-modded
+unit decodes those same ports, so it uses the ordinary `.gg` ROM with no special
+build. Pitch comes from a region F-number/block table (`maketables.py`, like the
+PSG note table). The FM table is voiced **`FM_OCT_SHIFT` = 2 octaves below** the
+PSG note of the same index (so note index 0, shown `A-2`, sounds **A0 ≈ 27.5
+Hz**), letting the shared note field reach FM's whole range — and *below* the
+PSG floor — without extending the note table. With a patch **MUL = 0** (×0.5
+operator multiplier) the carrier drops another octave, so the **lowest FM
+carrier is ≈ 13.75 Hz** (sub-audio — useful as an LFO-ish rumble). A track
+hosting an FM instrument plays on the FM channel of the same index and
+**silences its PSG voice**; the FM note uses the chip's own envelope (no
+per-tick engine work beyond the HLD key-off). `$F2` is a PSG/FM mux on the
+external SMS unit (and Emulicious) but sums on the built-in FM hardware (and
+SMSPlus).
+**Hardware-verified on a PAL SMS1 + FM Sound Unit** — melodic FM, FMDRM drums,
+custom presets, and the `X`/`Y`/table commands all confirmed on real silicon.
+The ordinary GG ROM is contributor-confirmed working on GGFM-modified hardware;
+the project's own hardware regression is still pending.
 
 **Custom presets.** Beyond the 15 ROM patches, an FM instrument's **PRST** field (instrument byte +11; `OFF` = use the ROM PROG, `1`–`8` = a custom timbre) selects one of 8 ROM-baked user-patch presets. On trigger the preset's 8 bytes load into the YM2413 user patch (`$00`–`$07`) and the note plays patch 0 — but only re-loaded when the selected preset actually changes (tracked in `fm_user_preset`), so repeated notes stay off the hot path. **There is only one user patch (global), so only one custom timbre sounds at a time** — the most recent trigger wins; two instruments on different presets fight. `Y` forces a ROM patch and ignores the preset for that note. The presets are a self-describing, marker-delimited block (`"FMPRST"` magic + version + count, then 8×8 patch bytes, then 8×5 names) so `tools/fmpatch.html` (a browser editor, like the palette/sample-pool tools) can find and rewrite them — per-operator MUL/AR/DR/SL/RR/KSL/TL, feedback, waveforms and names. Baked values are a tunable starting palette (LEAD/EPNO/SBASS/BELL/BRASS/PAD/PLUCK/SINE).
 
@@ -388,21 +415,23 @@ Wavetable synthesis through the same T3 DC-DAC as PCM samples, sharing the entir
 
 ---
 
-## 11. Sync (controller port 2) — native master/slave
+## 11. Sync (controller port 2 / Game Gear EXT) — native master/slave
 
 Replaces the v0.2 MIDI-adapter-first plan: SMSGGDJ instances sync **directly to each
-other** over controller port 2, no adapter needed. OPTIONS → `SYNC: OFF / OUT / PULSE /
-IN / IN24` (**OFF is the default** — the port is never driven unasked). The port only drives while the transport
-runs; stopping (or changing mode) releases the lines (`OUT ($3F), $FF`).
+other** over controller port 2 (SMS) or the EXT port (GG), no adapter needed.
+OPTIONS → `SYNC: OFF / OUT / PULSE / IN / IN24` (**OFF is the default** — the
+port is never driven unasked). The port only drives while the transport runs;
+stopping (or changing mode) releases the lines.
 
 **Reworked 2026-06-29 to mirror genmddj for cross-machine sync.** The mode set and
 numbering now match genmddj (`SYNC_OFF=0, OUT=1, PULSE=2, IN=3, MIDI=4 reserved,
 IN24=5`). The key change: **OUT/IN are now one clock per _row_** (not per tick), so
 two units lock in lockstep at any tempo; **IN24** keeps the old 2-bit **24-PPQN
-(÷6)** method for the ESP32 Ableton-Link bridge and other 24-PPQN senders. `MIDI`
-is a reserved genmddj slot, not selectable on SMSGGDJ (it behaves as OFF). The wire
-protocol (2-bit mod-4 counter on TR+TH) is unchanged, so a SMSGGDJ OUT drives a
-genmddj IN (and vice versa) directly, and either unit's IN24 follows the bridge.
+(÷6)** method for the ESP32 Ableton-Link bridge and other 24-PPQN senders.
+`MIDI` retains genmddj's slot number and is selectable as a four-part live
+takeover mode. The sync wire protocol (2-bit mod-4 counter on TR+TH) is
+unchanged, so a SMSGGDJ OUT drives a genmddj IN (and vice versa) directly, and
+either unit's IN24 follows the bridge.
 
 The engine now runs **one tick per frame in every mode**; a slave accumulates the
 master's received clocks and advances a row per ÷1 (IN) or ÷6 (IN24) — so a
@@ -419,9 +448,12 @@ works with no setting; pull-ups hold the unused line high):
 - **GG ↔ GG**: a stock **Gear-to-Gear cable** — it crosses TR↔TL (its serial
   TX/RX swap) and passes TH straight; the AND read absorbs the crossover.
 
-TR/TH are software-direction pins: outputs via port `$3F` on the master, read
-back on port `$DD` on the slave (TR bit 3, TL bit 2, TH bit 7). **Export
-consoles only** — Japanese SMS hardware ignores `$3F` level drive.
+On SMS, TR/TH are software-direction pins: outputs via port `$3F` on the master,
+read back on port `$DD` on the slave (TR bit 3, TL bit 2, TH bit 7). **Export
+consoles only** — Japanese SMS hardware ignores `$3F` level drive. The native GG
+build instead uses EXT parallel data port `$01` and direction port `$02`
+(PC4/PC5/PC6); see `GGSYNC.md`. The GG path is implemented but
+**hardware-unverified**, so it remains experimental for v0.44.
 
 ### 11.1 OUT — 2-bit counter on TR+TH, one clock per row
 
@@ -531,8 +563,8 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 
 ## 15. GGDJ — the native Game Gear build *(post-v0.2)*
 
-One tree, two ROMs: `TARGET_GG` selects the flavor; everything musical
-(engine, sampler, waves, save format, pool contract, patcher) is shared.
+One tree, two ROMs: `TARGET_GG` selects the native Game Gear flavor; everything
+musical (engine, sampler, waves, save format, pool contract, patcher) is shared.
 
 - **Window layout:** the GG LCD shows a 20×18-tile window of the 256×192 frame
   (origin tile 6,3). The whole UI shifts there via a single origin in
@@ -547,9 +579,17 @@ One tree, two ROMs: `TARGET_GG` selects the flavor; everything musical
   CRAM writes are 12-bit pairs (COLR schemes upscale ×5 per channel); region
   is fixed NTSC (no region line); `O` pan writes the stereo register natively
   (the SMS build only tracks state).
-- **Sync (decided, not yet built):** the GG flavor will use the EXT port's
-  **serial mode** (hardware UART, 4800 8N1, NMI-on-receive) speaking MIDI
-  real-time bytes — not parallel mode. GG↔GG via a stock Gear-to-Gear cable;
-  the SMS counter protocol stays for SMS rigs.
+- **FM:** the ordinary `.gg` ROM shows OPTIONS → FM and lets INSTR select
+  FM/FMDRM. A GGFM-modded unit decodes the YM2413 ports and produces FM audio;
+  on an unmodified Game Gear those ports are unassigned, so enabling FM is
+  harmless but FM notes are silent.
+- **Sync / MIDI takeover (experimental):** the GG flavor uses the EXT port's
+  **parallel mode** so the existing mod-4 counter protocol can serve
+  OUT/IN/IN24 without an asynchronous UART interrupt. MIDI takeover uses the
+  same EXT registers for its two-wire clock/data protocol. GG↔GG uses a stock
+  Gear-to-Gear cable. The code paths and standalone `make gg-link-test`
+  diagnostic are implemented, but direction semantics, electrical behaviour,
+  and bridge/cable wiring still need verification on real Game Gear hardware;
+  see `GGSYNC.md` and `GG_LINK_TEST.md`.
 
 **v2 parking lot:** pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.

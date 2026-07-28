@@ -4,6 +4,7 @@ tools/emulicious/
 samples/*.preview.wav
 *.preview.wav
 tools/__pycache__/
+saves/
 
 # local design scratch (not for the repo yet)
 MIDI.md

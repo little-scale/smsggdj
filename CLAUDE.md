@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-SMSGGDJ — an LSDJ-inspired music tracker for the Sega Master System and Game Gear (one tree, two ROM flavors: SMSGGDJ and GGDJ), written in pure Z80 assembly (WLA-DX). Sound is the SN76489 PSG, including 4-bit PCM and wavetable synthesis via the tone-period-1 DC-DAC trick on channel T3. On the SMS, an optional **YM2413 FM Sound Unit** is also driven (melodic FM with tables/commands, rhythm-mode drums, and 8 ROM-baked custom presets) — gated by OPTIONS → FM, SMS-only, runtime-gated off on GG. See DESIGN.md §"FM (YM2413)".
+SMSGGDJ — an LSDJ-inspired music tracker for the Sega Master System and Game
+Gear (one tree, two ROM flavors: SMSGGDJ and GGDJ), written in pure Z80 assembly
+(WLA-DX). Sound is the SN76489 PSG,
+including 4-bit PCM and wavetable synthesis via the tone-period-1 DC-DAC trick
+on channel T3. An optional **YM2413** is also driven (melodic FM with
+tables/commands, rhythm-mode drums, and 8 ROM-baked custom presets) — the SMS
+uses its FM Sound Unit, while the ordinary GG ROM supports a Game Gear fitted
+with the GGFM hardware modification. Both are gated by OPTIONS → FM. On an
+unmodified GG, `$F0–$F2` are unassigned and writes are ignored, so FM voices
+are silent without affecting the hardware. See DESIGN.md §"FM (YM2413)".
 
 **DESIGN.md is the contract.** It records hardware constraints, the data model, and decisions that were already debated (PAL default, CH3-steal policy, control scheme, 24 PPQN sync default). Read the relevant section before making design decisions; don't re-litigate settled ones. SAVEFORMAT.md documents the save/SRAM format and must be kept in sync with any RAM-layout change.
 
@@ -39,12 +48,13 @@ Game Gear flavor (below). The build boots to a blank song (`song_new` seeds the
 8 preset waves from `default_waves`; there is no built-in demo song). The boot
 splash lives in a bank-1 `"Splash"` section (bank 0/slot 0 is full).
 
-Two ROM flavors from one tree: `TARGET_GG` (assembled as `main-gg.o`) is the
-native Game Gear build — 20×18-tile window layout via a UI origin in
+Two ROM flavors come from one tree: `TARGET_GG` (assembled as `main-gg.o`) is
+the native Game Gear build — 20×18-tile window layout via a UI origin in
 `nt_addr_hl` plus per-flavor defines (`GRID_ROW`, `NAME_ROW`, `STATE_*`),
-START instead of PAUSE, 12-bit CRAM, NTSC-only, paged WAVE screen. Layout
-literals must respect the GG window: columns ≥20 and grid rows beyond 15
-don't exist there (DESIGN.md §15).
+START instead of PAUSE, 12-bit CRAM, NTSC-only, paged WAVE screen, and the
+shared FM controls for GGFM-modified hardware. Layout literals must respect the
+GG window: columns ≥20 and grid rows beyond 15 don't exist there (DESIGN.md
+§15).
 
 - Toolchain: `wla-z80` + `wlalink` (Homebrew). `make run` needs `/opt/homebrew/opt/openjdk/bin/java`.
 - Emulicious must have `AudioSync=true` in `tools/emulicious/Emulicious.ini`, or it free-runs at turbo speed.
@@ -80,6 +90,6 @@ Any new gesture must fit this frame (user's settled design, DESIGN.md §3): butt
 
 ## Workflow
 
-Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; clone modes, K-cuts-samples, the wave-bank (`B`) command, the tempo-synced echo, and the `I` iteration play-mask are also done. **YM2413 FM (SMS-only)** is done end-to-end: melodic FM instrument (PROG/VOL/HLD/TSP + tables + `X`/`Y` commands), rhythm-mode FMDRM drum kit, 8 ROM-baked custom presets (PRST, in a `FMPRST` marker block editable via `tools/fmpatch.html`), gated by OPTIONS → FM. **Hardware-verified on a PAL SMS1** (Master Everdrive X7 + the FM Sound Unit): sample/wave playback, 32 KB SRAM / 6 slots, and the **full FM stack** — melodic FM, FMDRM drums, custom presets, and the `X`/`Y`/table commands, all confirmed on silicon. `SYNC: IN24` drives from the companion **smsggdj-link-esp32** bridge (an ESP32-C3 Ableton Link → port-2 counter; separate repo at github.com/little-scale/smsggdj-link-esp32), verified on the same hardware. As of 2026-06-29 the sync modes mirror **genmddj** for cross-machine sync (`OFF/OUT/PULSE/IN/IN24`, numbered like genmddj): **OUT/IN are 1-clock-per-row** (lock two units at any tempo), **IN24 is the old ÷6 24-PPQN** method for the bridge — re-verify on hardware after the rework (see DESIGN.md §11). An emulator-side counterpart, **ares-link-sync** (an ares fork, github.com/little-scale/ares-link-sync), drives the same 24-PPQN counter from Ableton Link with no hardware (use `IN24`). Remaining: config persistence, polish, NTSC / Game-Gear hardware checks.
+Work proceeds in the milestones of DESIGN.md §14; commit at each milestone boundary. Milestones 1–9 plus wavetables, block ops, native sync (replaced MIDI), live mode and the 128 KB mapper are done; clone modes, K-cuts-samples, the wave-bank (`B`) command, the tempo-synced echo, and the `I` iteration play-mask are also done. **YM2413 FM** is done end-to-end: melodic FM instrument (PROG/VOL/HLD/TSP + tables + `X`/`Y` commands), rhythm-mode FMDRM drum kit, 8 ROM-baked custom presets (PRST, in a `FMPRST` marker block editable via `tools/fmpatch.html`), gated by OPTIONS → FM. It targets the SMS FM Sound Unit and the GGFM hardware modification through the ordinary GG ROM. **Hardware-verified on a PAL SMS1** (Master Everdrive X7 + the FM Sound Unit): sample/wave playback, 32 KB SRAM / 6 slots, and the **full FM stack** — melodic FM, FMDRM drums, custom presets, and the `X`/`Y`/table commands, all confirmed on silicon. The GG ROM is contributor-confirmed on GGFM-modified hardware but still needs the project's own hardware regression. `SYNC: IN24` drives from the companion **smsggdj-link-esp32** bridge (an ESP32-C3 Ableton Link → port-2 counter; separate repo at github.com/little-scale/smsggdj-link-esp32), verified on the same hardware. As of 2026-06-29 the sync modes mirror **genmddj** for cross-machine sync (`OFF/OUT/PULSE/IN/IN24`, numbered like genmddj): **OUT/IN are 1-clock-per-row** (lock two units at any tempo), **IN24 is the old ÷6 24-PPQN** method for the bridge — re-verify on hardware after the rework (see DESIGN.md §11). An emulator-side counterpart, **ares-link-sync** (an ares fork, github.com/little-scale/ares-link-sync), drives the same 24-PPQN counter from Ableton Link with no hardware (use `IN24`). Remaining: config persistence, polish, NTSC / Game-Gear hardware checks.
 
-Releases are versioned — `str_version` in `src/main.asm` is the splash string (currently `V0.29`, dev), with a per-version `CHANGELOG.md`. Add user-facing bullets to the current version's section as you make changes, and keep `str_version` in sync on a release. To cut a release: date the CHANGELOG section, `make dist` (builds the version-stamped `build/smsggdj_<ver>.sms` / `.gg`), tag `v0.NN`, and `gh release create v0.NN` attaching those **versioned** ROMs (filenames carry the version; the bare `smsggdj.sms`/`.gg` are for local use only).
+Releases are versioned — `str_version` in `src/main.asm` is the splash string (currently `V0.44`), with a per-version `CHANGELOG.md`. Add user-facing bullets to the current version's section as you make changes, and keep `str_version` in sync on a release. To cut a release: date the CHANGELOG section, `make dist` (builds the version-stamped `build/smsggdj_<ver>.sms` / `.gg`), tag `v0.NN`, and `gh release create v0.NN` attaching those **versioned** ROMs (filenames carry the version; the bare `smsggdj.sms`/`.gg` are for local use only).

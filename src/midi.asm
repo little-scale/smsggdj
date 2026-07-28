@@ -8,7 +8,8 @@
 ; Z80 port of genmddj's console side (genmddj/src/main.asm midi_poll/dispatch).
 ; The WIRE PROTOCOL is genmddj/MIDI.md §3 and must match byte-for-byte -- the SMS
 ; reads the identical wire the S3 drives. SMS deltas: $DD/$3F port I/O (TR=CLK
-; out, TH=DAT in), 4 voices instead of 10, no FM, 16 instruments, PSG note/vol.
+; out, TH=DAT in), 4 voices instead of 10, and 16 instruments. TARGET_GG uses
+; the EXT parallel ports instead; the wire protocol and event format stay the same.
 ; ============================================================================
 
 .DEFINE MIDI_CAP     16        ; max events drained per frame (bounds shift-in time)
@@ -55,6 +56,20 @@ midi_frame:
 ; $FB = CLK(TR) high with TH input, $BB = CLK low; DAT read from $DD bit 7.
 ; ---------------------------------------------------------------------------
 midi_clock_bit:                ; -> CARRY = sampled DAT bit
+.IFDEF TARGET_GG
+  ld a, $20                    ; CLK(TR/PC5) high (rising edge): presented bit stable
+  out ($01), a
+  in a, ($01)                  ; read DAT (TH = PC6 = bit 6, not bit 7 like the SMS)
+  ld c, a                      ; stash before A is clobbered driving CLK low
+  xor a                        ; CLK(PC5) low (falling edge): S3 sets up the next bit
+  out ($01), a
+  ld b, MIDI_SETTLE
+mcb_settle:
+  djnz mcb_settle              ; let the S3's edge ISR update DAT before next edge
+  sla c                        ; DAT is PC6: two shifts bring bit 6 -> CARRY
+  sla c
+  ret
+.ELSE
   ld a, $FB
   out ($3F), a                 ; CLK high (rising edge): the presented bit is stable
   in a, ($DD)                  ; read DAT (TH = bit 7)
@@ -66,6 +81,7 @@ mcb_settle:
   djnz mcb_settle              ; let the S3's edge ISR update DAT before next edge
   rl c                         ; DAT (bit 7) -> CARRY
   ret
+.ENDIF
 
 midi_clock_byte:               ; -> A = one byte, MSB first
   ld d, 8
@@ -82,8 +98,13 @@ mcby_l:
 ; inter-frame gap re-arms the S3's leading flag bit. Per event: flag bit (1 -> a
 ; 3-byte frame follows; 0 -> queue empty), then status/d1/d2.
 midi_poll:
+.IFDEF TARGET_GG
+  xor a
+  out ($01), a                 ; CLK(PC5) low = idle (the frame gap armed the flag)
+.ELSE
   ld a, $BB
   out ($3F), a                 ; CLK low = idle (the frame gap armed the flag)
+.ENDIF
   ld a, MIDI_CAP
   ld (midi_cnt), a
 mp_loop:
@@ -101,8 +122,13 @@ mp_loop:
   ld (midi_cnt), a
   jr nz, mp_loop
 mp_done:
+.IFDEF TARGET_GG
+  xor a
+  out ($01), a                 ; leave CLK(PC5) low (idle)
+.ELSE
   ld a, $BB
   out ($3F), a                 ; leave CLK low (idle)
+.ENDIF
   ret
 
 ; ---------------------------------------------------------------------------
@@ -220,8 +246,15 @@ midi_mode_change:
   ld a, (sync_mode)
   cp SYNC_MIDI
   jr nz, mmc_off
+.IFDEF TARGET_GG
+  ld a, $5F                    ; $02 dir: PC5(TR/CLK)=output, PC6(TH/DAT)+rest=input
+  out ($02), a
+  xor a                        ; CLK(PC5) low idle
+  out ($01), a
+.ELSE
   ld a, $BB                    ; CLK(TR) low idle, TH input (sync_pulse_out idiom)
   out ($3F), a
+.ENDIF
   xor a                        ; default per-track instrument = channel index:
   ld (midi_instr+0), a         ;   ch1 -> instr 0
   inc a
@@ -232,8 +265,13 @@ midi_mode_change:
   ld (midi_instr+3), a         ;   ch4 -> instr 3  (Program Change overrides live)
   ret
 mmc_off:
+.IFDEF TARGET_GG
+  ld a, $7F                    ; release the EXT lines (PC0-6 back to inputs)
+  out ($02), a
+.ELSE
   ld a, $FF                    ; release the port-2 lines
   out ($3F), a
+.ENDIF
   ret
 
 ; HL = midi_instr + cur_trig_ch. Clobbers A/DE.

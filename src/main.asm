@@ -49,8 +49,8 @@ BANKS 8
 ; build flavor. TARGET_GG = native Game Gear ROM: the LCD shows a
 ; 20x18-tile window of the 256x192 frame starting at tile (6,3),
 ; so the whole UI shifts there (nt_addr_hl applies UI_X/UI_Y) and
-; the chrome compresses into two header rows. The WAVE screen is
-; not reachable on GG yet (32-step canvas needs its own layout).
+; the chrome compresses into two header rows. The WAVE screen pages
+; its 32-step canvas into two 16-step handheld views.
 .IFDEF TARGET_GG
 .DEFINE UI_X        6
 .DEFINE UI_Y        3
@@ -1050,7 +1050,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
-str_version:     .db "V0.43", 0
+str_version:     .db "V0.44", 0
 str_syncsym:     .db $20, $3E, $5C, $40, $20, $5E  ; OFF OUT> PULSE IN< MIDI IN24<<
 str_rest:        .db "---"
 
@@ -1083,4 +1083,6 @@ font_data_end:
 
 ; sample pool: banks 2-7, self-describing (directory at bank 2,
 ; $8000 - see tools/smsdj_sample.py for the contract)
+.IFNDEF RLE_SELFTEST
 .INCLUDE "pool.inc"
+.ENDIF
