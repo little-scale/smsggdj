@@ -1,117 +1,110 @@
-# Game Gear sync — how the EXT port really works
+# Game Gear sync — EXT-port contract
 
-Working notes for getting **SYNC IN on the Game Gear** right. The SMS sync is
-hardware-proven (PAL SMS1 + the ESP32 / ares Link bridges); the **GG path is not
-yet verified on silicon**, and the GG accesses its link port *differently* from
-the SMS. This file is the contract for that work — read it before touching the GG
-sync read or fabbing a cable/paddle. See also HARDWARE.md (pinout, cabling, paddle
-PCB) and DESIGN.md §11 (the sync protocol).
+Implementation and bring-up notes for `SYNC: IN`, `IN24`, `OUT`, and `MIDI` on
+the native Game Gear ROM. The SMS path and the RP2040-driven GG `SYNC: IN24`
+path are hardware-proven. GG-to-GG output still needs confirmation. See also
+`HARDWARE.md`, `adapter/README.md`, and DESIGN.md §11.
 
-## The trap
+## The important difference from SMS
 
-The SMS reads the 2-bit sync counter from **controller port 2's TR + TH**
-(`$DD` bits 3 and 7). It is tempting to assume the GG reads the same pins the same
-way. **It does not.** The Game Gear has its *own* dedicated I/O registers for the
-EXT/link port — the SMS controller-port read does **not** sample the EXT pins on a
-GG. Any GG sync code that reuses the `$DC`/`$DD` path is reading the wrong
-register.
+The Master System reads its sync lines through controller-port register `$DD`.
+The Game Gear has dedicated link I/O registers, so the GG build reads and
+drives the EXT parallel port directly. Real-hardware testing confirms that the
+GG's `$DD` controller view also mirrors the relevant EXT inputs, as documented,
+but `$01` is used by the main code because its bits map directly to PC0-PC6.
 
-## How the GG EXT port works
+The official Sega Game Gear Hardware Reference Manual defines:
 
-The GG EXT port supports **two modes**, both driven from GG-specific I/O ports
-(distinct from the SMS controller ports):
+| Port | Function |
+|---|---|
+| `$01` | PC0–PC6 parallel data |
+| `$02` | bit 7 = PC6 falling-edge NMI disable; bits 6–0 = PC6–PC0 direction |
+| `$03` | serial transmit data |
+| `$04` | serial receive data |
+| `$05` | serial status/control and baud selection |
 
-### 1. Parallel (GPIO) mode
-- A **data-direction register** sets each EXT bit's direction (`0 = output`,
-  `1 = input`).
-- A **data register** is read/written to sample or drive the pins.
-- The seven parallel bits map to PC0–PC6; **PC4/PC5 double as the serial TX/RX**,
-  the others are free parallel bits.
-- ⟹ A GG ROM **can read the EXT pins as plain GPIO** — so SMSGGDJ's existing
-  2-bit-counter protocol works on GG unchanged *except for which port the read
-  targets* (the parallel data port, after setting those bits as inputs — not
-  `$DC`/`$DD`).
+For each `$02` direction bit, **0 means output** and **1 means input**. Bit 7 of
+0 enables a falling edge on PC6 to generate NMI; bit 7 of 1 disables it.
+SMSGGDJ keeps bit 7 set except when the standalone diagnostic ROM deliberately
+tests NMI.
 
-### 2. Serial (UART) mode
-- 5 V TTL UART: **TX on PC4 (EXT pin 6)**, **RX on PC5 (EXT pin 9)**.
-- The hardware **raises an NMI whenever a byte is received** (or the connected
-  console powers off). Inside the NMI you read the **status port** and act on it.
-- **NMI is optional**: with NMI disabled you can **poll status-port bit 1**
-  ("new data to read") each frame instead.
+Authoritative reference:
+[Sega Game Gear Hardware Reference Manual](https://manuals.plus/m/de6ad4ef2f625706764f4cb87455c2ab7a25ddaf1bcb68e7ae44a1a3ef626b60.pdf).
 
-(So "the GG is serial with NMI to flag a new byte" is correct — that's the native
-link mode — but parallel GPIO and serial-with-polling are equally available.)
+## Chosen mechanism: parallel 2-bit counter
 
-## Three candidate implementations for SYNC IN
+The GG implementation uses PC5 and PC6 as ordinary GPIO. It deliberately avoids
+the serial/NMI path:
 
-| | Mechanism | Pins used | Risk | Engine change |
-|---|---|---|---|---|
-| **A. Parallel 2-bit counter** ⭐ | direction reg → inputs; read data port. Bridge drives 2 level bits (Gray-coded counter); engine keeps `(read − last) & 3`. | 2 of TR/TH + GND | **Lowest** — no UART, no interrupt, reuses the proven SMS protocol & its jitter tolerance | just the read port (+ a one-time direction init) |
-| **B. Serial + polled status** | bridge sends 1 byte/tick over UART; GG polls status bit 1 each frame, reads the RX byte, counts ticks. | RX(9) + GND | Low — no async interrupt; but the bridge must speak the GG UART (exact baud TBD) | new serial-poll read path |
-| **C. Serial + NMI** | 1 byte/tick → NMI → minimal handler bumps a tick counter. (The "strobe NMI" idea.) | RX(9) + TH/NMI(7) + GND | **Higher** — NMI is non-maskable/async; it can land mid sample-feed IRQ or mid VDP control-pair write (the hard invariants). Handler must be tiny and never touch the feed's shadow register set. | NMI vector + handler |
+- `sync_read` reads `$01`.
+- counter bit 0 = PC4 AND PC5, allowing either a straight connection or the
+  TX/RX crossover in a Gear-to-Gear cable.
+- counter bit 1 = PC6.
+- the slave calculates `(current - previous) & 3`, exactly like the SMS path.
 
-**Recommendation: path A.** It reuses the exact counter protocol SMSGGDJ already
-ships (TR + TH, `(read−last)&3`), adds no UART framing and no asynchronous
-interrupt to fight the cycle-counted DAC feed. The only delta from the SMS path is
-*which port the read hits*. Path B is the clean fallback if parallel reads
-misbehave on hardware. Path C is the most "designed-for" GG mode but loads the
-IRQ-safety burden onto the handler — weigh it against the sample/wave feed.
+This preserves up to three clocks between video-frame polls without adding an
+asynchronous interrupt to the cycle-sensitive sample/wavetable feed.
+
+The parallel data latch has an undefined power-on value. Native-GG startup
+therefore sets `$02 = $FF` first, writes `$01 = $FF` while every pin is safely
+an input, and writes `$02 = $FF` again. Releasing OUT or MIDI repeats the safe
+input-then-latch sequence. When entering an output mode, the intended first
+level is preloaded into `$01` before the relevant `$02` direction bits become
+outputs, preventing a stale-level glitch.
+
+### Safe `$02` masks
+
+| Situation | `$02` | Meaning |
+|---|---:|---|
+| released / input | `$FF` | PC0–PC6 inputs, PC6 NMI disabled |
+| sync OUT | `$8F` | PC4–PC6 outputs, PC0–PC3 inputs, NMI disabled |
+| MIDI takeover | `$DF` | PC5 output; PC6 and the rest inputs; NMI disabled |
+
+Earlier `$0F`/`$5F`/`$7F` values got the directions right but left bit 7 clear,
+which could arm a PC6 falling-edge NMI. Those masks are no longer used by the
+normal ROM. `gg_link_test.asm` still uses `$7F` intentionally in its explicit
+NMI test and restores `$FF` afterward.
 
 ## Wiring
 
-The 4-wire bottom-row set covers **all three** paths without a re-fab — keep it:
+The relevant pins are the bottom row of the EXT socket:
 
-| EXT pin | Signal | A (parallel) | B (serial poll) | C (serial NMI) |
-|---|---|---|---|---|
-| 7 | PC6 / TH ("NMI") | counter bit 1 | — | NMI line |
-| 9 | PC5 / TR ("RX") | counter bit 0 | RX in | RX in |
-| 6 | PC4 / TL ("TX") | (spare / redundant bit 0) | — | — |
-| 8 | GND | ground | ground | ground |
+| EXT pin | Signal | Parallel counter use |
+|---:|---|---|
+| 6 | PC4 / serial TX | optional redundant bit 0; otherwise leave open |
+| 7 | PC6 | counter bit 1 |
+| 8 | GND | shared ground |
+| 9 | PC5 / serial RX | counter bit 0 |
 
-Everything sync needs is on the **bottom row** (HARDWARE.md). Do **not** tap +5V
-(top row, pin 5) — USB-power the bridge and share only GND. The planned paddle's
-`TL6 TH7 GND8 TR9` header already matches this.
+For a direct bridge connection, pin 6 may remain unconnected. Its pull-up makes
+`PC4 AND PC5` equal PC5. A GG-to-GG master drives bit 0 on both PC4 and PC5 so a
+stock crossed Gear-to-Gear cable also works.
 
-## Open items (must close before trusting GG sync)
+The Game Gear signals are 5 V logic. USB-power the RP2040 and never connect EXT
+pin 5 directly to the board's power input. The universal UF2 provides both
+polarities for a safe external interface:
 
-1. ✅ **DONE (path A implemented, hardware-unverified).** The audit confirmed the
-   bug: `sync_read` read the SMS `$DD` controller register in the GG build too —
-   which does not sample the EXT pins on a GG. Fixed: `src/engine.asm` `sync_read`
-   now has a `TARGET_GG` branch reading the **parallel data port `$01`** (PC4/5/6 =
-   TL/TR/TH at bits 4/5/6; counter bit 0 = TR AND TL, bit 1 = TH). **No `$02`
-   direction init** is written — the EXT pins default to input at reset and SMSGGDJ
-   never drives them, so SYNC IN just reads. *If a hardware read misbehaves, the
-   direction-register (`$02`) init is the first thing to try (needs item 2's exact
-   bit map).* **SYNC OUT is implemented too** (GG master): `sync_out` drives the
-   counter onto `$01` (bit 0 -> TL(PC4)+TR(PC5) so a straight or crossed cable both
-   work, bit 1 -> TH(PC6)) with `$02 = $0F` (PC4-6 outputs); `engine_stop` releases
-   them (`$02 = $7F`). So **GG↔GG** (one OUT, one IN over a Gear-to-Gear cable) is
-   wired end to end. Still SMS-only: **PULSE** out (niche analog case). All GG sync
-   is **hardware-unverified**: the `$02` direction convention (assumed `0 = output`)
-   and whether the GG parallel output is push-pull (so GG↔GG needs no pull-ups,
-   unlike the open-drain ESP32 bridge) both need silicon confirmation. If OUT drives
-   nothing, try `$02 = $70` (reversed convention).
+- non-inverted GP0/GP1 → non-inverting 3.3 V/5 V translator → PC5/PC6
+- NPN-compensated GP6/GP7 → two NPN stages → PC5/PC6
+- board GND → EXT pin 8
 
-   **MIDI takeover is GG-wired too** (`src/midi.asm`): the 2-wire shift-in uses the
-   same EXT port as the counter. `midi_clock_bit` drives CLK on **PC5 (TR)** and
-   reads DAT on **PC6 (TH, bit 6** — not `$DD` bit 7 like the SMS**)** via `$01`;
-   `midi_mode_change` sets `$02 = $5F` (PC5 = output, PC6 + rest = input) and idles
-   CLK low; leaving MIDI releases the pins (`$02 = $7F`). The wire *protocol* is
-   identical to the SMS — only the ports/bit position change. Bridge → GG wiring:
-   CLK on pin 9 (TR), DAT on pin 7 (TH), GND pin 8 — but note MIDI uses **single**
-   CLK/DAT lines, so it can't use the counter's "drive bit 0 on both 6+9" crossover
-   trick; a crossed cable puts CLK on the bridge-end pin 6. Same `$02`-convention /
-   open-drain caveats apply; **hardware-unverified**.
-2. **Verify the exact GG I/O register map** — which `$0x` port is the parallel
-   data register, the direction register, the serial TX/RX buffers, and the
-   status/control register; the NMI-enable bit; the "RX full" status bit; and (for
-   paths B/C) the **baud-rate bits**. The search summaries establish the *model*
-   above but not the verbatim port/bit numbers. Pull them from the manual:
-   - Gear to Gear Cable — SMS Power!: <https://www.smspower.org/Development/GearToGearCable>
-   - Peripheral Ports — SMS Power!: <https://www.smspower.org/Development/PeripheralPorts>
-   - Sega Game Gear Hardware Reference Manual (PDF, authoritative register/bit map):
-     <https://segaretro.org/images/1/16/Sega_Game_Gear_Hardware_Reference_Manual.pdf>
-   - SEGA Official Serial Protocol notes (HINATA): <https://hinata.neri.moe/en/sega/serial>
-   (Both smspower and segaretro 403 automated fetchers — open them in a browser.)
-3. **Hardware test** on a real Game Gear once a candidate path is wired, the same
-   way the SMS path was confirmed.
+Only a level translator's high-voltage reference may use EXT pin 5. The full
+XIAO/Pico circuits are in `adapter/README.md`.
+
+## Current status
+
+- ✅ real GG hardware: pins 6/7/9 all respond through both `$01` and `$DD`.
+- ✅ GG startup safely initialises the undefined parallel data latch.
+- ✅ GG OUT drives PC4/PC5/PC6 through `$01` with safe `$02 = $8F`.
+- ✅ stop/release restores `$02 = $FF`.
+- ✅ MIDI takeover uses `$02 = $DF`; leaving it restores `$FF`.
+- ✅ the register map, direction convention, and NMI-disable bit are checked
+  against Sega's manual.
+- ✅ a Gearsystem validation build has exercised the `.gg` EXT read/write path.
+- ✅ USB-MIDI clock through the universal RP2040 UF2 and level interface drives
+  `SYNC: IN24` correctly on a real Game Gear.
+- ⏳ GG-to-GG OUT still requires real-hardware confirmation.
+
+The standalone `gg-link-test.gg` verifies both `$01` and `$DD`; all three pins
+have passed that test on real hardware. The RP2040 `SYNC: IN24` path has also
+passed. GG-to-GG `OUT` remains the final unverified EXT mode.

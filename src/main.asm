@@ -188,6 +188,11 @@ init:
 .IFDEF TARGET_GG
   xor a                      ; GG hardware is NTSC-clocked
   ld (region_pal), a
+  out ($05), a               ; disable serial TX/RX and serial NMI
+  ld a, $FF
+  out ($02), a               ; PC0-PC6 inputs; PC6 edge NMI disabled
+  out ($01), a               ; initialise undefined data latch while inputs
+  out ($02), a               ; explicitly retain the safe input direction
 .ENDIF
   call psg_init
   call vdp_init
@@ -1050,7 +1055,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
-str_version:     .db "V0.44", 0
+str_version:     .db "V0.45", 0
 str_syncsym:     .db $20, $3E, $5C, $40, $20, $5E  ; OFF OUT> PULSE IN< MIDI IN24<<
 str_rest:        .db "---"
 

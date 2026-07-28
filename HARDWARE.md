@@ -150,6 +150,12 @@ TR↔TL crossover works unconfigured (the unused line floats high).
   (don't tap pin-5 +5 V — WiFi peaks risk sagging the console rail). Select
   `SYNC: IN` on the tracker; it then follows Live's tempo and transport.
   Hardware-verified on a PAL SMS1.
+- **USB-MIDI clock in** (`adapter/`): the same 24-PPQN counter from one UF2 on
+  either a XIAO RP2040 or regular Pico. It provides non-inverted bit 0/1 on
+  GP0/GP1 and NPN-compensated bit 0/1 on GP6/GP7; select `SYNC: IN24`. For the
+  5 V Game Gear EXT port, use one of the level interfaces in
+  `adapter/README.md`—never wire an RP2040 GPIO directly to the console.
+  Hardware-verified on a real Game Gear.
 - **Ableton Link in — no hardware**: for testing/performing without the bridge,
   [ares-link-sync](https://github.com/little-scale/ares-link-sync) (an ares
   emulator fork) joins a Link session and presents the same 2-bit counter on the

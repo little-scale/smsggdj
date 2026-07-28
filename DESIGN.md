@@ -452,8 +452,8 @@ On SMS, TR/TH are software-direction pins: outputs via port `$3F` on the master,
 read back on port `$DD` on the slave (TR bit 3, TL bit 2, TH bit 7). **Export
 consoles only** — Japanese SMS hardware ignores `$3F` level drive. The native GG
 build instead uses EXT parallel data port `$01` and direction port `$02`
-(PC4/PC5/PC6); see `GGSYNC.md`. The GG path is implemented but
-**hardware-unverified**, so it remains experimental for v0.44.
+(PC4/PC5/PC6); see `GGSYNC.md`. Direct EXT input and RP2040-driven `IN24` are
+real-hardware verified; GG-to-GG output remains experimental.
 
 ### 11.1 OUT — 2-bit counter on TR+TH, one clock per row
 
@@ -506,11 +506,20 @@ PAL SMS1 hardware; wiring in HARDWARE.md.
 
 The emulator-side counterpart is **[ares-link-sync](https://github.com/little-scale/ares-link-sync)** — a fork of the **ares** emulator that joins a Link session and presents the same 24-PPQN 2-bit counter on the emulated controller port (frame-PLL'd to the Link timeline, bar-quantized launch), so a song in **`SYNC: IN24`** follows Live with no hardware bridge. Same counter contract.
 
-### 11.5 MIDI (future)
+### 11.5 MIDI clock adapter (RP2040)
 
-A MIDI adapter now reduces to: receive MIDI clock/start/stop, drive the same
-2-bit counter on two pins. Far simpler than the v0.2 polled-nibble protocol;
-parked for v2 along with MIDI out and Song Position Pointer.
+`adapter/` implements the reduced design: a class-compliant USB-MIDI device
+receives Start/Continue/Stop/Clock and drives the same 2-bit counter at 24 PPQN.
+One UF2 targets both the XIAO RP2040 and standard 2 MB Pico. It presents the
+counter simultaneously as non-inverted logic on shared GP0/GP1 and as
+NPN-compensated logic on GP6/GP7. The console runs `SYNC: IN24`; channel voice
+messages and Song Position Pointer are intentionally outside this clock-only
+adapter.
+
+The Game Gear is 5 V logic while the RP2040 GPIO limit is 3.3 V, so the
+documented circuit uses two NPN open-collector stages rather than direct GPIO
+wiring. The complete USB-MIDI clock → universal UF2 → level interface → Game
+Gear `SYNC: IN24` path is verified on real hardware.
 
 ---
 
@@ -543,7 +552,7 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 **Deliverables:**
 1. `smsggdj.sms` — the ROM (128 KB, standard Sega mapper, valid TMR SEGA header + checksum).
 2. `tools/smsggdj-sample` — sample conversion tool (§10.5); `tools/patcher.html` — browser sample patcher (done).
-3. `adapter/` — MIDI sync adapter firmware (RP2040 primary target) + protocol doc + schematic.
+3. `adapter/` — MIDI sync adapter firmware (RP2040) + protocol doc + schematic.
 4. Demo song + production sample pool (`samples/pool.bin`, baked into builds) + manual (`MANUAL.md`).
 
 **Toolchain:** WLA-DX (z80) or sjasmplus, pure assembly; Makefile drives ROM + sample-pool build. **Test targets:** Emulicious (primary — debugger + accurate PSG, PAL and NTSC modes), MEKA/Genesis Plus GX (sanity), real PAL SMS via Master Everdrive (timing + SRAM + sample/MIDI truth), real NTSC pass before release.
@@ -558,7 +567,8 @@ Implementation rules: no mul/div on hot paths — note tables, LFO tables, BPM�
 7. Full command set, GROOVE screen, copy/paste/clone.
 8. SRAM detect + save/load, PROJECT screen (incl. VIDEO/SYNC/SMP CH settings).
 9. **Sample subsystem:** conversion tool first, then line-IRQ/VBlank hybrid player, KIT (sample) instruments, ring streaming. Hardware-verify early — emulator PSG-DAC accuracy varies.
-10. **MIDI sync:** adapter firmware + port protocol, SLAVE tick source, transport semantics. Hardware loopback test rig.
+10. **MIDI sync:** ✅ universal RP2040 USB-MIDI adapter + port protocol,
+    transport semantics, and real-Game-Gear hardware confirmation.
 11. Polish: meters, key hints, demo song, dual-region hardware regression pass.
 
 ## 15. GGDJ — the native Game Gear build *(post-v0.2)*
@@ -583,13 +593,14 @@ musical (engine, sampler, waves, save format, pool contract, patcher) is shared.
   FM/FMDRM. A GGFM-modded unit decodes the YM2413 ports and produces FM audio;
   on an unmodified Game Gear those ports are unassigned, so enabling FM is
   harmless but FM notes are silent.
-- **Sync / MIDI takeover (experimental):** the GG flavor uses the EXT port's
+- **Sync / MIDI takeover:** the GG flavor uses the EXT port's
   **parallel mode** so the existing mod-4 counter protocol can serve
   OUT/IN/IN24 without an asynchronous UART interrupt. MIDI takeover uses the
   same EXT registers for its two-wire clock/data protocol. GG↔GG uses a stock
-  Gear-to-Gear cable. The code paths and standalone `make gg-link-test`
-  diagnostic are implemented, but direction semantics, electrical behaviour,
-  and bridge/cable wiring still need verification on real Game Gear hardware;
+  Gear-to-Gear cable. The standalone `make gg-link-test` diagnostic has
+  confirmed pins 6/7/9, both documented input views, and input direction
+  semantics on real Game Gear hardware. RP2040-driven `SYNC: IN24` is also
+  hardware-verified; GG-to-GG OUT and MIDI takeover still need verification;
   see `GGSYNC.md` and `GG_LINK_TEST.md`.
 
 **v2 parking lot:** pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.

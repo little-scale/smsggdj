@@ -3,6 +3,28 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.45 — 2026-07-28
+
+### Added
+- **One universal RP2040 USB-MIDI sync UF2** for both Seeed XIAO RP2040 and
+  regular-layout 2 MB Pico boards. MIDI Start/Continue/Stop/Clock drives the
+  24-PPQN modulo-4 counter used by `SYNC: IN24`. The same image simultaneously
+  provides non-inverted outputs on GP0/GP1 and NPN-compensated outputs on
+  GP6/GP7. The adapter documentation includes two 5 V-safe Game Gear EXT
+  interface options. The complete USB-MIDI → RP2040 → level interface →
+  Game Gear `SYNC: IN24` path is verified on real hardware.
+
+### Fixed
+- **Game Gear EXT modes no longer accidentally arm PC6 NMI.** GG sync OUT, MIDI
+  takeover, and release now keep `$02` bit 7 set while applying the intended
+  PC4–PC6 directions (`$8F`, `$DF`, and `$FF` respectively), matching Sega's
+  hardware reference manual.
+- **Game Gear EXT input is initialised deterministically.** The native GG ROM
+  now sets the undefined parallel data latch while every EXT pin is safely an
+  input. OUT and MIDI preload their first output level before changing pin
+  direction, avoiding stale-level glitches. Real-hardware diagnostics confirmed
+  pins 6, 7, and 9 through both `$01` and its `$DD` input mirror.
+
 ## v0.44 — 2026-07-28
 
 ### Added

@@ -247,10 +247,10 @@ midi_mode_change:
   cp SYNC_MIDI
   jr nz, mmc_off
 .IFDEF TARGET_GG
-  ld a, $5F                    ; $02 dir: PC5(TR/CLK)=output, PC6(TH/DAT)+rest=input
-  out ($02), a
   xor a                        ; CLK(PC5) low idle
-  out ($01), a
+  out ($01), a                 ; preload low while all pins remain inputs
+  ld a, $DF                    ; then enable PC5 output without a rising glitch
+  out ($02), a                 ; rest input; bit 7 disables PC6 NMI
 .ELSE
   ld a, $BB                    ; CLK(TR) low idle, TH input (sync_pulse_out idiom)
   out ($3F), a
@@ -266,8 +266,9 @@ midi_mode_change:
   ret
 mmc_off:
 .IFDEF TARGET_GG
-  ld a, $7F                    ; release the EXT lines (PC0-6 back to inputs)
+  ld a, $FF                    ; all EXT inputs; keep PC6 falling-edge NMI disabled
   out ($02), a
+  out ($01), a                 ; initialise the released input latch high
 .ELSE
   ld a, $FF                    ; release the port-2 lines
   out ($3F), a

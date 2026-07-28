@@ -416,8 +416,9 @@ engine_stop:
   ld a, $FF                  ; release the port-2 sync lines
   out ($3F), a
 .IFDEF TARGET_GG
-  ld a, $7F                  ; GG: release the EXT pins too (PC0-6 back to inputs),
-  out ($02), a               ;   so a GG that was OUT stops driving and can read
+  ld a, $FF                  ; GG: PC0-6 inputs + PC6 falling-edge NMI disabled,
+  out ($02), a               ;   so OUT stops driving without arming an NMI
+  out ($01), a               ; initialise the released input latch high
 .ENDIF
   call live_q_clear          ; drop pending live queues (and their markers)
   ; quiesce the channels so the stopped prelisten fx pass can't keep firing
@@ -553,13 +554,13 @@ sync_is_slave:
 ; works with no setting. Clobbers C.
 sync_read:
 .IFDEF TARGET_GG
-  ; Game Gear: the EXT/link pins are read from the GG PARALLEL DATA port ($01), NOT
-  ; the SMS controller register ($DD) -- $DD does not sample the EXT pins on a GG.
+  ; Game Gear: read the EXT/link pins directly from the GG PARALLEL DATA port ($01).
+  ; Real hardware testing also confirms the documented $DD controller-port mirror,
+  ; but $01 keeps the native PC bit positions and avoids a remap here.
   ; PC0-6 = bits 0-6; TL=PC4(bit4), TR=PC5(bit5), TH=PC6(bit6). Counter bit 0 = TR
   ; AND TL (so a straight or crossed Gear-to-Gear cable both work), bit 1 = TH.
-  ; The EXT pins default to input at reset and SMSGGDJ never drives them, so SYNC IN
-  ; needs no direction ($02) init. If a read misbehaves on hardware, a $02 direction
-  ; init (PC4-6 as inputs) is the next thing to try -- see GGSYNC.md.
+  ; Native-GG startup and every release initialise $01's undefined data latch while
+  ; $02 holds all pins as inputs; do not rely on the ASIC's power-on latch value.
   in a, ($01)                ; PC0-6 parallel data
   ld c, a
   ld b, 0
@@ -598,11 +599,8 @@ sync_out:
   ; GG master: drive the counter onto the EXT parallel port ($01). Bit 0 goes to
   ; BOTH TL(PC4) and TR(PC5) so a straight OR crossed Gear-to-Gear cable both work
   ; (the slave reads bit 0 = TR AND TL); bit 1 -> TH(PC6). $02 sets PC4-6 as outputs
-  ; (0 = output per GGSYNC.md; PC0-3 kept as inputs, NMI off). Direction convention
-  ; is hardware-unverified: if the master drives nothing, try $70 for $02 instead.
+  ; (0 = output; PC0-3 kept as inputs). Bit 7 disables the PC6 falling-edge NMI.
   ld c, a                    ; c = counter 0-3
-  ld a, $0F
-  out ($02), a               ; PC4-6 output
   xor a
   bit 0, c
   jr z, so_gg_b1
@@ -612,7 +610,9 @@ so_gg_b1:
   jr z, so_gg_wr
   or $40                     ; counter bit 1 -> TH(PC6)
 so_gg_wr:
-  out ($01), a
+  out ($01), a               ; preload level while inputs on first transition
+  ld a, $8F
+  out ($02), a               ; then enable PC4-6 outputs without a stale glitch
   ret
 .ELSE
   rrca

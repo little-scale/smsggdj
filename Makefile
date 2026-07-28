@@ -4,6 +4,10 @@ BUILD := build
 ROM   := $(BUILD)/smsggdj.sms
 GGROM := $(BUILD)/smsggdj.gg
 GGTESTROM := $(BUILD)/gg-link-test.gg
+ADAPTER_BUILD := $(BUILD)/adapter-universal-rp2040
+ADAPTER_UF2 := $(BUILD)/smsggdj-sync-rp2040.uf2
+PICO_SDK_PATH ?=
+PICO_TOOLCHAIN_PATH ?=
 
 # Versioned copies for distribution: str_version ("V0.27") -> a filename-safe
 # tag with no spaces or dots, e.g. build/smsggdj_v0_27.sms. The canonical names
@@ -146,10 +150,28 @@ dist: all $(RELROM) $(RELGGROM)
 	@echo "  $(RELROM)"
 	@echo "  $(RELGGROM)"
 
+# One RP2040 UF2 for both the XIAO RP2040 and a standard 2 MB Raspberry Pi
+# Pico. The firmware uses shared GPIO numbers GP0/GP1 and GP6/GP7.
+adapter:
+	cmake -S adapter -B $(ADAPTER_BUILD) -G Ninja \
+	  -DPICO_BOARD=smsggdj_universal_rp2040 \
+	  $(if $(PICO_SDK_PATH),-DPICO_SDK_PATH=$(PICO_SDK_PATH)) \
+	  $(if $(PICO_TOOLCHAIN_PATH),-DPICO_TOOLCHAIN_PATH=$(PICO_TOOLCHAIN_PATH))
+	cmake --build $(ADAPTER_BUILD) --target smsggdj_sync_rp2040
+	cp -f $(ADAPTER_BUILD)/smsggdj_sync_rp2040.uf2 $(ADAPTER_UF2)
+	@echo "built universal RP2040 adapter: $(ADAPTER_UF2)"
+
+adapter-test: | $(BUILD)
+	$(CC) -std=c11 -Wall -Wextra -Werror \
+	  adapter/src/sync_protocol.c adapter/tests/test_sync_protocol.c \
+	  -o $(BUILD)/adapter-protocol-test
+	$(BUILD)/adapter-protocol-test
+	@echo "adapter protocol OK"
+
 # format/tooling regression tests (no emulator): the SMDJ4 library self-test,
 # the Z80-RLE mirror (asm pack logic vs the Python reference, SMDJ3 + SMDJ4
 # block sizes), and syntax checks of the browser tools' scripts.
-test:
+test: adapter-test
 	node tools/smdj4.js
 	python3 tools/rle_z80mirror.py
 	@for f in tools/*.js; do node --check $$f || exit 1; echo "syntax OK  $$f"; done
@@ -166,7 +188,7 @@ clean:
 
 FORCE:
 
-.PHONY: all clean run run-gg dist gg-link-test FORCE
+.PHONY: all clean run run-gg dist gg-link-test adapter adapter-test FORCE
 
 # codec self-test ROM: boots, round-trips rle_pack/rle_unpack on an embedded
 # vector, shows RLE OK / RLE ERR on the splash. Zero cost in the normal build.

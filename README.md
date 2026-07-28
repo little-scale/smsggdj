@@ -33,6 +33,7 @@ Python 3. `make run` launches the bundled Emulicious (needs Java).
 make          # build both: build/smsggdj.sms and build/smsggdj.gg
 make run      # build both, launch the SMS ROM
 make run-gg   # build both, launch the Game Gear ROM
+make adapter  # universal XIAO RP2040 / Pico USB-MIDI sync UF2
 make clean
 ```
 
@@ -87,6 +88,8 @@ and press play.
   sync cabling, and the EXT paddle-PCB notes.
 - **[GG_LINK_TEST.md](GG_LINK_TEST.md)** — build and safely use the standalone
   Game Gear EXT-port diagnostic ROM during hardware bring-up.
+- **[adapter/README.md](adapter/README.md)** — one RP2040 USB-MIDI sync UF2 for
+  XIAO RP2040 and standard Pico, with the 5 V-safe Game Gear circuit.
 
 ### Companion projects
 
@@ -109,6 +112,7 @@ and press play.
 
 ```
 src/        Z80 assembly (main, vdp, input, psg, engine, sample, editor)
+adapter/    universal XIAO RP2040 / Pico USB-MIDI sync firmware + wiring
 tools/      Python build tools + the browser apps:
               makefont / maketables / makelogo  (build inputs)
               smsggdj_sample.py   WAV/pool -> sample bank

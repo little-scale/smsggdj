@@ -1,10 +1,11 @@
 ; =============================================================
 ; Game Gear EXT/link-port input diagnostic
 ;
-; Polls the three bottom-row signal pins as parallel GPIO:
-;   pin 6 = PC4 = port $01 bit 4
-;   pin 7 = PC6 = port $01 bit 6
-;   pin 9 = PC5 = port $01 bit 5
+; Polls the three bottom-row signal pins through both documented
+; Game Gear input views:
+;   pin 6 = PC4 = port $01 bit 4 = port $DD bit 2
+;   pin 7 = PC6 = port $01 bit 6 = port $DD bit 7
+;   pin 9 = PC5 = port $01 bit 5 = port $DD bit 3
 ;
 ; START toggles the dedicated PC6 falling-edge NMI test.
 ; Button 1 clears the edge and NMI counters.
@@ -33,7 +34,10 @@ BANKS 2
 
 .RAMSECTION "GG link test vars" SLOT 3
   raw_pins    db
+  raw_dd      db
+  mirror_pins db
   last_pins   db
+  last_mirror db
   edge6       dw
   edge7       dw
   edge9       dw
@@ -102,11 +106,15 @@ init:
   ldir
 
   ; Use raw parallel GPIO.  Serial TX/RX and both serial and PC6
-  ; NMIs start disabled.  Explicit setup avoids relying on reset state.
+  ; NMIs start disabled.  Set the direction to input before initialising
+  ; the otherwise-indeterminate parallel data latch, so no EXT pin is
+  ; ever driven during setup.
   xor a
   out ($05), a               ; TON=0, RON=0, serial INT=0
   ld a, $FF
   out ($02), a               ; PC0-PC6 inputs, NINT=1 (disabled)
+  out ($01), a               ; known-high data latch while still inputs
+  out ($02), a               ; explicitly retain input direction
 
   ; Sega recommends waiting for V counter $B0 before first VDP access.
 vdp_ready:
@@ -124,6 +132,9 @@ vdp_ready:
   and $70
   ld (raw_pins), a
   ld (last_pins), a
+  call read_dd_canonical
+  ld (mirror_pins), a
+  ld (last_mirror), a
   in a, ($00)
   and $80
   ld (start_prev), a
@@ -162,12 +173,42 @@ sample_pins:
   ld a, b
   ld (raw_pins), a
   ld (last_pins), a
+  push bc
+  call read_dd_canonical
+  ld b, a
+  ld a, (last_mirror)
+  xor b
+  ld d, a                    ; D = changes seen through port $DD
+  ld a, b
+  ld (mirror_pins), a
+  ld (last_mirror), a
+  pop bc
+  ld a, c
+  or d
+  ld c, a                    ; count a change seen through either view
   bit 4, c
   call nz, inc_edge6
   bit 6, c
   call nz, inc_edge7
   bit 5, c
   call nz, inc_edge9
+  ret
+
+; Read the controller-port mirror and map it into the same bit positions
+; used by port $01: DD.2 -> bit 4, DD.3 -> bit 5, DD.7 -> bit 6.
+; Also retain the complete raw $DD byte for the display.
+read_dd_canonical:
+  in a, ($DD)
+  ld (raw_dd), a
+  ld b, a
+  add a, a
+  add a, a
+  and $30
+  ld c, a
+  ld a, b
+  and $80
+  rrca
+  or c
   ret
 
 inc_edge6:
@@ -240,39 +281,62 @@ draw_dynamic:
   xor a
   ld (text_attr), a
 
-  ld b, 3
-  ld c, 10
+  ld b, 1
+  ld c, 4
   call set_text_at
   ld a, (raw_pins)
+  call print_hex8
+  ld b, 1
+  ld c, 12
+  call set_text_at
+  ld a, (raw_dd)
   call print_hex8
 
   ld a, (raw_pins)
   bit 4, a
-  ld b, 5
+  ld b, 3
+  ld c, 7
+  call draw_level
+  ld a, (mirror_pins)
+  bit 4, a
+  ld b, 3
+  ld c, 13
   call draw_level
   ld a, (raw_pins)
   bit 6, a
-  ld b, 6
+  ld b, 4
+  ld c, 7
+  call draw_level
+  ld a, (mirror_pins)
+  bit 6, a
+  ld b, 4
+  ld c, 13
   call draw_level
   ld a, (raw_pins)
   bit 5, a
-  ld b, 7
+  ld b, 5
+  ld c, 7
+  call draw_level
+  ld a, (mirror_pins)
+  bit 5, a
+  ld b, 5
+  ld c, 13
   call draw_level
 
   xor a
   ld (text_attr), a
-  ld b, 9
-  ld c, 8
+  ld b, 7
+  ld c, 7
   call set_text_at
   ld hl, (edge6)
   call print_hex16
-  ld b, 10
-  ld c, 8
+  ld b, 8
+  ld c, 7
   call set_text_at
   ld hl, (edge7)
   call print_hex16
-  ld b, 11
-  ld c, 8
+  ld b, 9
+  ld c, 7
   call set_text_at
   ld hl, (edge9)
   call print_hex16
@@ -285,19 +349,19 @@ draw_dynamic:
   ld a, $08
   ld (text_attr), a
 dd_nmi_mode:
-  ld b, 13
-  ld c, 6
+  ld b, 11
+  ld c, 5
   call print_at
   xor a
   ld (text_attr), a
-  ld b, 13
-  ld c, 15
+  ld b, 11
+  ld c, 14
   call set_text_at
   ld hl, (nmi_count)
   call print_hex16
   ret
 
-; B = logical row; flags from BIT select HIGH (NZ) or LOW (Z).
+; B/C = logical row/column; flags from BIT select HIGH (NZ) or LOW (Z).
 draw_level:
   ld hl, str_high
   ld a, 0
@@ -306,7 +370,6 @@ draw_level:
   ld a, $08                  ; inverse video makes a low line conspicuous
 dl_ready:
   ld (text_attr), a
-  ld c, 10
   call print_at
   ret
 
@@ -320,56 +383,60 @@ draw_static:
   ld hl, str_title
   call print_at
   ld b, 1
-  ld c, 1
-  ld hl, str_mode
-  call print_at
-  ld b, 3
   ld c, 0
   ld hl, str_raw
   call print_at
-  ld b, 5
+  ld b, 2
+  ld c, 0
+  ld hl, str_columns
+  call print_at
+  ld b, 3
   ld c, 0
   ld hl, str_pin6
   call print_at
-  ld b, 6
+  ld b, 4
   ld c, 0
   ld hl, str_pin7
   call print_at
-  ld b, 7
+  ld b, 5
   ld c, 0
   ld hl, str_pin9
   call print_at
-  ld b, 9
+  ld b, 7
   ld c, 0
   ld hl, str_edge6
   call print_at
-  ld b, 10
+  ld b, 8
   ld c, 0
   ld hl, str_edge7
   call print_at
-  ld b, 11
+  ld b, 9
   ld c, 0
   ld hl, str_edge9
   call print_at
-  ld b, 13
+  ld b, 11
   ld c, 0
   ld hl, str_nmi
   call print_at
-  ld b, 13
-  ld c, 11
+  ld b, 11
+  ld c, 10
   ld hl, str_count
   call print_at
-  ld b, 15
+  ld b, 13
   ld c, 1
   ld hl, str_start
   call print_at
-  ld b, 16
+  ld b, 14
   ld c, 1
   ld hl, str_reset
   call print_at
-  ld b, 17
+  ld b, 16
   ld c, 0
   ld hl, str_probe
+  call print_at
+  ld b, 17
+  ld c, 2
+  ld hl, str_warning
   call print_at
   ret
 
@@ -537,19 +604,20 @@ pl_p1:
   ret
 
 str_title: .db "GG LINK INPUT TEST", 0
-str_mode:  .db "GPIO SAMPLE 60 HZ", 0
-str_raw:   .db "RAW $01: $", 0
-str_pin6:  .db "PIN6 PC4:", 0
-str_pin7:  .db "PIN7 PC6:", 0
-str_pin9:  .db "PIN9 PC5:", 0
-str_edge6: .db "EDGES6: ", 0
-str_edge7: .db "EDGES7: ", 0
-str_edge9: .db "EDGES9: ", 0
+str_raw:   .db "01:$    DD:$", 0
+str_columns:.db "PIN PC  01    DD", 0
+str_pin6:  .db "6   4", 0
+str_pin7:  .db "7   6", 0
+str_pin9:  .db "9   5", 0
+str_edge6: .db "EDGE6: ", 0
+str_edge7: .db "EDGE7: ", 0
+str_edge9: .db "EDGE9: ", 0
 str_nmi:   .db "NMI7: ", 0
 str_count: .db "CNT:", 0
 str_start: .db "START TOGGLE NMI7", 0
 str_reset: .db "B1 RESET COUNTERS", 0
-str_probe: .db "USE 4K7 TO PIN8 GND", 0
+str_probe: .db "4K7 SIGNAL-PIN8 GND", 0
+str_warning:.db "NEVER APPLY +5V", 0
 str_high:  .db "HIGH", 0
 str_low:   .db "LOW ", 0
 str_off:   .db "OFF ", 0

@@ -7,16 +7,22 @@ make gg-link-test
 ```
 
 Flash `build/gg-link-test.gg`. The ROM samples the EXT connector as parallel
-GPIO about 60 times per second and displays:
+GPIO about 60 times per second. It initialises the parallel data latch while
+all pins are inputs, rather than relying on the Game Gear's undefined
+power-on latch state.
 
-- raw port `$01` bits;
-- pin 6 / PC4 / bit 4;
-- pin 7 / PC6 / bit 6;
-- pin 9 / PC5 / bit 5;
+The display shows the connector through both documented input paths:
+
+- raw port `$01` and raw controller mirror `$DD`;
+- pin 6 / PC4 (`$01` bit 4 and `$DD` bit 2);
+- pin 7 / PC6 (`$01` bit 6 and `$DD` bit 7);
+- pin 9 / PC5 (`$01` bit 5 and `$DD` bit 3);
 - a sampled transition counter for each pin;
 - the PC6 falling-edge NMI count.
 
-`LOW` is shown in inverse video. Press **Button 1** to clear all counters.
+The `01` and `DD` columns should agree. `LOW` is shown in inverse video.
+An edge counter advances if either input view detects a transition. Press
+**Button 1** to clear all counters.
 
 The ROM normally writes `$FF` to port `$02`: every PC pin is an input and the
 PC6/pin-7 NMI is disabled. Press **START** to deliberately arm that NMI using
@@ -30,9 +36,9 @@ Power off before attaching the cable or probe. After the ROM is running, use a
 
 | Probe | Expected display |
 |---|---|
-| pin 6 to pin 8 | pin 6 LOW; raw bit 4 clears |
-| pin 7 to pin 8 | pin 7 LOW; raw bit 6 clears |
-| pin 9 to pin 8 | pin 9 LOW; raw bit 5 clears |
+| pin 6 to pin 8 | pin 6 LOW in both columns; `$01.4` and `$DD.2` clear |
+| pin 7 to pin 8 | pin 7 LOW in both columns; `$01.6` and `$DD.7` clear |
+| pin 9 to pin 8 | pin 9 LOW in both columns; `$01.5` and `$DD.3` clear |
 
 Through a stock Gear-to-Gear cable, pins 6 and 9 cross and pin 7 is straight:
 
