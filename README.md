@@ -90,6 +90,8 @@ and press play.
   Game Gear EXT-port diagnostic ROM during hardware bring-up.
 - **[adapter/README.md](adapter/README.md)** — one RP2040 USB-MIDI sync UF2 for
   XIAO RP2040 and standard Pico, with the 5 V-safe Game Gear circuit.
+- **[hardware/gg-sync-port/](hardware/gg-sync-port/README.md)** — the
+  hardware-verified KiCad EXT paddle and print-ready housing.
 
 ### Companion projects
 

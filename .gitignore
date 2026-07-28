@@ -10,3 +10,10 @@ saves/
 MIDI.md
 CONT.md
 HELP.md
+
+# KiCad local state and automatic backups
+**/*-backups/
+**/*.kicad_prl
+**/~*.lck
+**/.history/
+**/fp-info-cache
