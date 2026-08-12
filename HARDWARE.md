@@ -156,6 +156,13 @@ TR↔TL crossover works unconfigured (the unused line floats high).
   5 V Game Gear EXT port, use one of the level interfaces in
   `adapter/README.md`—never wire an RP2040 GPIO directly to the console.
   Hardware-verified on a real Game Gear.
+- **Chipbridge**: the current Chipbridge PCB with a Waveshare RP2040-Zero and
+  the companion bridge's `smsggdj-bridge-rp2040-zero.uf2` has been verified on
+  both Master System and Game Gear. Its general firmware supports both USB/serial
+  MIDI clock through `SYNC: IN24` and four-part live input through `SYNC: MIDI`.
+  Firmware, role-switching details, and the 5 V-safe bidirectional interface are
+  maintained in the
+  [bridge repository](https://github.com/little-scale/smsggdj-link-esp32).
 - **Ableton Link in — no hardware**: for testing/performing without the bridge,
   [ares-link-sync](https://github.com/little-scale/ares-link-sync) (an ares
   emulator fork) joins a Link session and presents the same 2-bit counter on the

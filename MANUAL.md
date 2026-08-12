@@ -569,10 +569,11 @@ Set it on **OPTIONS → SYNC**:
   **trigger** model, matching the tracker's envelopes: a note-on fires the
   instrument's attack-hold-decay and plays out on its own — note-off and how long you
   hold the key are ignored, so the instrument's **HLD/DCY** set the note length (raise
-  HLD for sustain; `F` = drone). Hardware-verified on a Master System / Mega Drive in
-  MS mode. The Game Gear EXT implementation is experimental and not yet
-  hardware-verified. Setup and wiring are in the bridge repo
-  (github.com/little-scale/smsggdj-link-esp32).
+  HLD for sustain; `F` = drone). The current Chipbridge PCB with a Waveshare
+  RP2040-Zero has been hardware-verified for MIDI takeover on both Master System
+  and Game Gear; its general firmware also supports IN24 clock sync. Setup,
+  firmware, and wiring are in the
+  [bridge repository](https://github.com/little-scale/smsggdj-link-esp32).
 
 Cross-sync with **genmddj** uses the identical wire protocol: SMSGGDJ `OUT` ↔
 genmddj `IN`, and either unit's `IN24` follows the Link bridge.

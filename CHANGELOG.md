@@ -3,6 +3,27 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.46 — 2026-08-13
+
+### Added
+- **Verified Game Gear sync-port hardware source.** The repository now includes
+  the working KiCad 10 project for the EXT-port paddle, its millimetre-normalized
+  printable housing, manufacturing notes, and the confirmed connector/RP2040
+  wiring under `hardware/gg-sync-port/`.
+
+### Changed
+- **Removed the hexadecimal frame counter from the top-right of the Master
+  System tracker screen.** The internal frame clock is unchanged and continues
+  to support timing and random-number seeding; only the diagnostic display was
+  removed. (The narrower Game Gear UI did not display this counter.)
+
+### Hardware verification
+- **The v0.46 SMS and GG builds work with the current Chipbridge PCB.** A
+  Waveshare RP2040-Zero running the companion bridge's current
+  `smsggdj-bridge-rp2040-zero.uf2` firmware has been verified with both
+  `SYNC: IN24` clock sync and `SYNC: MIDI` takeover on real Master System and
+  Game Gear hardware.
+
 ## v0.45 — 2026-07-28
 
 ### Added

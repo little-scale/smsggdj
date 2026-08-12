@@ -101,9 +101,10 @@ and press play.
   on controller port 2, and the LIVE-mode launch-quantize input core. Run one SMS as the
   tracker and a second as the VJ.
 - **[smsggdj-link-esp32](https://github.com/little-scale/smsggdj-link-esp32)** —
-  an ESP32 (Seeed XIAO ESP32-C3) **Ableton Link** bridge: joins a Link session
-  over WiFi and drives SMSGGDJ's `SYNC: IN` so the tracker follows Ableton
-  Live's tempo and transport on real hardware. Wiring in HARDWARE.md.
+  companion bridge firmware: Wi-Fi **Ableton Link** on ESP32, plus wired
+  USB/serial MIDI on Pico-family boards. The current Chipbridge PCB with a
+  Waveshare RP2040-Zero is hardware-verified for both `SYNC: IN24` and MIDI
+  takeover on Master System and Game Gear. Wiring is in HARDWARE.md.
 - **[ares-link-sync](https://github.com/little-scale/ares-link-sync)** — a fork
   of the **ares** emulator that joins an **Ableton Link** session and drives
   SMSGGDJ's `SYNC: IN` from *inside the emulator* (frame-PLL'd timeline,

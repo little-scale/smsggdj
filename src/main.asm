@@ -328,7 +328,6 @@ main_loop:
 
   ; --- VRAM updates after: still inside vblank when idle, and
   ;     spacing-safe in active display while a sample feeds ---
-  call draw_frame_counter
   call draw_state
   call draw_region_boot
   call editor_draw
@@ -1004,22 +1003,6 @@ play_song_here:
   call engine_play
   jr tp_dirty
 
-; =============================================================
-; drawing
-; =============================================================
-draw_frame_counter:
-.IFDEF TARGET_GG
-  ret                        ; no room in the 20-column window
-.ENDIF
-  ld b, 0
-  ld c, 26
-  call set_text_at
-  ld a, (frame+1)
-  call print_hex_a
-  ld a, (frame)
-  call print_hex_a
-  ret
-
 ; the boot region line stays up ~1.8 s, then yields its row -
 ; without ever blocking the main loop
 draw_region_boot:
@@ -1055,7 +1038,7 @@ str_region_ntsc: .db "REGION: NTSC 60HZ", 0
 str_play:        .db "PLAY", 0
 str_stop:        .db "STOP", 0
 str_wait:        .db "WAIT", 0
-str_version:     .db "V0.45", 0
+str_version:     .db "V0.46", 0
 str_syncsym:     .db $20, $3E, $5C, $40, $20, $5E  ; OFF OUT> PULSE IN< MIDI IN24<<
 str_rest:        .db "---"
 

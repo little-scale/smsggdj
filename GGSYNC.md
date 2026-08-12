@@ -103,6 +103,10 @@ XIAO/Pico circuits are in `adapter/README.md`.
 - ✅ a Gearsystem validation build has exercised the `.gg` EXT read/write path.
 - ✅ USB-MIDI clock through the universal RP2040 UF2 and level interface drives
   `SYNC: IN24` correctly on a real Game Gear.
+- ✅ the current Chipbridge PCB, populated with a Waveshare RP2040-Zero running
+  `smsggdj-bridge-rp2040-zero.uf2`, drives both `SYNC: IN24` and MIDI takeover
+  correctly on real Game Gear hardware (and the same two modes are confirmed on
+  Master System).
 - ⏳ GG-to-GG OUT still requires real-hardware confirmation.
 
 The standalone `gg-link-test.gg` verifies both `$01` and `$DD`; all three pins
