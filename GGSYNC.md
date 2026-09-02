@@ -107,8 +107,12 @@ XIAO/Pico circuits are in `adapter/README.md`.
   `smsggdj-bridge-rp2040-zero.uf2`, drives both `SYNC: IN24` and MIDI takeover
   correctly on real Game Gear hardware (and the same two modes are confirmed on
   Master System).
-- ⏳ GG-to-GG OUT still requires real-hardware confirmation.
+- ✅ Game Gear `SYNC: OUT` is confirmed through the GG external-sync/Chipbridge
+  PCB and GG link-port-to-TRS adapter with its selector in **position A**.
+- ⏳ GG-to-GG OUT over a stock Gear-to-Gear cable still requires real-hardware
+  confirmation.
 
 The standalone `gg-link-test.gg` verifies both `$01` and `$DD`; all three pins
-have passed that test on real hardware. The RP2040 `SYNC: IN24` path has also
-passed. GG-to-GG `OUT` remains the final unverified EXT mode.
+have passed that test on real hardware. The RP2040 `SYNC: IN24` path and direct
+GG `SYNC: OUT` through the position-A TRS adapter have also passed. GG-to-GG
+`OUT` over a stock cable remains the final unverified EXT mode.

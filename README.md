@@ -24,6 +24,11 @@ One source tree builds two ROMs:
 version-stamped `.sms` (Master System) or `.gg` (Game Gear) ROM; flash to a cart
 or open in an emulator, no toolchain needed.
 
+> **Hardware-verified cross-console sync:** SMSGGDJ running on a Sega Game Gear
+> can be synchronised with [GENMDDJ](https://github.com/little-scale/genmddj)
+> running on a Sega Nomad using the Game Gear link-port sync PCB from the
+> [Chipbridge project](https://github.com/little-scale/chipbridge).
+
 ## Build & run
 
 Needs [WLA-DX](https://github.com/vhelin/wla-dx) (`wla-z80` + `wlalink`) and
@@ -92,6 +97,9 @@ and press play.
   XIAO RP2040 and standard Pico, with the 5 V-safe Game Gear circuit.
 - **[hardware/gg-sync-port/](hardware/gg-sync-port/README.md)** — the
   hardware-verified KiCad EXT paddle and print-ready housing.
+- **[ALYNXDJ_SYNC_BRIDGE.md](ALYNXDJ_SYNC_BRIDGE.md)** — deferred, untested
+  design notes for translating SMSGGDJ's one-bit row toggle through Chipbridge
+  into native ALYNXDJ ComLynx sync bytes; no firmware or ROM implementation yet.
 
 ### Companion projects
 

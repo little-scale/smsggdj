@@ -587,6 +587,10 @@ Gear uses a standard Gear-to-Gear cable. The slave unit reads whichever cable
 is plugged in automatically. (Sending a clock as master needs an *export*
 Master System — Japanese units can't drive the port.)
 
+With the GG external-sync/Chipbridge PCB, the Game Gear can send master clock
+directly to TRS: choose `SYNC: OUT` in GGDJ and set the GG link-port-to-TRS
+adapter to **position A**. This path is verified on real hardware.
+
 **Ableton Link:** with `SYNC: IN24` you can follow Ableton Live (or any Link
 app) using the companion **smsggdj-link-esp32** bridge — a small ESP32 board
 that joins your Link session over WiFi and feeds the clock into port 2.

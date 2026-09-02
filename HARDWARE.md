@@ -160,6 +160,9 @@ TR↔TL crossover works unconfigured (the unused line floats high).
   the companion bridge's `smsggdj-bridge-rp2040-zero.uf2` has been verified on
   both Master System and Game Gear. Its general firmware supports both USB/serial
   MIDI clock through `SYNC: IN24` and four-part live input through `SYNC: MIDI`.
+  Game Gear master output is also hardware-verified: select `SYNC: OUT` on the
+  tracker and set the GG link-port-to-TRS adapter to **position A** to route the
+  EXT-port counter through the external-sync/Chipbridge PCB to TRS.
   Firmware, role-switching details, and the 5 V-safe bidirectional interface are
   maintained in the
   [bridge repository](https://github.com/little-scale/smsggdj-link-esp32).
