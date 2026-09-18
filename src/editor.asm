@@ -1128,7 +1128,8 @@ cm_pleft:
   ld (phr_col), a
 cm_pfin:
   ld a, (phr_row)
-  jp mark_dirty_a
+  call mark_dirty_a
+  jp mark_ij_dirty
 
 ; song-screen scroll bookkeeping after a row move
 so_scroll:
@@ -5256,6 +5257,21 @@ bfa_l:
 
 mark_phr_dirty:
   ld a, (phr_row)
+  call mark_dirty_a
+  ; fall through: the selected command/parameter may have changed
+mark_ij_dirty:
+  push hl
+  push bc
+  ld hl, dirty_rows+4
+  ld b, 2
+  ld a, 1
+mid_l:
+  ld (hl), a
+  inc hl
+  djnz mid_l
+  pop bc
+  pop hl
+  ret
 mark_dirty_a:                ; A = visible row (preserves HL/DE)
   push hl
   push de
@@ -6416,6 +6432,13 @@ prd_sync:
   add hl, de
   ld b, 6
   jp print_raw
+
+; Tiny, frequently referenced labels live in the remaining bank-0 tail. Keeping
+; them here leaves enough contiguous bank-1 space for the PHRASE bit helper.
+str_hv:          .db "V", 0
+str_hinstr:      .db "I", 0
+str_muted:       .db ".."
+track_names:     .db "T1T2T3NO"
 .ENDS
 
 ; the BPM-from-groove math is cold draw code; parked in bank 1 (always mapped)
@@ -6913,7 +6936,7 @@ pdr_cpr:
   push de
   call print_hex_a
   pop de
-  ret
+  jp draw_ij_hint_row
 pdr_pdash:
   ld a, '-'
   push de
@@ -6921,7 +6944,7 @@ pdr_pdash:
   ld a, '-'
   call print_char
   pop de
-  ret
+  jp draw_ij_hint_row
 
 ; -------------------------------------------------------------
 ; INSTR screen: form rows (E = grid row), fields grouped with
@@ -7818,25 +7841,133 @@ cmd_chars:
 
 .ENDS
 
+; GG keeps these labels in bank 1; the SMS layout has a larger bank-0 tail and
+; uses it so the five-column J transpose decoder still fits around the ROM tag.
+.IFDEF TARGET_GG
 .BANK 1 SLOT 1
+.ELSE
+.BANK 0 SLOT 0
+.ENDIF
 .SECTION "EdData" FREE
 
 str_song:        .db "SONG", 0
-str_chain:       .db "CHAIN", 0
-str_phrase:      .db "PHRASE", 0
 str_instr:       .db "INSTR", 0
 str_tabl:        .db "TABLE", 0
 str_grv:         .db "GROOVE", 0
-str_hv:          .db "V", 0
-str_hphr:        .db "PHR", 0
 str_htsp:        .db "TSP", 0
 str_hnote:       .db "NOTE", 0
-str_hinstr:      .db "I", 0
 str_hcmd:        .db "CMD", 0
+
+.ENDS
+
+; The reset-to-IRQ vector gap is fixed, always mapped ROM. This shared 24-column
+; wipe string fits there without taking space from either packed code bank.
+.BANK 0 SLOT 0
+.ORGA $0012
+.SECTION "BlankString" FORCE
 str_blank:       .db "                        ", 0  ; 24 cols: map lives at 25+
-str_muted:       .db ".."
-track_names:
-  .db "T1T2T3NO"
+str_chain:       .db "CHAIN", 0
+str_phrase:      .db "PHRASE", 0
+.ENDS
+
+; Four more fixed bytes fit immediately before the NMI vector.
+.BANK 0 SLOT 0
+.ORGA $0062
+.SECTION "PhraseHeaderString" FORCE
+str_hphr:        .db "PHR", 0
+.ENDS
+
+; =============================================================
+; Contextual PHRASE sidebar for the binary I/J parameters.
+; =============================================================
+.BANK 1 SLOT 1
+.SECTION "IJHint" FREE
+
+; E = phrase row. Rows 4..5 own the helper lines; other rows return.
+; Each line is five columns. I keeps both nibbles binary (MSB at left);
+; J keeps its mask binary and decodes the signed transpose as semitones:
+; Ixy = Hxxxx/Lyyyy; Jxy = Mxxxx/T +/-d.
+draw_ij_hint_row:
+  ld a, e
+  sub 4
+  cp 2
+  ret nc
+  ld a, e
+  add a, GRID_ROW
+  ld b, a
+  ld c, MAP_COL
+  call set_text_at
+  ld a, (phr_row)
+  ld e, a
+  call ed_step_ptr
+  inc hl
+  inc hl
+  ld d, (hl)                 ; selected command
+  inc hl
+  ld e, (hl)                 ; selected parameter
+  ld a, b
+  sub GRID_ROW+4
+  ld c, a                    ; helper line 0..1
+  ld a, d
+  cp CMD_ITER
+  jr z, dij_iter
+  cp CMD_JTRANS
+  jr nz, dij_blank
+  ld a, c
+  ld d, 'M'
+  or a
+  jr z, dij_high
+  ld a, 'T'
+  call print_char
+  ld a, ' '
+  call print_char
+  ld a, e
+  and $0F
+  ld d, '+'
+  bit 3, a
+  jr z, dij_tmag
+  sub 16
+  neg
+  ld d, '-'
+dij_tmag:
+  ld e, a
+  ld a, d
+  call print_char
+  ld a, e
+  call print_hex_nib
+  ld a, ' '
+  jp print_char
+dij_iter:
+  ld a, c
+  ld d, 'H'
+  or a
+  jr z, dij_high
+  ld d, 'L'
+dij_low:
+  ld a, e
+  rlca
+  rlca
+  rlca
+  rlca
+  jr dij_bits
+dij_high:
+  ld a, e
+dij_bits:
+  ld e, a
+  ld a, d
+  call print_char
+  ld b, 4
+dij_bloop:
+  sla e
+  ld a, '0'
+  adc a, 0
+  call print_char
+  djnz dij_bloop
+  ret
+dij_blank:
+  ld hl, str_blank
+  ld b, 5
+  jp print_raw
 
 .ENDS
 

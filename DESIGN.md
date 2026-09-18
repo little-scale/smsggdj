@@ -144,7 +144,7 @@ SONG and WAVE, redrawn each frame since the GG row-wipe reaches there).
 |---|---|
 | **SONG** | 4 columns of chain numbers, 16 visible rows (scrolls), playhead per track, track mute/solo headers |
 | **CHAIN** | 16 rows × (phrase #, transpose ±semitones) |
-| **PHRASE** | 16 rows × (note, instrument, command, param). Noise track shows noise pitch/preset names; sample instruments show sample names |
+| **PHRASE** | 16 rows × (note, instrument, command, param). Noise track shows noise pitch/preset names; sample instruments show sample names. Selecting an `I` or `J` row opens a contextual five-column decoder below the map: `Ixy` renders as MSB-first `Hxxxx` / `Lyyyy`; `Jxy` renders its mask as `Mxxxx` and its chromatic transpose as signed base-10 `T +n` / `T -n` |
 | **INSTR** | All parameters of one instrument (form layout, §6) |
 | **TABLE** | 16 rows × (vol, pitch, cmd+param) with tick-speed field and loop via `H` command |
 | **GROOVE** | 16 tick values; the groove number is an editable header field (cursor up from the top tick, 1+L/R selects one of 16). This frees 2+L/R, so 2+Left ↔ FILES. Live BPM readout (uses active tick rate, §5.1) |
@@ -338,7 +338,7 @@ and phrase↔table interplay. (Retriggers via `R` count as triggered notes.)
 | `X xx` | volume | level 0–F | set this note's volume (the AHD peak); pair with a note — the attack ramps to it. Accents a single note (the only per-note volume control after `E` became ATK/DCY) |
 | `Y xx` | FM program | patch 1–15 | set this note's FM program/patch, overriding the FM instrument's PROG (one-shot, like `B` for wavetables) |
 | `Z xx` | Probability | chance 00–FF | the note triggers with probability xx/256 — `Z00` never, `ZFF` always, `Z80` ≈ 50/50. A fresh roll of a 16-bit Galois LFSR (taps $B400, seeded from the frame counter at play-start) each time the row plays. Resolved in the trigger peek; the command slot is a no-op |
-| `J xy` | Jump (transpose) | x = signed semitones, y = mask | sibling to `I`: transpose the note by x semitones (`0`–`7` = +, `8`–`F` = −8…−1) on the plays whose **(play count mod 4)** bit is set in y. `J00` never, `J2F` always +2, `J21`/`J28` = +2 once every 4 plays. Same per-phrase play count as `I`, but varies pitch instead of gating the note |
+| `J xy` | Jump (transpose) | x = repeat mask, y = signed semitones | sibling to `I`: transpose the note by y semitones (`0`–`7` = +, `8`–`F` = −8…−1) on the plays whose **((play−1) mod 4)** bit is set in x. `J00` never, `JF2` always +2, `J12` = +2 on the first of every 4 plays, `J82` = +2 on the fourth. Same per-phrase play count as `I`, but varies pitch instead of gating the note |
 | `Q xx` | Echo on/off | 00 = off, else on | gates the global echo post-pass live (`echo_gate`) without touching the saved ECHO config (mode/taps/feedback/transpose/stereo). The delay ring stays warm while muted, so re-enabling resumes cleanly. Reset to **on** at play-start, so a song with no `Q` echoes per its config |
 
 Omitted vs LSDJ: `S` (covered by `P`), wave/duty (no hardware). `O` gained its LSDJ meaning post-v0.2 (Game Gear stereo only). `M` is repurposed (amp mod). `F` = finetune and `W` = wait-skip also diverge from LSDJ (whose F/W are wave-channel commands). `B` (wave-bank select) is new — no LSDJ equivalent. `Z` (probability) and `J` (probabilistic transpose) are the SMSGGDJ variation trio with `I`.
@@ -446,14 +446,19 @@ works with no setting; pull-ups hold the unused line high):
 - **SMS ↔ Game Gear**: SMS port 2 → male-male DE-9 → **Master Link Cable** →
   GG EXT (straight signal mapping; the GG runs in SMS mode, screen cropped).
 - **GG ↔ GG**: a stock **Gear-to-Gear cable** — it crosses TR↔TL (its serial
-  TX/RX swap) and passes TH straight; the AND read absorbs the crossover.
+  TX/RX swap) and passes TH straight; the AND read absorbs the crossover. A
+  direct native-GG `OUT` → `IN` link is hardware-verified using one EXT paddle
+  per console and a TRS cable; the stock crossed cable has not been separately
+  tested.
 
 On SMS, TR/TH are software-direction pins: outputs via port `$3F` on the master,
 read back on port `$DD` on the slave (TR bit 3, TL bit 2, TH bit 7). **Export
 consoles only** — Japanese SMS hardware ignores `$3F` level drive. The native GG
 build instead uses EXT parallel data port `$01` and direction port `$02`
 (PC4/PC5/PC6); see `GGSYNC.md`. Direct EXT input and RP2040-driven `IN24` are
-real-hardware verified; GG-to-GG output remains experimental.
+real-hardware verified. Native GG-to-GG output and input are also verified with
+two EXT paddles joined by a TRS cable; only the stock crossed cable remains
+untested as a distinct wiring variant.
 
 ### 11.1 OUT — 2-bit counter on TR+TH, one clock per row
 
@@ -599,8 +604,8 @@ musical (engine, sampler, waves, save format, pool contract, patcher) is shared.
   same EXT registers for its two-wire clock/data protocol. GG↔GG uses a stock
   Gear-to-Gear cable. The standalone `make gg-link-test` diagnostic has
   confirmed pins 6/7/9, both documented input views, and input direction
-  semantics on real Game Gear hardware. RP2040-driven `SYNC: IN24` is also
-  hardware-verified; GG-to-GG OUT and MIDI takeover still need verification;
-  see `GGSYNC.md` and `GG_LINK_TEST.md`.
+  semantics on real Game Gear hardware. RP2040-driven `SYNC: IN24`, Chipbridge
+  MIDI takeover, and native GG-to-GG `OUT` → `IN` through two EXT paddles and a
+  TRS cable are hardware-verified. See `GGSYNC.md` and `GG_LINK_TEST.md`.
 
 **v2 parking lot:** pitched sample playback (phase accumulator), per-sample cadence, MIDI clock out / thru on TH, Song Position Pointer, 255-phrase SRAM tier, tap-tempo, raw bit-bang MIDI listen mode.

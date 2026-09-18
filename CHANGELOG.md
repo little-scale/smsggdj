@@ -3,6 +3,32 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.47 — 2026-09-18
+
+### Added
+- **Contextual binary decoder for `I` and `J` commands.** On the PHRASE
+  screen, selecting an `I`/`J` row shows its parameter below the screen map as
+  compact labelled rows. `Ixy` shows both nibbles as MSB-first binary
+  (`Hxxxx` / `Lyyyy`). `Jxy` shows its mask as `Mxxxx` and decodes its
+  chromatic transpose as signed base-10 semitones (`T +n` / `T -n`). The
+  panel is hidden for every other command and screen.
+
+### Fixed
+- **`J` now applies its repeat mask to the documented plays.** The shared
+  phrase-play counter is already zero-based, but `J` decremented it a second
+  time. Thus `J82` selected the first rather than fourth play (and every four
+  plays thereafter). Its mask timing now matches `I`, GENMDDJ, and the manual.
+- Corrected DESIGN.md's stale, reversed description of the `J` parameter
+  nibbles: `Jxy` is repeat mask `x` plus signed transpose `y`.
+
+### Hardware verification
+- **DAW MIDI clock to Game Gear:** Ableton Live → Chipbridge → Sega
+  9-pin-to-TRS adapter → Master Link Cable → SMSGGDJ `SYNC: IN24` is confirmed
+  on real hardware.
+- **Direct Game Gear-to-Game Gear sync:** two GG EXT paddles joined by a TRS
+  cable are confirmed with one console in `SYNC: OUT` and the other in
+  `SYNC: IN`.
+
 ## v0.46 — 2026-08-13
 
 ### Added

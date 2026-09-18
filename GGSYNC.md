@@ -2,8 +2,10 @@
 
 Implementation and bring-up notes for `SYNC: IN`, `IN24`, `OUT`, and `MIDI` on
 the native Game Gear ROM. The SMS path and the RP2040-driven GG `SYNC: IN24`
-path are hardware-proven. GG-to-GG output still needs confirmation. See also
-`HARDWARE.md`, `adapter/README.md`, and DESIGN.md §11.
+path are hardware-proven. Native GG-to-GG `OUT` → `IN` is also proven using
+two EXT paddles and a TRS cable; a stock crossed Gear-to-Gear cable has not
+been separately confirmed. See also `HARDWARE.md`, `adapter/README.md`, and
+DESIGN.md §11.
 
 ## The important difference from SMS
 
@@ -109,10 +111,16 @@ XIAO/Pico circuits are in `adapter/README.md`.
   Master System).
 - ✅ Game Gear `SYNC: OUT` is confirmed through the GG external-sync/Chipbridge
   PCB and GG link-port-to-TRS adapter with its selector in **position A**.
+- ✅ DAW MIDI clock (including Ableton Live) is confirmed through Chipbridge,
+  the Sega 9-pin-to-TRS adapter, and a Master Link Cable into Game Gear
+  `SYNC: IN24`.
+- ✅ Native GG-to-GG sync is confirmed with an EXT paddle on each console and a
+  TRS cable between them (`SYNC: OUT` master → `SYNC: IN` follower).
 - ⏳ GG-to-GG OUT over a stock Gear-to-Gear cable still requires real-hardware
   confirmation.
 
 The standalone `gg-link-test.gg` verifies both `$01` and `$DD`; all three pins
-have passed that test on real hardware. The RP2040 `SYNC: IN24` path and direct
-GG `SYNC: OUT` through the position-A TRS adapter have also passed. GG-to-GG
-`OUT` over a stock cable remains the final unverified EXT mode.
+have passed that test on real hardware. The RP2040 `SYNC: IN24` path, direct GG
+`SYNC: OUT` through the position-A adapter, and paddle-to-paddle GG `OUT` → `IN`
+have also passed. GG-to-GG `OUT` over a stock crossed cable remains the final
+unverified EXT wiring variant.

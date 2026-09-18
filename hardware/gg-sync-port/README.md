@@ -7,6 +7,19 @@ bottom-row EXT contacts on a 2.54 mm, 1x4 through-hole header.
 The design is **hardware v1.0** and was verified on a real Game Gear with the
 universal XIAO RP2040/Pico USB-MIDI adapter and SMSGGDJ `SYNC: IN24`.
 
+## Verified configurations
+
+- **DAW MIDI clock → Game Gear:** Ableton Live (or another DAW sending MIDI
+  clock) → Chipbridge → Sega 9-pin-to-TRS adapter → Master Link Cable → Game
+  Gear running SMSGGDJ in `SYNC: IN24`.
+- **Direct Game Gear-to-Game Gear:** one EXT paddle on each console, connected
+  by a TRS cable. The master runs `SYNC: OUT`; the follower runs `SYNC: IN`.
+- **Game Gear clock out to TRS:** one EXT paddle through the external-sync /
+  Chipbridge adapter with its selector in **position A**, with SMSGGDJ set to
+  `SYNC: OUT`.
+
+All three paths have been tested on real hardware.
+
 ## Contents
 
 ```text

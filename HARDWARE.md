@@ -56,7 +56,14 @@ margin each side inside the 11.7 mm cavity, which reconciles all four numbers.
 **Caliper-confirm 1.9 mm before committing PCB fingers.** Still needed: **tongue
 contact depth, bottom-gap height**.
 
-## EXT paddle PCB (planned)
+## EXT paddle PCB (hardware verified)
+
+The fabricated v1.0 KiCad design and printable housing are in
+[`hardware/gg-sync-port/`](hardware/gg-sync-port/). It has been verified both as
+a Game Gear clock input and in a direct two-console link: one paddle on a
+`SYNC: OUT` Game Gear, a TRS cable, and one paddle on a `SYNC: IN` Game Gear.
+The notes below record the design rationale; the checked-in KiCad project is
+the dimensional source of truth.
 
 A bare PCB that slides into the **bottom gap** of the EXT port, gold fingers
 up against the tongue's bottom-row contacts, terminating in a 5-pin 2.54 mm
@@ -139,6 +146,8 @@ TR↔TL crossover works unconfigured (the unused line floats high).
 - **SMS ↔ GG**: SMS port 2 → male-male DE-9 → Master Link Cable → GG EXT
   (straight mapping; GG runs the SMS-mode counter reader).
 - **GG ↔ GG**: stock Gear-to-Gear cable (TR↔TL crossover absorbed).
+- **GG ↔ GG via paddles (hardware verified)**: EXT paddle → TRS cable → EXT
+  paddle; set one native GG ROM to `SYNC: OUT` and the other to `SYNC: IN`.
 - **PULSE out** (Volca / Pocket Operator): tip = pin 9 (TR), sleeve = pin 8
   (GND); 5 V pulse, one tick high every 12 ticks (2 PPQN at groove 6).
 - **Ableton Link in** (companion ESP32 bridge,
@@ -163,6 +172,9 @@ TR↔TL crossover works unconfigured (the unused line floats high).
   Game Gear master output is also hardware-verified: select `SYNC: OUT` on the
   tracker and set the GG link-port-to-TRS adapter to **position A** to route the
   EXT-port counter through the external-sync/Chipbridge PCB to TRS.
+  DAW clock input is also hardware-verified on Game Gear: Ableton Live (or
+  another MIDI-clock DAW) → Chipbridge → Sega 9-pin-to-TRS adapter → Master
+  Link Cable → Game Gear, with SMSGGDJ set to `SYNC: IN24`.
   Firmware, role-switching details, and the 5 V-safe bidirectional interface are
   maintained in the
   [bridge repository](https://github.com/little-scale/smsggdj-link-esp32).

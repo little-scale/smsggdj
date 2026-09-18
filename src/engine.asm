@@ -1704,8 +1704,8 @@ prn_prob:
 prn_jump:
   ; J xy (genmddj-compatible): x (high nibble) = repeat mask, y (low nibble) =
   ; signed transpose (0..7 = +0..+7, 8..F = -8..-1). The transpose applies to this
-  ; note only on plays where bit[(play-1) mod 4] of the mask is set. A sibling to
-  ; I: same per-phrase play count, but it varies pitch instead of gating the note.
+  ; note only on human play 1..4 where mask bit 0..3 is set. phrase_plays is already
+  ; zero-based here (first play = 0), like I; J must not decrement it again.
   push hl
   ld hl, phrase_plays
   ld a, (ix+10)              ; how many times this phrase has played
@@ -1714,9 +1714,8 @@ prn_jump:
   adc a, h
   sub l
   ld h, a
-  ld a, (hl)                 ; play count N
+  ld a, (hl)                 ; zero-based play index (first play = 0)
   pop hl
-  dec a                      ; 0-based repeat index
   and 3                      ; mod 4
   add a, 5                   ; rotate (index+5) -> mask bit[index] (d bit 4+index)
   ld e, a

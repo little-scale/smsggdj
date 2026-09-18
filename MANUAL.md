@@ -155,6 +155,15 @@ from TABLE) — or hold **2** alone for ~2½ s to pop it open from any screen.
 A small map of these screens shows in the top-right of every screen (on Game
 Gear, every screen except SONG and WAVE), with the current one highlighted.
 
+On the PHRASE screen, selecting a row containing `I` or `J` opens a compact
+binary decoder below the map. Bits are shown most-significant first. For `Ixy`,
+`Hxxxx` is the high mask nibble (plays 8–5) and `Lyyyy` is the low nibble
+(plays 4–1). For `Jxy`, `Mxxxx` is its four-play mask and `T +n` / `T -n`
+decodes the transpose as a signed, base-10 chromatic semitone value. For
+example, `J82` displays `M1000` and `T +2`: the fourth play is transposed up
+two semitones. `J8E` displays `T -2`. The decoder disappears when any other
+command is selected.
+
 The four tracks are **T1, T2, T3** (melodic) and **NO** (noise/drums).
 
 ---
@@ -586,6 +595,16 @@ when following (IN or IN24), a pulse mark for PULSE.
 Gear uses a standard Gear-to-Gear cable. The slave unit reads whichever cable
 is plugged in automatically. (Sending a clock as master needs an *export*
 Master System — Japanese units can't drive the port.)
+
+Two additional Game Gear arrangements are verified on real hardware:
+
+- For DAW clock, connect the Game Gear through a **Master Link Cable**, the
+  **Sega 9-pin-to-TRS adapter**, and **Chipbridge**. Set SMSGGDJ to
+  `SYNC: IN24`; MIDI clock from Ableton Live or another DAW then drives the
+  tracker.
+- For direct Game Gear-to-Game Gear sync, fit one **GG EXT sync-port paddle**
+  to each console and join the paddles with a TRS cable. Set the master Game
+  Gear to `SYNC: OUT` and the follower to `SYNC: IN`.
 
 With the GG external-sync/Chipbridge PCB, the Game Gear can send master clock
 directly to TRS: choose `SYNC: OUT` in GGDJ and set the GG link-port-to-TRS
