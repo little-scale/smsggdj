@@ -98,7 +98,7 @@ psg_init:
   or latchbits
   di                         ; latch+data must be atomic: a
   out (PSG_PORT), a          ; sample IRQ between them re-latches
-  ld a, b                    ; the PSG to T3 volume and the data
+  ld a, b                    ; the PSG to its selected DAC volume and the data
   out (PSG_PORT), a          ; byte lands in the wrong register
   ei
 ++:

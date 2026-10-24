@@ -148,13 +148,18 @@ art/        the logo art
 ## Sample bank
 
 The pool is built from **kit folders** under `samples/` — up to **8 kits of 8
-samples**, taken in alphanumeric order (one subfolder per kit, WAVs inside). An
+samples**, taken in alphanumeric order (one subfolder per kit, WAVs inside). A
 KIT instrument's **KIT** field picks the kit and the note maps chromatically to
 the 8 slots, so one instrument is a whole drum kit. `make` trims each sample's
 trailing silence and applies a gain (`make SAMPLE_GAIN=N`, default 10) for a
 punchier 4-bit DAC. A committed `samples/pool.bin` (tuned in the patcher) still
 overrides as a pre-baked bank if present. The pool is identical in both
 flavours, so one bank serves `.sms` and `.gg`.
+
+A KIT note on **T1**, **T2** or **T3** uses that track's PSG tone channel as
+its DAC output and occupies it until the sample ends. A KIT note on **NO** keeps
+the legacy T3 fallback. Only one PCM sample can play at a time (the newest
+trigger wins), and WAV instruments remain fixed to T3.
 
 ## License
 

@@ -127,7 +127,6 @@
   groove_pos   db
   mute_flags   db            ; bits 0-3
   eng_start    db            ; song row playback began on
-  eng_len      db            ; song rows until the wrap to row 0
   groove_sel   db            ; active groove ($10 = NUM_GROOVES: the glide scratch)
   ; CONT tempo glide: ramp frames-per-row from the old song's tempo to the new
   ; one over GLIDE_BARS bars after a CONT load. Plays a flat scratch groove.
@@ -235,35 +234,6 @@ ep_seed:
   ld (groove_pos), a
   ld a, (song_cur)
   ld (eng_start), a
-  ; song length: the wrap point is one past the last row that
-  ; holds any chain on any track (empty cells are silent rows)
-  ld hl, song + SONG_ROWS*4 - 1
-  ld bc, SONG_ROWS*4
-ep_scan:
-  ld a, (hl)
-  cp $FF
-  jr nz, ep_found
-  dec hl
-  dec bc
-  ld a, b
-  or c
-  jr nz, ep_scan
-ep_found:
-  ld h, b                    ; eng_len = ceil(bytes/4), min 1
-  ld l, c
-  ld de, 3
-  add hl, de
-  srl h
-  rr l
-  srl h
-  rr l
-  ld a, l
-  or a
-  jr nz, ep_lok
-  inc a
-ep_lok:
-  ld (eng_len), a
-
   ld ix, chst
   ld c, 0
 ep_chl:
@@ -310,12 +280,13 @@ ep_songstart:
   ld a, (play_mode)          ; LIVE: every track starts silent; the
   or a                       ;   performer triggers chains one at a time
   jr nz, eps_off
-  ; LSDJ start: the track begins at the first populated cell at
-  ; or below the start row; a column with nothing there at all
-  ; does not play
+  ; Start on the selected row when it is populated.  If this column is blank
+  ; there, prefer the nearest contiguous block above (from that block's top),
+  ; otherwise take the first populated cell below.  A wholly empty column stays
+  ; silent.  This keeps staggered song blocks together when playback starts.
   ld a, (song_cur)
   ld e, a
-  call col_next_pop
+  call col_start_pop
   cp $FF
   jr z, eps_off
   ld (ix+7), a
@@ -484,15 +455,9 @@ mg_next:
   ret
 
 ; -------------------------------------------------------------
-; first populated song cell in column C at/after row E -> A
-; (row), or $FF when the rest of the column is empty
-col_next_pop:
-  ld a, (eng_len)
-  ld d, a
-cnp_l:
-  ld a, e
-  cp d
-  jr nc, cnp_none
+; Test song row E, column C.  Returns A = cell value, Z when empty ($FF), and
+; preserves BC/DE so the column scanners can keep their row/cutoff state.
+col_cell:
   push de
   ld l, e
   ld h, 0
@@ -506,6 +471,15 @@ cnp_l:
   pop de
   ld a, (hl)
   cp $FF
+  ret
+
+; first populated song cell in column C at/after row E -> A
+; (row), or $FF when the rest of the column is empty
+col_next_pop:
+cnp_l:
+  bit 7, e                   ; all 128 rows exhausted
+  jr nz, cnp_none
+  call col_cell
   jr nz, cnp_hit
   inc e
   jr cnp_l
@@ -515,6 +489,29 @@ cnp_hit:
 cnp_none:
   ld a, $FF
   ret
+
+; Contextual song start for column C at selected row E -> A = start row or $FF.
+; Exact cells win.  For an empty cell, use the nearest block above and rewind to
+; its top; only when no block exists above do we search below.
+col_start_pop:
+  call col_cell
+  jr nz, csp_hit             ; exact populated row: start exactly there
+csp_find_up:
+  ld a, e
+  or a
+  jr z, csp_down             ; reached row 0 with no populated cell above
+  dec e
+  call col_cell
+  jr z, csp_find_up
+  ld (ix+7), e               ; reuse the normal block rewind for the hit above
+  jp block_top
+csp_hit:
+  ld a, e
+  ret
+csp_down:
+  xor a                      ; no entry exists at/above the selection, so the
+  ld e, a                    ; first populated cell in the column must be below
+  jp col_next_pop
 
 .ENDS
 
@@ -801,6 +798,13 @@ echo_pass:
   ld (psg_pan), a
 echo_t1ok:
   ; --- TAP1 -> T2, only if the song left T2 silent ---
+  ld a, (smp_active)
+  or a
+  jr z, echo_t2free
+  ld a, (smp_dac_ch)
+  cp 1
+  jr z, echo_t3             ; the DAC currently owns T2
+echo_t2free:
   ld a, (psg_vols+1)
   cp $0F
   jr nz, echo_t3
@@ -834,9 +838,13 @@ echo_t3:
   ld a, (echo_mode)
   cp 2
   jr nz, echo_adv
-  ld a, (smp_active)         ; T3 owned by a sample/wave: skip
+  ld a, (smp_active)
   or a
-  jr nz, echo_adv
+  jr z, echo_t3free
+  ld a, (smp_dac_ch)
+  cp 2
+  jr z, echo_adv             ; the DAC currently owns T3
+echo_t3free:
   ld a, (psg_vols+2)
   cp $0F
   jr nz, echo_adv
@@ -1184,14 +1192,14 @@ at_nextrow:
   ld a, (play_mode)
   or a
   jr z, at_adv
-  ; ---- LIVE: take the queued row, stop, else loop this chain ----
+  ; ---- LIVE: take the queued row, stop, else continue/loop this block ----
   ld hl, live_q
   ld e, c
   ld d, 0
   add hl, de
   ld a, (hl)
   cp $FF
-  jp z, at_load              ; nothing queued: reload = loop this chain
+  jp z, at_adv               ; nothing queued: walk/loop the contiguous block
   cp $FE
   jr z, ats_stop             ; queued stop reached chain end: deactivate the track
   ld (ix+7), a
@@ -1207,30 +1215,17 @@ ats_stop:
   ld a, (ix+7)
   jp mark_vis_a              ; redraw the playing row (drop the stop glyph)
 at_adv:
-  ; chain ended (SONG): walk down the column while the next row is populated,
+  ; chain ended (SONG or LIVE): walk down the column while the next row is populated,
   ; else loop back to the TOP of the current contiguous block (so each block is
   ; its own independent loop). Single-block columns loop their whole block as
   ; before; a lower block no longer jumps back to the column's top block.
-  ld a, (eng_len)
-  ld d, a
   ld a, (ix+7)
   inc a                      ; A = next row
-  cp d
-  jr nc, at_loopblk          ; past the song end: the block ends here
-  ld b, a                    ; B = next row
-  ld l, a
-  ld h, 0
-  add hl, hl
-  add hl, hl                 ; next * 4
-  ld e, c
-  ld d, 0
-  add hl, de
-  ld de, song
-  add hl, de
-  ld a, (hl)
-  cp $FF
+  jp m, at_loopblk           ; past row 127: the block ends here
+  ld e, a                    ; E = next row
+  call col_cell
   jr z, at_loopblk           ; next cell empty: the block ends here
-  ld a, b
+  ld a, e
   ld (ix+7), a               ; next is populated: continue down the block
   jp at_load
 at_loopblk:
@@ -1300,30 +1295,17 @@ at_off:
 ; current song row (ix+7): scan up while the row above still holds a chain.
 ; Preserves C and IX.
 block_top:
-  ld a, (ix+7)
+  ld e, (ix+7)
 bt_loop:
+  ld a, e
   or a
   ret z                      ; row 0 is the top
-  push af
-  dec a                      ; peek the row above
-  ld l, a
-  ld h, 0
-  add hl, hl
-  add hl, hl                 ; (row-1) * 4
-  ld e, c
-  ld d, 0
-  add hl, de
-  ld de, song
-  add hl, de
-  ld a, (hl)
-  cp $FF                     ; (test before pop af: pop reloads F and would clobber Z)
-  jr nz, bt_up               ; row above populated: keep scanning up
-  pop af                     ; row above empty: current candidate is the block top
+  dec e                      ; peek the row above
+  call col_cell
+  jr nz, bt_loop             ; row above populated: keep scanning up
+  inc e                      ; row above empty: E+1 is the block top
+  ld a, e
   ret
-bt_up:
-  pop af                     ; A = current candidate
-  dec a                      ; move up to it and continue
-  jr bt_loop
 
 ; -------------------------------------------------------------
 ; LIVE performance actions (transport gesture on the SONG screen
@@ -2271,40 +2253,12 @@ ctg_off:
 
 ; load_rebase: called after LOAD swapped the song block while the transport is
 ; running (CONT). The channels keep their positions (chain/phrase/row indices
-; now read the NEW song's pools), but two globals derived from the old data
-; must be rebased: eng_len (the song wrap point) and the groove (the selected
-; groove may be empty in the new song). No-op when stopped. Clobbers A/BC/DE/HL.
+; now read the NEW song's pools), but the selected groove may be empty in the
+; new song and must be checked. No-op when stopped. Clobbers A/BC/DE/HL.
 load_rebase:
   ld a, (play_state)
   or a
   ret z
-  ; rescan the new song for its wrap point (same scan as engine_play)
-  ld hl, song + SONG_ROWS*4 - 1
-  ld bc, SONG_ROWS*4
-lrb_scan:
-  ld a, (hl)
-  cp $FF
-  jr nz, lrb_found
-  dec hl
-  dec bc
-  ld a, b
-  or c
-  jr nz, lrb_scan
-lrb_found:
-  ld h, b                    ; eng_len = ceil(bytes/4), min 1
-  ld l, c
-  ld bc, 3
-  add hl, bc
-  srl h
-  rr l
-  srl h
-  rr l
-  ld a, l
-  or a
-  jr nz, lrb_lok
-  inc a
-lrb_lok:
-  ld (eng_len), a
   ; queued LIVE cells reference the OLD song's grid (and a pending $FE
   ; chain-end stop would fire against the carried chain): clear them all
   ld a, $FF
@@ -3018,8 +2972,8 @@ tn_sspd:
   jr nc, tn_squiet           ; past the loaded samples -> empty slot, silence
   call smp_play
 tn_squiet:
-  ; the note only selects the sample (played on T3): the host
-  ; track's own channel must stay silent. No envelope/length/table.
+  ; The note only selects the sample. Its tone track is now the DAC host and
+  ; remains reserved until the stream ends. No envelope/length/table.
   ld (ix+0), $FF
   ld (ix+2), 0
   ld (ix+5), 0
@@ -3698,13 +3652,13 @@ cf_env2:
 
   ; --- write shadows ---
 cf_out:
-  ld a, c
-  cp 2                       ; T3 belongs to a playing sample
-  jr nz, cf_not2
   ld a, (smp_active)
   or a
-  jp nz, cf_next
-cf_not2:
+  jr z, cf_notdac
+  ld a, (smp_dac_ch)
+  cp c
+  jp z, cf_next              ; selected tone channel belongs to the DAC
+cf_notdac:
   ld a, c
   cp 3
   jr z, cf_noise
@@ -3740,6 +3694,9 @@ cf_noise:
   ld a, (smp_active)
   or a
   jr z, cf_npitch
+  ld a, (smp_dac_ch)
+  cp 2
+  jr nz, cf_npitch
   ; the DAC owns T3 and rate-3 noise is HARDWIRED to T3's
   ; period on the chip: fall back to the nearest fixed rate
   ; (design doc 5.3) so the noise voice keeps its character
@@ -3793,7 +3750,7 @@ cf_adv:
   ld a, c
   cp 4
   jp c, cf_loop
-  ; wavetables no longer claim the noise channel: like samples, the
+  ; wavetables no longer claim the noise channel: the
   ; noise voice plays normally alongside a wave (its own volume gate
   ; handles silence). Only *pitched* (rate-3) noise needs care - it is
   ; hardwired to T3's period, so cf_npitch falls it back to a fixed

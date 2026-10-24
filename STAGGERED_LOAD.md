@@ -66,7 +66,7 @@ block while it streams in.
    part 2 + part 3, then arms `LOAD_RUN`. Each main-loop frame while `LOAD_RUN`:
    `call rle_unpack_chunk`; the normal `engine_tick` still runs (bridge plays).
    When the chunk returns "done": run the finalize path — the current `load_rebase`
-   body (rescan `eng_len`, clear `live_q`, `cont_tempo_glide`, `cont_restart_all`,
+   body (clear `live_q`, rebase the groove, `cont_tempo_glide`, `cont_restart_all`,
    `load_carry_post`) — then `LOAD_IDLE`.
 
 ## Flow, before → after

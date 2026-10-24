@@ -3,7 +3,8 @@
 ;
 ; The Sega PSG quirk: tone period 1 stops the flip-flop and the
 ; channel outputs a DC level equal to its volume - the volume
-; register becomes a 4-bit logarithmic DAC. We commandeer T3.
+; register becomes a 4-bit logarithmic DAC. KIT samples commandeer
+; the tone channel they are placed on (T1/T2/T3); WAV stays on T3.
 ;
 ; Timing (hybrid scheme, 10.4):
 ;  - active display: VDP line interrupt every 2 scanlines feeds
@@ -13,7 +14,8 @@
 ;    samples before releasing the main loop
 ;
 ; The Z80 shadow registers belong to the sample feed:
-;   PCM:  HL' = pointer  DE' = end        B' = byte  C' = phase
+;   PCM:  HL' = pointer  DE' = end        B' = byte
+;         C' = volume-latch base ($90/$B0/$D0), bit 0 = low-nibble phase
 ;   wave: HL' = wav_buf  DE' = increment  BC' = 8.8 phase
 ; Main-thread code must never use EXX / EX AF,AF'.
 ;
@@ -31,6 +33,7 @@
   smp_tmp      db
   wav_owner    db            ; track whose volume gates the wave
   smp_owner    db            ; track that triggered the playing sample
+  smp_dac_ch   db            ; PSG tone DAC currently owned (0=T1, 1=T2, 2=T3)
   wav_cur      db            ; wave # loaded in wav_buf
   winc_ptr     dw            ; region pitch-increment table
   smp_count    db            ; samples in the pool (boot-cached)
@@ -49,6 +52,7 @@ smp_feed_any:
   ld a, (smp_mode)
   cp 2
   jr z, wav_feed_one
+  nop                         ; keep PCM feed timing aligned with the old fixed-T3 path
   ; PCM: walk the data at the playback speed (output cadence is
   ; fixed, so this only changes pitch/length, not the IRQ timing)
   ld a, (smp_speed)
@@ -78,9 +82,8 @@ sfa2_go:
   rrca
   rrca
   and $0F
-  or $D0                     ; T3 volume latch
+  or c                       ; selected tone-channel volume latch
   out (PSG_PORT), a
-  ld c, 0                    ; stay byte-aligned
   ret
 sfa_4x:                      ; 4x = play every 4th sample: emit a byte's
   ld a, h                    ; high nibble, advance two bytes. End test is
@@ -101,9 +104,8 @@ sfa4_go:
   rrca
   rrca
   and $0F
-  or $D0
+  or c
   out (PSG_PORT), a
-  ld c, 0
   ret
 
 ; wavetable: HL = wav_buf (32-aligned), DE = increment,
@@ -124,11 +126,10 @@ wav_feed_one:
   out (PSG_PORT), a
   ret
 
-; feed one nibble to the T3 volume DAC. Shadow context: caller
+; feed one nibble to the selected tone-channel DAC. Shadow context: caller
 ; has done EX AF,AF' + EXX.
 smp_feed_one:
-  ld a, c
-  or a
+  bit 0, c                   ; latch bases are even; bit 0 marks low nibble next
   jr nz, sf_lo
   ld a, h                    ; fetch a new byte; end reached?
   cp d
@@ -145,19 +146,20 @@ sf_go:
   rrca
   rrca
   and $0F
-  or $D0                     ; T3 volume latch
+  or c                       ; C = $90/$B0/$D0
   out (PSG_PORT), a
-  ld c, 1
+  inc c                      ; remember: emit the saved low nibble next
   ret
 sf_lo:
   ld a, b
   and $0F
-  or $D0
+  dec c                      ; restore the channel's latch base
+  or c
   out (PSG_PORT), a
-  ld c, 0
   ret
 sf_end:
-  ld a, $DF                  ; T3 silent
+  ld a, c
+  or $0F                    ; selected DAC channel silent
   out (PSG_PORT), a
   xor a
   ld (smp_active), a
@@ -208,6 +210,10 @@ smp_play:
   exx
   ld a, 1
   ld (smp_mode), a
+  ld a, (smp_owner)          ; KIT on NO has no tone DAC of its own: preserve the
+  cp 2                       ; legacy behaviour by falling back to T3 there
+  jr c, smp_dac_on
+  ld a, 2
   jr smp_dac_on
 
 ; start wavetable playback: A = note index, C = wave 0-3
@@ -235,19 +241,55 @@ wav_play:
   exx
   ld a, 2
   ld (smp_mode), a
+  ld a, 2                    ; WAV synthesis remains on the T3 DAC
   ; fall through
 
-; common DAC engage: T3 period 1, shadows synced, line IRQs on
+; common DAC engage: A = tone channel (0..2). Silence an older DAC owner,
+; set the selected channel's period to 1, sync its shadows, and enable feed IRQs.
 smp_dac_on:
+  ld b, a
+  ld a, (smp_active)
+  or a
+  jr z, sdo_new
+  ld a, (smp_dac_ch)
+  call smp_silence_ch
+sdo_new:
+  ld a, b
+  ld (smp_dac_ch), a
+  rrca
+  rrca
+  rrca                       ; channel * $20 (0/1/2 -> $00/$20/$40)
+  ld d, a
+  ld a, (smp_mode)
+  cp 1
+  jr nz, sdo_period
+  ld a, d
+  or $90                     ; PCM feeder's selected volume-latch base
+  exx
+  ld c, a
+  exx
+sdo_period:
+  ld a, d
+  or $81                     ; selected tone latch, period low nibble = 1
+  out (PSG_PORT), a
+  xor a                      ; period high bits = 0
+  out (PSG_PORT), a
+  ld a, b
+  add a, a                   ; word offset into the tone-shadow arrays
+  ld e, a
+  ld d, 0
+  ld hl, psg_tone0
+  add hl, de
+  ld (hl), 1
+  inc hl
+  ld (hl), 0
+  ld hl, psg_t0_sent
+  add hl, de
+  ld (hl), 1
+  inc hl
+  ld (hl), 0
   ld a, 1
   ld (smp_active), a
-  ld a, $C1
-  out (PSG_PORT), a
-  xor a
-  out (PSG_PORT), a
-  ld hl, 1
-  ld (psg_tone2), hl
-  ld (psg_t2_sent), hl
   ld a, (smp_irq_on)
   or a
   jr nz, sp_done
@@ -312,28 +354,13 @@ wav_lin2log:
   .db $D0, $D0, $D1, $D1, $D1, $D2, $D2, $D3
   .db $D3, $D4, $D5, $D6, $D7, $D9, $DC, $DF
 
-; abort an in-flight sample immediately (main thread) - needed
-; before mapping SRAM over the pool banks in slot 2
-smp_abort:
-  ld a, (smp_mode)
-  cp 1
-  ret nz
-  di
-  xor a
-  ld (smp_active), a
-  ld (smp_mode), a
-  ld a, $DF                  ; T3 silent
-  out (PSG_PORT), a
-  ei
-  ret
-
 ; stop wavetable output (main thread)
 wav_stop:
   xor a
   ld (smp_active), a
   ld (smp_mode), a
-  ld a, $DF
-  out (PSG_PORT), a
+  ld a, (smp_dac_ch)
+  call smp_silence_ch
   ret
 
 ; called each frame from the main loop: drop the line IRQs once
@@ -380,3 +407,35 @@ svf_dly:                     ; (mistuned at 22 this ran 11% slow
   ret
 
 .ENDS
+
+; Cold DAC control helper in fixed bank 1 to spare the tighter GG bank-0 build.
+.BANK 1 SLOT 1
+.SECTION "SampleCtl" FREE
+
+; abort an in-flight sample immediately (main thread) - needed
+; before mapping SRAM over the pool banks in slot 2
+smp_abort:
+  ld a, (smp_mode)
+  cp 1
+  ret nz
+  di
+  xor a
+  ld (smp_active), a
+  ld (smp_mode), a
+  ld a, (smp_dac_ch)
+  call smp_silence_ch
+  ei
+  ret
+
+; A = tone channel (0..2): silence its volume register immediately.
+smp_silence_ch:
+  rrca
+  rrca
+  rrca
+  or $9F
+  out (PSG_PORT), a
+  ret
+
+.ENDS
+
+.BANK 0 SLOT 0

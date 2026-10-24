@@ -3,6 +3,29 @@
 All notable, user-facing changes to **SMSGGDJ**. Dates are YYYY-MM-DD.
 The git history has the full detail; this is the curated summary.
 
+## v0.48 — 2026-10-25
+
+### Added
+- **KIT samples now use the tone channel on which the note is placed as their
+  DAC output.** T1, T2 and T3 can each host PCM; that channel is reserved until
+  the sample ends. A KIT placed on NO retains the previous T3 fallback. Echo
+  respects dynamic T2/T3 ownership, and pitched noise falls back to a fixed
+  rate only while the DAC actually owns T3. WAV instruments remain fixed to T3.
+
+### Fixed
+- **Song playback now starts staggered tracks from the appropriate contiguous
+  block.** A populated cell on the selected row still starts there. When a
+  channel is empty on that row, SMSGGDJ now starts the nearest block above from
+  its top, or the first populated cell below when nothing exists above. A
+  completely empty channel remains silent.
+- **LIVE mode now plays complete contiguous chain blocks.** Adjacent chains in
+  the triggered block advance in order and loop back to that block's top,
+  instead of repeatedly playing only the first triggered chain.
+
+### Hardware verification
+- **Dynamic KIT DAC routing** across T1, T2 and T3 is confirmed working on
+  real hardware.
+
 ## v0.47 — 2026-09-18
 
 ### Added

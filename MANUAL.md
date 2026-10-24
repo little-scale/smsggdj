@@ -316,9 +316,11 @@ do something for that type:
 - **WAV** — VOL, **HLD** (the wave's length), TSP, TBL/TBS, and a WAVE (0–7)
   selector. ATK/DCY don't show — the wave is gated on/off by volume, so the
   ramps are inaudible; HLD `F` rings the wave until the next note.
-- **KIT** — **KIT**, **RATE** and **TSP**. A sample plays as a raw stream on T3,
-  so the envelope, pitch mods, volume and tables don't apply; shape
-  loudness/fades at convert time in the patcher instead.
+- **KIT** — **KIT**, **RATE** and **TSP**. A sample plays as a raw stream through
+  the tone channel where its note is placed: T1 uses the T1 DAC, T2 uses T2 and
+  T3 uses T3. That tone channel is occupied until the sample ends. A KIT on NO
+  falls back to T3. The envelope, pitch mods, volume and tables don't apply;
+  shape loudness/fades at convert time in the patcher instead.
 
 A command in a PHRASE (`E`, `P`, `V`, `M`, `L`…) overrides the matching field
 for that note.
@@ -348,8 +350,8 @@ INSTR. It copies whatever **T1** is playing and replays it, quieter, on T2
 - **TSP1 / TSP2** — transpose each tap in semitones (octave-up shimmer, fifths…).
 
 Echo only sounds on T2/T3 when your song isn't using them — the moment a note
-plays there, the song takes the channel back. T3 also yields to samples and
-wavetables.
+plays there, the song takes the channel back. A channel also yields while it is
+hosting a KIT sample; T3 additionally yields to WAV instruments.
 
 ## 6. Tables
 

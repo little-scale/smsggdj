@@ -8694,7 +8694,7 @@ fpl_file:
                              ;   ~5 frames of sram_sum is a pure CONT-load stall
   ld a, (files_row)
   call rle_song_load
-  call load_rebase           ; CONT: rebase eng_len/groove onto the new song
+  call load_rebase           ; CONT: clear stale queues and rebase the groove
   jp fpx_close
 fpx_save:
   ld a, (files_row)          ; song_name = the slot's inline-edited name
