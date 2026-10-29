@@ -110,6 +110,10 @@ and press play.
 
 ### Companion projects
 
+- **[fm1-smsggdj](https://github.com/little-scale/fm1-smsggdj)** — development
+  firmware for the **M-VAVE FM-1**, running the Game Gear ROM with keyboard
+  step entry through emulated RAM and a browser SRAM/song/ROM manager.
+  Host and WebAssembly tests pass; physical FM1 testing is pending.
 - **[smsvj](https://github.com/little-scale/smsvj)** — the **VJ visual** sibling: runs on
   a second SMS, projects its video as the visuals, and syncs to SMSGGDJ (or Ableton Link
   via the ESP32 bridge). Shares the clock vocabulary (tick / beat / bar), the SYNC contract
